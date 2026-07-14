@@ -73,21 +73,44 @@ let selectedMonster: (typeof deck)[number] | null = null;
 let grid: Container;
 let units: Container;
 
+const tiles = new Map<string, Graphics>();
+const occupied = new Set<string>();
+
+function tileKey(x: number, y: number) {
+	return `${x},${y}`;
+}
+
 async function placeMonster(
 	texturePath: string,
-	x: number,
-	y: number
+	gridX: number,
+	gridY: number
 ) {
 	const texture = await Assets.load(texturePath);
 
 	const sprite = new Sprite(texture);
 
+	const scale = TILE_WIDTH / texture.width;
+	sprite.scale.set(scale);
 	sprite.anchor.set(0.5, 1);
 
-	sprite.position.set(x, y);
+	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
+	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
+
+	sprite.position.set(isoX, isoY);
 
 	units.addChild(sprite);
+
+	// Color the tile red
+	const tile = tiles.get(tileKey(gridX, gridY));
+	if (tile) {
+		tile.tint = 0xff0000;
+	}
+
+	occupied.add(tileKey(gridX, gridY));
+//tile.tint = 0xff0000;
 }
+
+
 	onMount(() => {
 		loadCards(1);
 
@@ -154,8 +177,8 @@ app.stage.addChild(camera);
 
 	await placeMonster(
 		selectedMonster.monsterBillboard,
-		isoX,
-		isoY
+	x,
+	y
 	);
 });
 
@@ -163,13 +186,18 @@ app.stage.addChild(camera);
 					tile.cursor = 'pointer';
 
 					tile.on('pointerover', () => {
-						tile.tint = 0xffcc66;
-					});
+	if (!occupied.has(tileKey(x, y))) {
+		tile.tint = 0xffcc66;
+	}
+});
 
-					tile.on('pointerout', () => {
-						tile.tint = 0xffffff;
-					});
+tile.on('pointerout', () => {
+	if (!occupied.has(tileKey(x, y))) {
+		tile.tint = 0xffffff;
+	}
+});
 
+					tiles.set(tileKey(x, y), tile);
 					grid.addChild(tile);
 				}
 			}
