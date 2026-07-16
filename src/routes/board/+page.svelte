@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-import { Application, Assets, Container, Graphics, Sprite } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text } from 'pixi.js';
 	import GameCard from '$components/cards/GameCard.svelte';
+	import DiceRoller from '$components/dice/DiceRoller.svelte';
 
 	import type { IGameCreature } from '$adapters/creature.adapter';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
+	import { deckService } from '$services/deck.service';
 
 	let host: HTMLDivElement;
 
@@ -13,29 +15,29 @@ import { Application, Assets, Container, Graphics, Sprite } from 'pixi.js';
 
 	const cardApiAdapter = new CardApiAdapter();
 
-	const deck = [
-		{
-			id: 6032,
-			name: '3-Hump Lacooda',
-			fullImage: '/cards/full/6032.png',
-			monsterBillboard: '/cards/monster-billboards/MBB_006032.png'
-		},
-		{
-			id: 5139,
-			name: '4-Starred Ladybug of Doom',
-			fullImage: '/cards/full/5139.png',
-			monsterBillboard: '/cards/monster-billboards/MBB_005139.png'
-		},
-		{
-			id: 4446,
-			name: '7 Colored Fish',
-			fullImage: '/cards/full/4446.png',
-			monsterBillboard: '/cards/monster-billboards/MBB_004446.png'
-		}
-	];
+	let selectedMonster = $state<IGameCreature | null>(null);
+	// Energy points accumulated from dice rolls in the card-container header.
+	let energyPoints = $state(0);
+	// IDs of cards already placed on the board (disabled in the tray).
+	let placedIds = $state<string[]>([]);
 
-	const deckMap = new Map(deck.map((card) => [card.name, card]));
-let selectedMonster: (typeof deck)[number] | null = null;
+	// A card can be summoned when it's not already placed and its cost fits
+	// the current energy pool.
+	function canSummon(card: IGameCreature): boolean {
+		return !placedIds.includes(card.id) && card.cost <= energyPoints;
+	}
+
+	// Tray order: summonable cards first, then by cost ascending.
+	let sortedCards = $derived(
+		[...cards].sort((a, b) => {
+			const aSummon = canSummon(a);
+			const bSummon = canSummon(b);
+
+			if (aSummon !== bSummon) return aSummon ? -1 : 1;
+
+			return a.cost - b.cost;
+		})
+	);
 	async function loadCards(
 		p: number,
 		q = '',
@@ -46,9 +48,9 @@ let selectedMonster: (typeof deck)[number] | null = null;
 		loading = true;
 
 		try {
-			await cardApiAdapter.load(p, q, type, attr, race);
+			// Only pull monsters that have a billboard image, so all 5 are placeable.
+			await cardApiAdapter.load(p, q, type, attr, race, true);
 
-			// Keeping splice() to preserve current behavior.
 			cards = cardApiAdapter.cards.splice(0, 5);
 
 			console.log('cards', cards);
@@ -59,26 +61,101 @@ let selectedMonster: (typeof deck)[number] | null = null;
 		}
 	}
 
+	// Use the player's saved deck (from /decks) as the hand. Falls back to a
+	// random monster pull when no deck has been rendered yet.
+	async function loadDeck() {
+		const deck = deckService.get();
+
+		if (!deck.main.length) {
+			await loadCards(1);
+			return;
+		}
+
+		loading = true;
+
+		try {
+			await cardApiAdapter.loadByIds(deck.main);
+			// Only keep cards that have a billboard image, so every tray card is placeable.
+			cards = cardApiAdapter.cards.filter((c) => c.billboard);
+		} catch (e) {
+			console.error('Failed to load deck:', e);
+		} finally {
+			loading = false;
+		}
+	}
+
 		const app = new Application();
 
 		const TILE_WIDTH = 64;
 		const TILE_HEIGHT = 32;
-		const GRID_WIDTH = 20;
-		const GRID_HEIGHT = 20;
+		const GRID_WIDTH = 15;
+		const GRID_HEIGHT = 15;
 
 		const MIN_ZOOM = 0.25;
 		const MAX_ZOOM = 4;
 
 		let camera: Container;
 let grid: Container;
+let labels: Container;
 let units: Container;
 
+// Turn a 0-based column index into a spreadsheet-style letter (A..Z, AA..).
+function columnLabel(index: number): string {
+	let label = '';
+	let n = index;
+
+	do {
+		label = String.fromCharCode(65 + (n % 26)) + label;
+		n = Math.floor(n / 26) - 1;
+	} while (n >= 0);
+
+	return label;
+}
+
 const tiles = new Map<string, Graphics>();
-const occupied = new Set<string>();
+
+// Cell colors the engine can paint permanently.
+const CELL_RED = 0xff0000;
+const CELL_BLUE = 0x4d8cff;
+
+// Occupied cells and their painted color: tile key -> tint color.
+// Placed monsters and O1 are red; O15 is blue.
+const occupied = new Map<string, number>();
+
+// Paint a cell its recorded color and remember it as occupied.
+function paintCell(x: number, y: number, color: number) {
+	const key = tileKey(x, y);
+	occupied.set(key, color);
+
+	const tile = tiles.get(key);
+	if (!tile) return;
+
+	tile.tint = color;
+	tile.alpha = 1;
+}
+
+// Hover-preview state: ghost billboard + the T-shape floor at 50% opacity.
+let previewSprite: Sprite | null = null;
+let previewTiles: string[] = [];
+// Bumped on every show/clear so a slow async texture load can't revive
+// a preview the pointer has already left.
+let previewToken = 0;
 
 function tileKey(x: number, y: number) {
 	return `${x},${y}`;
 }
+
+// Offsets of an unfolded 6-sided dice net (a "T"/cross shape),
+// relative to the crossroads tile where the card is played.
+// The long arm points north-west on the isometric board (-x).
+const DICE_NET_OFFSETS: Array<[number, number]> = [
+	[0, 0], // crossroads (played tile)
+	[0, -1], // north-east arm
+	[1, 0], // south-east arm
+	[0, 1], // south-west arm
+	[-1, 0], // north-west arm (short)
+	[-2, 0] // north-west arm (long)
+];
 
 async function placeMonster(
 	texturePath: string,
@@ -91,7 +168,7 @@ async function placeMonster(
 
 	const scale = TILE_WIDTH / texture.width;
 	sprite.scale.set(scale);
-	sprite.anchor.set(0.5, 1);
+	sprite.anchor.set(0.5, 0.75);
 
 	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
 	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
@@ -100,19 +177,94 @@ async function placeMonster(
 
 	units.addChild(sprite);
 
-	// Color the tile red
-	const tile = tiles.get(tileKey(gridX, gridY));
-	if (tile) {
+	clearPreview();
+
+	// Paint the floor in the unfolded-dice "T" shape, with the
+	// played tile as the crossroads of the cross. Every painted tile is
+	// recorded as occupied in red.
+	for (const [dx, dy] of DICE_NET_OFFSETS) {
+		paintCell(gridX + dx, gridY + dy, CELL_RED);
+	}
+}
+
+// Show a 50%-opacity ghost of the selected card's billboard and its
+// "T" floor at the tile it would be placed on.
+async function showPreview(
+	texturePath: string,
+	gridX: number,
+	gridY: number
+) {
+	clearPreview();
+
+	const token = ++previewToken;
+
+	// Preview the "T" tiles at 50% opacity (skip already-placed ones).
+	for (const [dx, dy] of DICE_NET_OFFSETS) {
+		const x = gridX + dx;
+		const y = gridY + dy;
+		const key = tileKey(x, y);
+
+		if (occupied.has(key)) continue;
+
+		const tile = tiles.get(key);
+		if (!tile) continue;
+
 		tile.tint = 0xff0000;
+		tile.alpha = 0.5;
+		previewTiles.push(key);
 	}
 
-	occupied.add(tileKey(gridX, gridY));
-//tile.tint = 0xff0000;
+	// Ghost billboard sprite at the crossroads.
+	const texture = await Assets.load(texturePath);
+
+	// Pointer already left / another preview started while loading.
+	if (token !== previewToken) return;
+
+	if (!previewSprite) {
+		previewSprite = new Sprite(texture);
+		previewSprite.anchor.set(0.5, 0.75);
+		previewSprite.alpha = 0.5;
+		units.addChild(previewSprite);
+	} else {
+		previewSprite.texture = texture;
+	}
+
+	previewSprite.scale.set(TILE_WIDTH / texture.width);
+
+	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
+	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
+	previewSprite.position.set(isoX, isoY);
+	previewSprite.visible = true;
+}
+
+// Restore any tiles/sprite touched by the hover preview.
+function clearPreview() {
+	previewToken++;
+
+	for (const key of previewTiles) {
+		const tile = tiles.get(key);
+		if (!tile) continue;
+
+		const color = occupied.get(key);
+		if (color !== undefined) {
+			tile.alpha = 1;
+			tile.tint = color;
+		} else {
+			tile.alpha = 0;
+			tile.tint = 0xffffff;
+		}
+	}
+
+	previewTiles = [];
+
+	if (previewSprite) {
+		previewSprite.visible = false;
+	}
 }
 
 
 	onMount(() => {
-		loadCards(1);
+		loadDeck();
 
 
 		let dragging = false;
@@ -131,9 +283,11 @@ async function placeMonster(
 			camera = new Container();
 
 grid = new Container();
+labels = new Container();
 units = new Container();
 
 camera.addChild(grid);
+camera.addChild(labels);
 camera.addChild(units);
 
 app.stage.addChild(camera);
@@ -144,6 +298,13 @@ app.stage.addChild(camera);
 
 			buildGrid();
 
+			buildLabels();
+
+			// Permanently record the pre-painted cells (column O = x 14):
+			// O1 (row 1 = y 0) in red, O15 (row 15 = y 14) in blue.
+			paintCell(14, 0, CELL_RED);
+			paintCell(0, 14, CELL_BLUE);
+
 			setupControls();
 
 			app.renderer.on('resize', () => {});
@@ -152,54 +313,115 @@ app.stage.addChild(camera);
 		function buildGrid() {
 			for (let y = 0; y < GRID_HEIGHT; y++) {
 				for (let x = 0; x < GRID_WIDTH; x++) {
-					const tile = new Graphics();
-
-					tile
-						.moveTo(0, -TILE_HEIGHT / 2)
-						.lineTo(TILE_WIDTH / 2, 0)
-						.lineTo(0, TILE_HEIGHT / 2)
-						.lineTo(-TILE_WIDTH / 2, 0)
-						.closePath()
-						.fill(0x4d8cff)
-						.stroke({
-							width: 1,
-							color: 0xffffff,
-							alpha: 0.15
-						});
-
 					const isoX = (x - y) * (TILE_WIDTH / 2);
 					const isoY = (x + y) * (TILE_HEIGHT / 2);
 
+					const drawDiamond = (g: Graphics) =>
+						g
+							.moveTo(0, -TILE_HEIGHT / 2)
+							.lineTo(TILE_WIDTH / 2, 0)
+							.lineTo(0, TILE_HEIGHT / 2)
+							.lineTo(-TILE_WIDTH / 2, 0)
+							.closePath();
+
+					// Always-visible cell outline (no fill) keeps the grid legible.
+					const outline = new Graphics();
+					drawDiamond(outline).stroke({ width: 1, color: 0xffffff, alpha: 0.15 });
+					outline.position.set(isoX, isoY);
+					grid.addChild(outline);
+
+					// Interactive fill, empty (transparent) by default; revealed by
+					// raising alpha + tinting on hover, preview and placement.
+					const tile = new Graphics();
+					drawDiamond(tile).fill(0xffffff);
 					tile.position.set(isoX, isoY);
+					tile.alpha = 0;
 
 					tile.on('pointertap', async () => {
-	if (!selectedMonster) return;
+	const monster = selectedMonster;
+	if (!monster?.billboard) return;
 
-	await placeMonster(
-		selectedMonster.monsterBillboard,
-	x,
-	y
-	);
+	// Not enough energy to summon this monster: ignore the placement.
+	if (monster.cost > energyPoints) return;
+
+	await placeMonster(monster.billboard, x, y);
+
+	// Pay the summon cost out of the energy pool.
+	energyPoints -= monster.cost;
+
+	// The card is now on the board: drop selection + hover preview
+	// and mark it placed so the tray card becomes disabled.
+	selectedMonster = null;
+	clearPreview();
+
+	if (!placedIds.includes(monster.id)) {
+		placedIds = [...placedIds, monster.id];
+	}
 });
 
 					tile.eventMode = 'static';
 					tile.cursor = 'pointer';
 
 					tile.on('pointerover', () => {
-	if (!occupied.has(tileKey(x, y))) {
+	if (selectedMonster?.billboard) {
+		showPreview(selectedMonster.billboard, x, y);
+	} else if (!occupied.has(tileKey(x, y))) {
 		tile.tint = 0xffcc66;
+		tile.alpha = 1;
 	}
 });
 
 tile.on('pointerout', () => {
-	if (!occupied.has(tileKey(x, y))) {
+	if (selectedMonster?.billboard) {
+		clearPreview();
+	} else if (!occupied.has(tileKey(x, y))) {
 		tile.tint = 0xffffff;
+		tile.alpha = 0;
 	}
 });
 
 					tiles.set(tileKey(x, y), tile);
 					grid.addChild(tile);
 				}
+			}
+		}
+
+		// Draw chess-style coordinate labels just outside the diamond grid:
+		// letters for columns (x) along the top-right edge, numbers for rows
+		// (y) along the top-left edge. Labels live in the camera so they pan
+		// and zoom together with the board.
+		function buildLabels() {
+			const labelStyle = {
+				fill: 0xffffff,
+				fontSize: 14,
+				fontWeight: '700' as const
+			};
+
+			const isoPos = (gx: number, gy: number) => ({
+				x: (gx - gy) * (TILE_WIDTH / 2),
+				y: (gx + gy) * (TILE_HEIGHT / 2)
+			});
+
+			// Column letters, one tile north-west of the y = 0 edge.
+			for (let x = 0; x < GRID_WIDTH; x++) {
+				const text = new Text({ text: columnLabel(x), style: labelStyle });
+				text.anchor.set(0.5);
+
+				const { x: isoX, y: isoY } = isoPos(x, -1);
+				text.position.set(isoX, isoY);
+
+				labels.addChild(text);
+			}
+
+			// Row numbers, one tile north-east of the x = 0 edge.
+			for (let y = 0; y < GRID_HEIGHT; y++) {
+				const text = new Text({ text: String(y + 1), style: labelStyle });
+				text.anchor.set(0.5);
+
+				const { x: isoX, y: isoY } = isoPos(-1, y);
+				text.position.set(isoX, isoY);
+
+				labels.addChild(text);
 			}
 		}
 
@@ -293,27 +515,39 @@ tile.on('pointerout', () => {
 
 <div bind:this={host} class="viewport"></div>
 
-<div class="fixed bottom-2 center border bg-base-100 w-full grid grid-cols-5">
-	{#each cards as card (card.id)}
-		{@const deckCard = deckMap.get(card.name)}
+<div
+	class="fixed bottom-2 center border bg-base-100 w-full flex flex-col max-h-[50vh] overflow-y-auto"
+>
+	<DiceRoller {energyPoints} onRoll={(total) => (energyPoints += total)} />
 
-		<div class="relative">
-			<GameCard {card} />
+	<div class="grid grid-cols-5">
+		{#each sortedCards as card (card.id)}
+			{@const disabled = !canSummon(card)}
+			<div
+				class="relative"
+				class:opacity-40={disabled}
+				class:pointer-events-none={disabled}
+			>
+				<GameCard {card} />
 
-			{#if deckCard}
-				<img
-	class="absolute top-0 right-0 cursor-pointer"
-	class:ring={selectedMonster?.id === deckCard.id}
-	class:ring-yellow-400={selectedMonster?.id === deckCard.id}
-	src={deckCard.monsterBillboard}
-	alt={deckCard.name}
-	onclick={() => {
-		selectedMonster = deckCard;
-	}}
-/>
-			{/if}
-		</div>
-	{/each}
+				{#if card.billboard}
+					<img
+		class="absolute top-0 right-0"
+		class:cursor-pointer={!disabled}
+		class:cursor-not-allowed={disabled}
+		class:ring={selectedMonster?.id === card.id}
+		class:ring-yellow-400={selectedMonster?.id === card.id}
+		src={card.billboard}
+		alt={card.name}
+		onclick={() => {
+			if (disabled) return;
+			selectedMonster = card;
+		}}
+	/>
+				{/if}
+			</div>
+		{/each}
+	</div>
 </div>
 
 <style>

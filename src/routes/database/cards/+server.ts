@@ -12,6 +12,7 @@ type CardItem = {
 	race: string;
 	attribute: string | undefined;
 	cardImages: { image_url_cropped: string }[];
+	billboard?: string
 	atk?: number
 	def?: number
 	lvl?: number
@@ -33,6 +34,8 @@ export const GET: RequestHandler = async ({ url }) => {
 	const typeParam = url.searchParams.get('type');
 	const attributeParam = url.searchParams.get('attribute');
 	const raceParam = url.searchParams.get('race');
+	const billboardParam = url.searchParams.get('billboard');
+	const idsParam = url.searchParams.get('ids');
 
 	const filePath = join(process.cwd(), 'static/cards/cardinfo.json');
 	const raw: { data: unknown } | null = existsSync(filePath)
@@ -56,6 +59,22 @@ export const GET: RequestHandler = async ({ url }) => {
 	if (raceParam && raceParam !== 'all') {
 		filtered = filtered.filter((card) => card.race === raceParam);
 	}
+	if (billboardParam === 'true') {
+		filtered = filtered.filter((card) => Boolean(card.billboard));
+	}
+	// When `ids` is present, resolve a specific set of cards (e.g. a ygopro deck
+	// list) and return them all, bypassing pagination.
+	const idSet = idsParam
+		? new Set(
+				idsParam
+					.split(',')
+					.map((v) => parseInt(v.trim(), 10))
+					.filter((v) => Number.isFinite(v))
+			)
+		: null;
+	if (idSet) {
+		filtered = filtered.filter((card) => idSet.has(card.id));
+	}
 	console.log(filtered)
 	console.log({search, typeParam, attributeParam, raceParam})
 
@@ -70,13 +89,15 @@ export const GET: RequestHandler = async ({ url }) => {
 		cardImages: card.cardImages
 	}));
 */
-	const paginated = filtered.slice(offset, offset + limit).map((card: any) => ({
+	const scoped = idSet ? filtered : filtered.slice(offset, offset + limit);
+	const paginated = scoped.map((card: any) => ({
 		id: card.id,
 		name: card.name,
 		type: card.type,
 		race: card.race,
 		attribute: card.attribute ?? '',
 		cardImages: card.card_images,
+		billboard: card.billboard,
 		atk: card.atk,
 		def: card.def,
 		lvl: card.level

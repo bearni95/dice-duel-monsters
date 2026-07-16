@@ -8,6 +8,7 @@
 		race: string;
 		attribute: string;
 		cardImages: { image_url_cropped: string }[];
+		billboard?: string
 		atk?: number
 		def?: number
 		lvl?: number

@@ -8,9 +8,10 @@ export interface IGameCreature{
 		race: string;
 		attribute: string;
 		cardImages: { image_url_cropped: string }[];
+		billboard?: string;
 
 
-    atk: number 
+    atk: number
     hp: number
     def: number
     cost: number
@@ -43,6 +44,7 @@ export class CreatureAdapter extends AdapterClass {
             race: card.race, 
             attribute: card.attribute,
             cardImages: card.cardImages,
+            billboard: card.billboard,
             atk: Math.round((card.atk || 0 )/ 200),
             hp:  Math.round((card.def || 0)/ 50),
             def: 3 + this.getTributesForLevel(card.lvl || 0),

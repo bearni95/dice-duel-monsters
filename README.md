@@ -19,11 +19,11 @@ Cards in the player's deck need conversion from Yu-Gi-Oh. Here are their stats c
 
 |    Stat     |              Formula               |                              Usage                               |
 | :---------: | :--------------------------------: | :--------------------------------------------------------------: |
-|     ATK     |           YGO.ATK / 100            |          Number of d6 this monster uses when attacking           |
-|     HP      |           YGO.DEF / 100            |               Number of Hits the monster can take                |
+|     ATK     |           YGO.ATK / 200            |          Number of d6 this monster uses when attacking           |
+|     HP      |           YGO.DEF / 50            |               Number of Hits the monster can take                |
 |     DEF     | 3 + YGO.RequiredAttributesForLevel | Number at which, or above, each attacking d6 is considered a Hit |
 | Summon Cost |              YGO.LVL               |                 Needed EP to bring to the board                  |
-
+| Speed | 1 + YGO.LVL | Amount of cells it can move for each EP spent on its movement
 ### Effects and Card Types
 
 The bonuses and effects cards could have in this game are quite broad. Generally:
