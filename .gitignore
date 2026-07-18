@@ -32,3 +32,6 @@ coverage/
 # Assets (not tracked in git)
 /Textures/
 /ref/
+
+# Generated at build time from cardinfo.json + assignments.json
+/static/cards/catalog.json

@@ -1,7 +1,31 @@
 import type { CardAsset } from "$components/cards/GameCard.svelte";
 import type { CardDetail } from "$types/card.type";
+import { queryCatalog, type CatalogCard, type CardQuery } from "$utils/cards/card-query";
 import { AdapterClass } from "./classes/adapter.class";
 import { CreatureAdapter, type IGameCreature } from "./creature.adapter";
+
+// The static SPA has no server, so card data is read from the prebuilt catalog
+// (static/cards/catalog.json, see scripts/build-card-catalog.mjs) and filtered
+// in the browser via the shared queryCatalog logic — the same code path in dev
+// and prod. Fetched once and memoised for the lifetime of the tab.
+let catalogPromise: Promise<CatalogCard[]> | null = null;
+
+function loadCatalogData(): Promise<CatalogCard[]> {
+	if (!catalogPromise) {
+		catalogPromise = fetch('/cards/catalog.json')
+			.then((res) => {
+				if (!res.ok) throw new Error(`Could not load card catalog (${res.status})`);
+				return res.json();
+			})
+			.then((data) => (data?.cards ?? []) as CatalogCard[])
+			.catch((err) => {
+				// Let the next call retry rather than caching the failure forever.
+				catalogPromise = null;
+				throw err;
+			});
+	}
+	return catalogPromise;
+}
 
 export class CardApiAdapter extends AdapterClass {
     limit = 100
@@ -17,20 +41,19 @@ export class CardApiAdapter extends AdapterClass {
 
     async load(p: number, q: string = '', type: string = 'all', attr: string = 'all', race: string = 'all', billboard: boolean = false) {
 		this.loading = true;
-			const params = new URLSearchParams({
-				limit: String(this.limit),
-				offset: String((p - 1) * this.limit),
-			});
-			if (q.trim()) params.set('q', q.trim());
-			if (type !== 'all') params.set('type', type);
-			if (attr !== 'all') params.set('attribute', attr);
-			if (race !== 'all') params.set('race', race);
-			if (billboard) params.set('billboard', 'true');
+			const query: CardQuery = {
+				limit: this.limit,
+				offset: (p - 1) * this.limit,
+				q,
+				type,
+				attribute: attr,
+				race,
+				billboard
+			};
 
-			const res = await fetch(`/database/cards?${params}`);
-			const data = await res.json();
-			this.cards = data.cards.filter((c:CardAsset) => c.lvl).map((c: CardAsset) => this.creatureAdapter.getAttributes(c))
-			console.log('data.cards', data.cards)
+			const catalog = await loadCatalogData();
+			const data = queryCatalog(catalog, query);
+			this.cards = data.cards.filter((c) => c.lvl).map((c) => this.creatureAdapter.getAttributes(c))
 			this.totalCards = data.total;
 
 			if (p === 1) {
@@ -38,9 +61,9 @@ export class CardApiAdapter extends AdapterClass {
 			}
 
             return {
-                availableTypes: (data.availableTypes ?? []) as string[],
-                availableAttributes: (data.availableAttributes ?? []) as string[],
-                availableRaces: (data.availableRaces ?? []) as string[]
+                availableTypes: data.availableTypes,
+                availableAttributes: data.availableAttributes,
+                availableRaces: data.availableRaces
             }
 
     }
@@ -58,28 +81,28 @@ export class CardApiAdapter extends AdapterClass {
         attr: string = 'all',
         race: string = 'all'
     ) {
-        const params = new URLSearchParams({
-            limit: String(this.limit),
-            offset: String((p - 1) * this.limit)
-        });
-        if (q.trim()) params.set('q', q.trim());
-        if (category !== 'all') params.set('category', category);
-        if (subType !== 'all') params.set('subType', subType);
-        if (attr !== 'all') params.set('attribute', attr);
-        if (race !== 'all') params.set('race', race);
-        params.set('monsterCutout', 'true');
+        const query: CardQuery = {
+            limit: this.limit,
+            offset: (p - 1) * this.limit,
+            q,
+            category,
+            subType,
+            attribute: attr,
+            race,
+            monsterCutout: true
+        };
 
-        const res = await fetch(`/database/cards?${params}`);
-        const data = await res.json();
+        const catalog = await loadCatalogData();
+        const data = queryCatalog(catalog, query);
 
         return {
-            cards: (data.cards ?? []) as CardAsset[],
-            total: (data.total ?? 0) as number,
-            availableAttributes: (data.availableAttributes ?? []) as string[],
-            availableRaces: (data.availableRaces ?? []) as string[],
-            monsterTypes: (data.monsterTypes ?? []) as string[],
-            spellTypes: (data.spellTypes ?? []) as string[],
-            trapTypes: (data.trapTypes ?? []) as string[]
+            cards: data.cards as CardAsset[],
+            total: data.total,
+            availableAttributes: data.availableAttributes,
+            availableRaces: data.availableRaces,
+            monsterTypes: data.monsterTypes,
+            spellTypes: data.spellTypes,
+            trapTypes: data.trapTypes
         };
     }
 
@@ -87,19 +110,20 @@ export class CardApiAdapter extends AdapterClass {
     // they appear in and keeping duplicates so deck copy counts survive. Only
     // playable cards come back: vanilla monsters and plain Effect Monsters, plus
     // any other card (gimmick monster, spell, or trap) that has an effect assigned
-    // — the server applies this filter via `playable=true`, so special-summon
-    // monsters and effectless spell/traps drop out. Used to render a deck's full
-    // contents through the shared CardTile renderer.
+    // — the `playable` filter drops special-summon monsters and effectless
+    // spell/traps. Used to render a deck's full contents through the shared
+    // CardTile renderer.
     async loadCardAssetsByIds(ids: number[], forcedIds: number[] = []): Promise<CardAsset[]> {
         const uniqueIds = [...new Set(ids)];
         if (!uniqueIds.length) return [];
 
-        const params = new URLSearchParams({ ids: uniqueIds.join(','), playable: 'true' });
-        // Forced ids override the playable verdict for this deck's cards.
-        if (forcedIds.length) params.set('force', [...new Set(forcedIds)].join(','));
-        const res = await fetch(`/database/cards?${params}`);
-        if (!res.ok) throw new Error(`Could not load cards (${res.status})`);
-        const data = await res.json();
+        const catalog = await loadCatalogData();
+        const data = queryCatalog(catalog, {
+            ids: uniqueIds,
+            playable: true,
+            // Forced ids override the playable verdict for this deck's cards.
+            force: [...new Set(forcedIds)]
+        });
 
         const byId = new Map<number, CardAsset>();
         for (const c of data.cards as CardAsset[]) byId.set(c.id, c);
@@ -109,30 +133,23 @@ export class CardApiAdapter extends AdapterClass {
 
     // Resolve a list of card ids into every card that exists in the local DB,
     // preserving order and duplicates, each tagged with whether it is `playable`
-    // (the same vanilla-monster / assigned-effect rule the deck previews apply via
-    // `playable=true`). Cards that are missing from the DB entirely are dropped;
-    // cards that exist but are not playable come back with `playable: false` so the
-    // deck editor can render them disabled instead of hiding them.
+    // (the same vanilla-monster / assigned-effect rule the deck previews apply).
+    // Cards missing from the DB are dropped; cards that exist but are not playable
+    // come back with `playable: false` so the deck editor can render them disabled
+    // instead of hiding them.
     async loadDeckEditorCards(
         ids: number[]
     ): Promise<Array<{ card: CardAsset; playable: boolean }>> {
         const uniqueIds = [...new Set(ids)];
         if (!uniqueIds.length) return [];
 
-        const idsParam = uniqueIds.join(',');
-        const [allRes, playableRes] = await Promise.all([
-            fetch(`/database/cards?ids=${idsParam}`),
-            fetch(`/database/cards?ids=${idsParam}&playable=true`)
-        ]);
-        if (!allRes.ok) throw new Error(`Could not load cards (${allRes.status})`);
-        if (!playableRes.ok) throw new Error(`Could not load cards (${playableRes.status})`);
-
-        const allData = await allRes.json();
-        const playableData = await playableRes.json();
+        const catalog = await loadCatalogData();
+        const all = queryCatalog(catalog, { ids: uniqueIds });
+        const playable = queryCatalog(catalog, { ids: uniqueIds, playable: true });
 
         const byId = new Map<number, CardAsset>();
-        for (const c of allData.cards as CardAsset[]) byId.set(c.id, c);
-        const playableIds = new Set<number>((playableData.cards as CardAsset[]).map((c) => c.id));
+        for (const c of all.cards as CardAsset[]) byId.set(c.id, c);
+        const playableIds = new Set<number>(playable.cards.map((c) => c.id));
 
         return ids
             .map((id) => byId.get(id))
@@ -141,19 +158,23 @@ export class CardApiAdapter extends AdapterClass {
     }
 
     // Load the complete record for a single card, with every field available in
-    // the source data. Used by the card detail modal.
+    // the source data. Used only by the /admin card detail modal (dev-only
+    // tooling, stripped from the production build), so it still reads the full
+    // cardinfo.json rather than the trimmed catalog.
     async loadDetail(id: number): Promise<CardDetail> {
-        const res = await fetch(`/database/cards/${id}`);
+        const res = await fetch(`/cards/cardinfo.json`);
         if (!res.ok) throw new Error(`Could not load card ${id} (${res.status})`);
         const data = await res.json();
-        return data.card as CardDetail;
+        const card = (data?.data as CardDetail[] | undefined)?.find((c) => c.id === id);
+        if (!card) throw new Error(`Card ${id} not found`);
+        return card;
     }
 
     // Resolve a list of card ids (e.g. the player's deck) into monster
     // creatures, preserving the order they appear in and skipping duplicates
-    // and non-monster cards. Pass `playableOnly` to also apply the server's
-    // `playable=true` filter, so only playable creatures (vanilla monsters, plain
-    // Effect Monsters, and gimmick monsters with an assigned effect) come back
+    // and non-monster cards. Pass `playableOnly` to also apply the `playable`
+    // filter, so only playable creatures (vanilla monsters, plain Effect
+    // Monsters, and gimmick monsters with an assigned effect) come back
     // (used by the board, which only summons playable creatures).
     async loadByIds(
         ids: number[],
@@ -168,14 +189,14 @@ export class CardApiAdapter extends AdapterClass {
                 return this.cards;
             }
 
-            const params = new URLSearchParams({ ids: uniqueIds.join(',') });
+            const query: CardQuery = { ids: uniqueIds };
             if (playableOnly) {
-                params.set('playable', 'true');
+                query.playable = true;
                 // Forced ids override the playable verdict for this deck's cards.
-                if (forcedIds.length) params.set('force', [...new Set(forcedIds)].join(','));
+                query.force = [...new Set(forcedIds)];
             }
-            const res = await fetch(`/database/cards?${params}`);
-            const data = await res.json();
+            const catalog = await loadCatalogData();
+            const data = queryCatalog(catalog, query);
 
             const byId = new Map<number, CardAsset>();
             for (const c of data.cards as CardAsset[]) byId.set(c.id, c);
