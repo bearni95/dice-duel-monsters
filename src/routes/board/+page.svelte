@@ -733,9 +733,11 @@ function canPlaceForColor(
 	color: number,
 	offsets: Array<[number, number]>
 ): boolean {
-	// The creature stands on the crossroads (played) cell, so it must be an empty
-	// tile — a unit can never be summoned onto existing floor.
+	// The creature stands on the crossroads (played) cell, so it must be one
+	// fully empty tile — no ground and no occupant. A unit can never be summoned
+	// onto existing floor, nor onto a cell another creature already stands on.
 	if (occupied.has(tileKey(gridX, gridY))) return false;
+	if (unitAt(gridX, gridY)) return false;
 
 	for (const [dx, dy] of offsets) {
 		const x = gridX + dx;
@@ -800,9 +802,14 @@ async function placeMonster(
 
 	// Stage 1 — paint the floor immediately, so the "T" path colors in the moment
 	// the tile is clicked. The played tile is the crossroads of the cross; every
-	// painted tile is recorded as occupied in this side's network color.
+	// painted tile is recorded as occupied in this side's network color. Net
+	// squares that unfold onto a cell that already has ground are skipped — the
+	// net only ever lays new floor, never repaints (or overwrites) existing floor.
 	for (const [dx, dy] of offsets) {
-		paintCell(gridX + dx, gridY + dy, color);
+		const x = gridX + dx;
+		const y = gridY + dy;
+		if (occupied.has(tileKey(x, y))) continue;
+		paintCell(x, y, color);
 	}
 
 	// Isometric shadow ellipse on the creature's cell, under its sprite.
@@ -1646,13 +1653,16 @@ function showNetPreview(gridX: number, gridY: number) {
 	// A legal placement extends the red network; an illegal one previews gray.
 	const previewTint = canPlaceAt(gridX, gridY) ? CELL_RED : 0x666666;
 
-	// Preview the "T" tiles at 50% opacity. Already-colored tiles are included so
-	// the net visibly re-colors floor it unfolds over (clearPreview restores their
-	// real color once the pointer leaves).
+	// Preview the "T" tiles at 50% opacity. Net squares that fall on a cell that
+	// already has ground are skipped from the preview too — the net won't lay floor
+	// there, so it must not appear to. Only the empty cells it would actually paint
+	// are tinted (clearPreview restores them once the pointer leaves).
 	for (const [dx, dy] of rotatedOffsets()) {
 		const x = gridX + dx;
 		const y = gridY + dy;
 		const key = tileKey(x, y);
+
+		if (occupied.has(key)) continue;
 
 		const tile = tiles.get(key);
 		if (!tile) continue;
@@ -1872,8 +1882,13 @@ app.stage.addChild(camera);
 		netRotation = 0;
 		clearPreview();
 
+		// The net only lays new floor: squares that fall on a cell that already
+		// has ground are skipped rather than repainted.
 		for (const [dx, dy] of offsets) {
-			paintCell(x + dx, y + dy, CELL_RED);
+			const nx = x + dx;
+			const ny = y + dy;
+			if (occupied.has(tileKey(nx, ny))) continue;
+			paintCell(nx, ny, CELL_RED);
 		}
 
 		energyPoints -= UNFOLD_COST;

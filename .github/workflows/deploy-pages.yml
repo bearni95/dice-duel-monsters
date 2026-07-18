@@ -1,0 +1,66 @@
+name: Deploy static SPA to GitHub Pages
+
+# Publishes the same static frontend that `pnpm dev:public` serves (admin tooling
+# and server endpoints are stripped from any `vite build`, see vite.config.ts).
+# Runs when a release whose tag starts with "v" is published, or manually.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Least privilege needed to publish to Pages via the official actions.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; let an in-flight one finish (don't cancel a
+# publish half-way).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Skip releases tagged without a leading "v"; always allow manual dispatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm build` runs the card export (needs the committed app.db + the
+      # sqlite3 CLI, preinstalled on ubuntu runners) then `vite build`, which
+      # emits the static SPA to dist/ with an index.html fallback.
+      - name: Build static SPA
+        run: pnpm build
+
+      # Custom domain: GitHub Pages needs a CNAME in the published artifact so
+      # the domain setting survives each deploy.
+      - name: Add CNAME
+        run: echo 'ddm.bearni.io' > dist/CNAME
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
