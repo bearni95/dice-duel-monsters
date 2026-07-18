@@ -1,0 +1,400 @@
+{
+  "4206964": [
+    {
+      "id": "539c447c-4eb2-416c-81c6-c9edadf6e367",
+      "effectId": "flip",
+      "values": {}
+    },
+    {
+      "id": "ab42aced-a108-4966-9f32-70f505e36dfe",
+      "effectId": "destroy",
+      "values": {}
+    }
+  ],
+  "37120512": [
+    {
+      "id": "849382b5-a4fb-4fc9-aeb2-9f8770080b74",
+      "effectId": "req-attr-dark",
+      "values": {}
+    },
+    {
+      "id": "e574f7d7-bbbf-472d-ba22-7077d007f411",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 400
+      }
+    }
+  ],
+  "32268901": [
+    {
+      "id": "c61b551e-c3ed-4385-9f6f-4e00a5faa0cb",
+      "effectId": "req-attr-fire",
+      "values": {}
+    },
+    {
+      "id": "7efa38fb-4908-4b05-a681-1235c1e90856",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 700
+      }
+    }
+  ],
+  "82878489": [
+    {
+      "id": "43c2a14a-7a8c-414d-8261-8f4a4d7ae8a0",
+      "effectId": "req-attr-light",
+      "values": {}
+    },
+    {
+      "id": "9e9b4d8f-0f02-4402-b737-f242446d5b85",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 700
+      }
+    }
+  ],
+  "55226821": [
+    {
+      "id": "63ce862e-7409-4aeb-82fe-3bff04b3371d",
+      "effectId": "req-attr-water",
+      "values": {}
+    },
+    {
+      "id": "8ee1eeb8-47c9-49a9-a8c4-5d4ac2a2778e",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 800
+      }
+    }
+  ],
+  "37301660": [
+    {
+      "id": "60636099-c531-4354-8ff0-1e95e364ff67",
+      "effectId": "req-attr-wind",
+      "values": {}
+    },
+    {
+      "id": "d8a9ef06-740e-412d-880a-6af74c517152",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    }
+  ],
+  "77027445": [
+    {
+      "id": "b6031381-79dd-49cf-aa1a-15b79bb8e243",
+      "effectId": "req-type-aqua",
+      "values": {}
+    },
+    {
+      "id": "33ada5e9-47d8-475c-a367-413655d90968",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "c92d71d9-fc8b-4e35-94cd-7491fd39cafb",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ],
+  "25407406": [
+    {
+      "id": "bc519bfd-b1a6-4d2f-8e56-a69e3c0f8e12",
+      "effectId": "req-type-beast",
+      "values": {}
+    },
+    {
+      "id": "18a155e3-3f95-4706-b399-014f014dbd6f",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    }
+  ],
+  "36607978": [
+    {
+      "id": "e0184038-91fc-406e-bdff-563e38acb413",
+      "effectId": "req-type-beast-warrior",
+      "values": {}
+    },
+    {
+      "id": "f69a445c-1840-41dc-9ae1-23bc214c8086",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "57c782d0-dbf2-4de3-bccc-997efd80ef8c",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ],
+  "30552375": [
+    {
+      "id": "3e2bccc8-1918-447a-bf6c-717227c600df",
+      "effectId": "req-type-cyberse",
+      "values": {}
+    },
+    {
+      "id": "88e91974-5e83-4d15-8bf0-0e6d1b12f9f6",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    }
+  ],
+  "51267887": [
+    {
+      "id": "542ba43e-77dd-4ee2-a074-2aaa14c356ab",
+      "effectId": "req-type-dinosaur",
+      "values": {}
+    },
+    {
+      "id": "9f627b01-0350-416e-8c18-f2973cda0a39",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "13873ea1-e9cc-47ff-9d03-ecda544ad6a3",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ],
+  "61405855": [
+    {
+      "id": "361259dc-ab52-4228-a5a6-26472f79dd2e",
+      "effectId": "req-type-dragon",
+      "values": {}
+    },
+    {
+      "id": "0e863876-eee2-4324-83cb-3e68c3981a36",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 700
+      }
+    }
+  ],
+  "28106077": [
+    {
+      "id": "bc574bfc-c045-4312-ae5c-db5f99a9cd6f",
+      "effectId": "req-type-fairy",
+      "values": {}
+    },
+    {
+      "id": "4faa9acc-c004-4c10-a51b-01ea9901e572",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 500
+      }
+    }
+  ],
+  "75524092": [
+    {
+      "id": "a6026b59-9812-4ce8-b30b-048a165b2cad",
+      "effectId": "req-type-fiend",
+      "values": {}
+    },
+    {
+      "id": "cab5467e-03f0-4e89-aaaa-646f37217a6b",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    }
+  ],
+  "3492538": [
+    {
+      "id": "1553c208-e8ef-43ec-a76b-f3940d1337bb",
+      "effectId": "req-type-insect",
+      "values": {}
+    },
+    {
+      "id": "98fa9e93-6c92-40d6-9048-9cb9992d6373",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 700
+      }
+    }
+  ],
+  "25769732": [
+    {
+      "id": "85ae66d9-7e26-4851-9f92-2589a1abb207",
+      "effectId": "req-type-machine",
+      "values": {}
+    },
+    {
+      "id": "3b835545-13d4-4fca-a096-d413f4ba3c5d",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "3d62701a-b3da-4f5c-9a74-d0ad965bfd92",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ],
+  "65079854": [
+    {
+      "id": "9ddaef12-6bfc-49a9-9e0b-1e5213ea1ba5",
+      "effectId": "req-type-plant",
+      "values": {}
+    },
+    {
+      "id": "a18f6073-cb46-48b6-93b9-31da5431b626",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 600
+      }
+    }
+  ],
+  "82270047": [
+    {
+      "id": "39c974ab-d45a-4b70-b419-9cab2c3c3501",
+      "effectId": "req-type-psychic",
+      "values": {}
+    },
+    {
+      "id": "aec9e3d2-262c-485c-8609-450093ddb316",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 500
+      }
+    },
+    {
+      "id": "f7feac1f-cf5e-446c-9519-777a8bf55350",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 500
+      }
+    }
+  ],
+  "95784434": [
+    {
+      "id": "0a9bde54-7bcc-4bf3-b012-aa890edfb470",
+      "effectId": "req-type-reptile",
+      "values": {}
+    },
+    {
+      "id": "f5de05af-515e-42a1-89f7-2d90884cfe31",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    }
+  ],
+  "67775894": [
+    {
+      "id": "7b7a5ac5-ad32-40a7-90a4-7372a25f4d43",
+      "effectId": "req-type-spellcaster",
+      "values": {}
+    },
+    {
+      "id": "002433bc-0556-4194-ad70-8c7739405883",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 500
+      }
+    }
+  ],
+  "65612454": [
+    {
+      "id": "5f5c99d3-0904-4cfe-8192-a820106922ed",
+      "effectId": "req-type-thunder",
+      "values": {}
+    },
+    {
+      "id": "1d51687d-88a2-4593-a054-f8a6770c6a64",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 100
+      }
+    }
+  ],
+  "61854111": [
+    {
+      "id": "1cfe9935-cbc3-4e28-8ad8-de727078faaf",
+      "effectId": "req-type-warrior",
+      "values": {}
+    },
+    {
+      "id": "213754f1-c3d0-4279-aef2-8183d34e7d08",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "a4fa8dd9-a396-4ca7-99cf-9d59477de76d",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ],
+  "15052462": [
+    {
+      "id": "7099fde5-192e-4858-b3a1-50c1b2a25c06",
+      "effectId": "req-type-zombie",
+      "values": {}
+    },
+    {
+      "id": "5f0864dd-9b25-4a4b-b7be-13d3db5b7b1e",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "atk",
+        "amount": 300
+      }
+    },
+    {
+      "id": "1835a77b-98b7-4ac4-9dcd-ae47aad57880",
+      "effectId": "gain-stat",
+      "values": {
+        "stat": "def",
+        "amount": 300
+      }
+    }
+  ]
+}

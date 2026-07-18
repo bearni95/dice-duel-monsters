@@ -2,30 +2,38 @@
 	import classNames from 'classnames';
 	import { onMount } from 'svelte';
 
-	let { 
+	let {
 		search = '',
-		type_filter = 'all',
+		category_filter = 'all',
+		sub_type_filter = 'all',
 		attribute_filter = 'all',
 		race_filter = 'all',
-		filterableTypes: typesList = [],
+		monsterTypes = [],
+		spellTypes = [],
+		trapTypes = [],
 		filterableAttributes: attributesList = [],
 		filterableRaces: racesList = [],
 		onSearch,
 		onClearSearch,
-		onTypeFilter,
+		onCategoryFilter,
+		onSubTypeFilter,
 		onAttributeFilter,
 		onRaceFilter,
 	}: {
 		search: string;
-		type_filter: string;
+		category_filter: string;
+		sub_type_filter: string;
 		attribute_filter: string;
 		race_filter: string;
-		filterableTypes: string[];
+		monsterTypes: string[];
+		spellTypes: string[];
+		trapTypes: string[];
 		filterableAttributes: string[];
 		filterableRaces: string[];
 		onSearch?: (q: string) => void;
 		onClearSearch?: () => void;
-		onTypeFilter?: (t: string) => void;
+		onCategoryFilter?: (c: string) => void;
+		onSubTypeFilter?: (s: string) => void;
 		onAttributeFilter?: (a: string) => void;
 		onRaceFilter?: (r: string) => void;
 	} = $props();
@@ -33,15 +41,56 @@
 	let debouncedSearch = '';
 	let timer: ReturnType<typeof setTimeout>;
 
-	const TYPE_ALL = { value: 'all', label: 'All Types' };
+	const CATEGORY_ALL = { value: 'all', label: 'All Types' };
 	const ATTR_ALL = { value: 'all', label: 'All Attributes' };
 	const RACE_ALL = { value: 'all', label: 'All Races' };
 
-	const TYPES = [TYPE_ALL, ...typesList.map((t) => ({ value: t, label: t }))];
-	const ATTRIBUTES = [ATTR_ALL, ...attributesList.map((a) => ({ value: a, label: a }))];
-	const RACES = [RACE_ALL, ...racesList.map((r) => ({ value: r, label: r }))];
+	// Top-level card categories. Their sub-categorization is populated from the
+	// API facets: monsters by their card variety, spells and traps by their race.
+	const CATEGORIES = [
+		CATEGORY_ALL,
+		{ value: 'monster', label: 'Monster' },
+		{ value: 'spell', label: 'Spell' },
+		{ value: 'trap', label: 'Trap' }
+	];
 
-	let showType = $state(false);
+	// Sub-type options depend on the selected category. "All" until a category is
+	// chosen, at which point the dropdown lists that category's varieties.
+	const subTypeList = $derived(
+		category_filter === 'monster'
+			? monsterTypes
+			: category_filter === 'spell'
+				? spellTypes
+				: category_filter === 'trap'
+					? trapTypes
+					: []
+	);
+	const subTypeAllLabel = $derived(
+		category_filter === 'monster'
+			? 'All Monster Types'
+			: category_filter === 'spell'
+				? 'All Spell Types'
+				: category_filter === 'trap'
+					? 'All Trap Types'
+					: 'Sub-type'
+	);
+	const SUB_TYPES = $derived([
+		{ value: 'all', label: subTypeAllLabel },
+		...subTypeList.map((s) => ({ value: s, label: s }))
+	]);
+
+	const ATTRIBUTES = $derived([ATTR_ALL, ...attributesList.map((a) => ({ value: a, label: a }))]);
+	const RACES = $derived([RACE_ALL, ...racesList.map((r) => ({ value: r, label: r }))]);
+
+	const categoryLabel = $derived(
+		CATEGORIES.find((c) => c.value === category_filter)?.label ?? 'Type'
+	);
+	const subTypeButtonLabel = $derived(
+		SUB_TYPES.find((s) => s.value === sub_type_filter)?.label ?? subTypeAllLabel
+	);
+
+	let showCategory = $state(false);
+	let showSubType = $state(false);
 	let showAttr = $state(false);
 	let showRace = $state(false);
 
@@ -60,33 +109,45 @@
 
 	function handleClickOutside(e: MouseEvent) {
 		const targets = [e.target as HTMLElement];
-		if (targets.some(t => t.closest('.filter-dropdown'))) {
+		if (targets.some((t) => t.closest('.filter-dropdown'))) {
 			return;
 		}
-		showType = false;
+		closeAll();
+	}
+
+	function closeAll() {
+		showCategory = false;
+		showSubType = false;
 		showAttr = false;
 		showRace = false;
 	}
 
-	function toggleDropdown(name: 'type' | 'attr' | 'race') {
-		if (name === 'type') showType = !showType;
-		if (name === 'attr') showAttr = !showAttr;
-		if (name === 'race') showRace = !showRace;
+	function toggleDropdown(name: 'category' | 'subType' | 'attr' | 'race') {
+		const next = {
+			category: name === 'category' ? !showCategory : false,
+			subType: name === 'subType' ? !showSubType : false,
+			attr: name === 'attr' ? !showAttr : false,
+			race: name === 'race' ? !showRace : false
+		};
+		showCategory = next.category;
+		showSubType = next.subType;
+		showAttr = next.attr;
+		showRace = next.race;
 	}
 
-	function selectFilter(name: 'type' | 'attr' | 'race', value: string) {
-		if (name === 'type') onTypeFilter?.(value);
+	function selectFilter(name: 'category' | 'subType' | 'attr' | 'race', value: string) {
+		if (name === 'category') onCategoryFilter?.(value);
+		if (name === 'subType') onSubTypeFilter?.(value);
 		if (name === 'attr') onAttributeFilter?.(value);
 		if (name === 'race') onRaceFilter?.(value);
-		showType = false;
-		showAttr = false;
-		showRace = false;
+		closeAll();
 	}
 
 	function clearAll() {
 		onSearch?.('');
 		onClearSearch?.();
-		onTypeFilter?.('all');
+		onCategoryFilter?.('all');
+		onSubTypeFilter?.('all');
 		onAttributeFilter?.('all');
 		onRaceFilter?.('all');
 	}
@@ -105,12 +166,14 @@
 			oninput={(e) => setSearch((e.target as HTMLInputElement).value)}
 			list="card-suggestions"
 		/>
-		<datalist id="card-suggestions">
-		</datalist>
+		<datalist id="card-suggestions"> </datalist>
 		{#if search}
 			<button
 				class="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content"
-				onclick={() => { search = ''; setSearch(''); }}
+				onclick={() => {
+					search = '';
+					setSearch('');
+				}}
 				aria-label="Clear search"
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -121,27 +184,57 @@
 	</div>
 
 	<!-- Filter Dropdowns -->
-	<div class="flex gap-2">
-		<!-- Type Filter -->
+	<div class="flex flex-wrap gap-2">
+		<!-- Category Filter (Monster / Spell / Trap) -->
 		<div class="filter-dropdown relative">
 			<button
-				class={classNames('btn btn-sm', type_filter !== 'all' ? 'btn-primary' : '', 'dropdown dropdown-open')}
-				onclick={() => toggleDropdown('type')}
+				class={classNames('btn btn-sm', category_filter !== 'all' ? 'btn-primary' : '')}
+				onclick={() => toggleDropdown('category')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" class="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-2.414 2.414a1 1 0 01-.707.293H7.414a1 1 0 01-.707-.293L3.293 8.293A1 1 0 013 7.586V4z" />
 				</svg>
-				Type
+				{category_filter === 'all' ? 'Type' : categoryLabel}
 			</button>
-			{#if showType}
+			{#if showCategory}
 				<ul class="dropdown-content z-50 menu rounded-box w-52 bg-base-100 p-2 shadow-xl">
-					{#each TYPES as t}
+					{#each CATEGORIES as c}
 						<li>
-							<button type="button"
-								class={t.value === type_filter ? 'active' : ''}
-								onclick={() => selectFilter('type', t.value)}
+							<button
+								type="button"
+								class={c.value === category_filter ? 'active' : ''}
+								onclick={() => selectFilter('category', c.value)}
 							>
-								{t.label}
+								{c.label}
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
+		<!-- Sub-type Filter (depends on selected category) -->
+		<div class="filter-dropdown relative">
+			<button
+				class={classNames('btn btn-sm', sub_type_filter !== 'all' ? 'btn-primary' : '')}
+				disabled={category_filter === 'all'}
+				onclick={() => toggleDropdown('subType')}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M7 12h10m-7 6h4" />
+				</svg>
+				{sub_type_filter === 'all' ? 'Sub-type' : subTypeButtonLabel}
+			</button>
+			{#if showSubType}
+				<ul class="dropdown-content z-50 menu max-h-80 flex-nowrap overflow-y-auto rounded-box w-56 bg-base-100 p-2 shadow-xl">
+					{#each SUB_TYPES as s}
+						<li>
+							<button
+								type="button"
+								class={s.value === sub_type_filter ? 'active' : ''}
+								onclick={() => selectFilter('subType', s.value)}
+							>
+								{s.label}
 							</button>
 						</li>
 					{/each}
@@ -161,10 +254,11 @@
 				Attribute
 			</button>
 			{#if showAttr}
-				<ul class="dropdown-content z-50 menu rounded-box bg-base-100 p-2 shadow-xl">
+				<ul class="dropdown-content z-50 menu max-h-80 flex-nowrap overflow-y-auto rounded-box bg-base-100 p-2 shadow-xl">
 					{#each ATTRIBUTES as a}
 						<li>
-							<button type="button"
+							<button
+								type="button"
 								class={a.value === attribute_filter ? 'active' : ''}
 								onclick={() => selectFilter('attr', a.value)}
 							>
@@ -188,10 +282,11 @@
 				Race
 			</button>
 			{#if showRace}
-				<ul class="dropdown-content z-50 menu rounded-box bg-base-100 p-2 shadow-xl">
+				<ul class="dropdown-content z-50 menu max-h-80 flex-nowrap overflow-y-auto rounded-box bg-base-100 p-2 shadow-xl">
 					{#each RACES as r}
 						<li>
-							<button type="button"
+							<button
+								type="button"
 								class={r.value === race_filter ? 'active' : ''}
 								onclick={() => selectFilter('race', r.value)}
 							>
@@ -204,12 +299,7 @@
 		</div>
 
 		<!-- Clear All -->
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={clearAll}
-		>
-			Clear All
-		</button>
+		<button class="btn btn-ghost btn-sm" onclick={clearAll}> Clear All </button>
 	</div>
 </div>
 

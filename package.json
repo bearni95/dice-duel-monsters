@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "node scripts/export-cards-from-db.mjs && vite dev",
+		"dev:public": "ADMIN_ENABLED=false node scripts/export-cards-from-db.mjs && ADMIN_ENABLED=false vite dev",
 		"dev:qq": "node scripts/generate-qq-locale.js",
 		"build": "pnpm export-cards && vite build",
 		"preview": "vite preview",
@@ -19,6 +20,7 @@
 		"export-cards": "node scripts/export-cards-from-db.mjs"
 	},
 	"dependencies": {
+		"@3d-dice/dice-box": "^1.1.4",
 		"@sveltejs/adapter-static": "^3.0.9",
 		"classnames": "^2.5.1",
 		"pixi.js": "^8.19.0",
