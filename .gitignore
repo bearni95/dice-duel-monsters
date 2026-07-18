@@ -28,3 +28,7 @@ coverage/
 
 # Build output
 /dist/
+
+# Assets (not tracked in git)
+/Textures/
+/ref/
