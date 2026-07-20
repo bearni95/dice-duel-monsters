@@ -3,6 +3,7 @@
 	import { onMount } from "svelte";
 	import type { IGameCreature } from "$adapters/creature.adapter";
 	import { textureForType } from "$utils/card/typeTexture";
+	import { attributeIcon } from "$utils/card/attributeIcon";
 	import { effectsService } from "$services/effect.service";
 	import { effectAdapter } from "$adapters/effect.adapter";
 	import { cardEffects, ensureCardEffects } from "$services/card-effects.service";
@@ -75,12 +76,17 @@
 
 	const showEffectsOverlay = $derived(isSpellOrTrap && effectViews.length > 0);
 
+	// The card's attribute icon (Dark, Fire, Water, …), shown in the top row of the
+	// stat overlay. Null when the card has no recognized attribute (many spells and
+	// traps), in which case the icon is simply omitted.
+	const attributeIconUrl = $derived(attributeIcon(card.attribute));
+
 	// Load the linked-effects map once (guarded by the service's own flag) so the
 	// overlay works wherever a card renders, without the parent wiring it up.
 	onMount(ensureCardEffects);
 </script>
 
-<article class="group card relative aspect-square overflow-hidden border-[5px] border-black/50 bg-base-100">
+<article class="group card relative overflow-hidden border-[5px] border-black/50 bg-base-100">
 	<!-- Type-matched background texture (Normal, Effect, Ritual, Synchro, Xyz,
 	     Link, …), tinting the whole card frame behind its content. -->
 	<img
@@ -90,78 +96,96 @@
 		class="pointer-events-none absolute inset-0 h-full max-h-none w-full max-w-none object-cover object-center"
 	/>
 
-	<div class="card-body relative flex-1 gap-3 p-2 text-sm text-black">
-		<div class="min-h-0 flex-1">
-			<figure class="group relative h-full">
-				<img
-					class="h-full w-full rounded object-cover"
-					src={card.cardImages?.[0]?.image_url_cropped}
-					alt={`${card.name}`}
-					loading="lazy"
-				/>
+	<div class="card-body relative flex-1 gap-2 p-2 text-sm text-black">
+		{#if showStats}
+		{#if card.race}
+			<!-- Monster type (Spellcaster, Warrior, Dragon, …), shown as a text header
+			     above the stat row. -->
+			<div class="text-center text-xs font-semibold tracking-wide text-black uppercase">
+				{card.race}
+			</div>
+		{/if}
 
-				{#if showStats}
-				<div
-					class="absolute top-1 left-1 z-10 flex flex-col items-center text-center text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
-					title="Cost"
-					aria-label="Cost"
-				>
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/sbed/battery-pack.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-					<span>{card.cost}</span>
-				</div>
+		<!-- Top row: Cost (left) and HP (right), laid out in normal flow above the
+		     card art rather than overlaid on it. -->
+		<div
+			class="flex items-start justify-between text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+		>
+			<div class="flex flex-col items-center text-center" title="Cost" aria-label="Cost">
+				<span
+					class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/sbed/battery-pack.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+				></span>
+				<span>{card.cost}</span>
+			</div>
 
+			{#if attributeIconUrl}
 				<div
-					class="absolute top-1 right-1 z-10 flex flex-col items-center text-center text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
-					title="HP"
-					aria-label="HP"
+					class="flex flex-col items-center justify-center text-center"
+					title={card.attribute}
+					aria-label={card.attribute}
 				>
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/skoll/hearts.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-					<span>{card.hp}d6</span>
+					<img src={attributeIconUrl} alt={card.attribute} class="h-6 w-6 object-contain [filter:none]" />
 				</div>
+			{/if}
 
-				<div
-					class="absolute right-1 bottom-1 left-1 z-10 grid grid-cols-4 gap-2 text-center text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
-				>
-					<div>
-						<div class="flex justify-center font-bold" title="Atk" aria-label="Atk">
-							<span
-								class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/broadsword.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-							></span>
-						</div>
-						<div>{card.atk}d6</div>
-					</div>
-					<div>
-						<div class="flex justify-center font-bold" title="Def" aria-label="Def">
-							<span
-								class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/edged-shield.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-							></span>
-						</div>
-						<div>{card.def}+</div>
-					</div>
-					<div>
-						<div class="flex justify-center font-bold" title="SPD" aria-label="SPD">
-							<span
-								class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/walking-boot.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-							></span>
-						</div>
-						<div>{card.speed}</div>
-					</div>
-					<div>
-						<div class="flex justify-center font-bold" title="Reach" aria-label="Reach">
-							<span
-								class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/arrowhead.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-							></span>
-						</div>
-						<div>{card.reach}</div>
-					</div>
-				</div>
-				{/if}
-			</figure>
+			<div class="flex flex-col items-center text-center" title="HP" aria-label="HP">
+				<span
+					class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/skoll/hearts.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+				></span>
+				<span>{card.hp}d6</span>
+			</div>
 		</div>
+		{/if}
+
+		<figure class="group relative">
+			<img
+				class="w-full rounded object-cover"
+				src={card.cardImages?.[0]?.image_url_cropped}
+				alt={`${card.name}`}
+				loading="lazy"
+			/>
+		</figure>
+
+		{#if showStats}
+		<!-- Bottom row: Atk / Def / Speed / Reach, laid out in normal flow below the
+		     card art rather than overlaid on it. -->
+		<div
+			class="grid grid-cols-4 gap-2 text-center text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+		>
+			<div>
+				<div class="flex justify-center font-bold" title="Atk" aria-label="Atk">
+					<span
+						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/broadsword.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+				</div>
+				<div>{card.atk}d6</div>
+			</div>
+			<div>
+				<div class="flex justify-center font-bold" title="Def" aria-label="Def">
+					<span
+						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/edged-shield.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+				</div>
+				<div>{card.def}+</div>
+			</div>
+			<div>
+				<div class="flex justify-center font-bold" title="SPD" aria-label="SPD">
+					<span
+						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/walking-boot.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+				</div>
+				<div>{card.speed}</div>
+			</div>
+			<div>
+				<div class="flex justify-center font-bold" title="Reach" aria-label="Reach">
+					<span
+						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/arrowhead.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+				</div>
+				<div>{card.reach}</div>
+			</div>
+		</div>
+		{/if}
 	</div>
 
 	{#if overlay}

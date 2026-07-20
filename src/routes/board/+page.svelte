@@ -783,6 +783,58 @@ function fadeIn(target: Container, ms = 220): Promise<void> {
 	});
 }
 
+// Tight bounding box of a texture's opaque pixels, in the texture's own
+// (unscaled) coordinate space. Billboard art is padded with transparent margins,
+// so the visible creature is much smaller than the image; we rasterize the
+// texture to an offscreen canvas and scan the alpha channel to find the extent
+// of the non-transparent pixels. The result feeds the purple summon frame so it
+// hugs the creature instead of the padded image. Cached per texture source since
+// the same billboard is reused for every copy of a creature.
+const opaqueBoundsCache = new WeakMap<
+	object,
+	{ x: number; y: number; width: number; height: number }
+>();
+function opaqueBounds(texture: Texture) {
+	const source = texture.source;
+	const cached = opaqueBoundsCache.get(source);
+	if (cached) return cached;
+
+	// Rasterize at the texture's logical size so the returned bounds are already
+	// in the same space the sprite uses (independent of the source's pixel ratio).
+	const w = Math.max(1, Math.round(texture.width));
+	const h = Math.max(1, Math.round(texture.height));
+	const canvas = document.createElement('canvas');
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+	ctx.drawImage(source.resource as CanvasImageSource, 0, 0, w, h);
+	const { data } = ctx.getImageData(0, 0, w, h);
+
+	const alphaThreshold = 12; // ignore near-invisible antialiasing fringe
+	let minX = w;
+	let minY = h;
+	let maxX = -1;
+	let maxY = -1;
+	for (let y = 0; y < h; y++) {
+		for (let x = 0; x < w; x++) {
+			if (data[(y * w + x) * 4 + 3] > alphaThreshold) {
+				if (x < minX) minX = x;
+				if (x > maxX) maxX = x;
+				if (y < minY) minY = y;
+				if (y > maxY) maxY = y;
+			}
+		}
+	}
+
+	// Fully transparent (shouldn't happen) — fall back to the full texture.
+	const bounds =
+		maxX < minX
+			? { x: 0, y: 0, width: w, height: h }
+			: { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+	opaqueBoundsCache.set(source, bounds);
+	return bounds;
+}
+
 // Summon a creature onto the board for the given side. `color` is the network
 // color painted under it (red for the player, blue for the CPU) and `offsets`
 // is the dice-net shape (already rotated) stamped as its floor.
@@ -821,7 +873,15 @@ async function placeMonster(
 	// the cell center (anchor.y = 1), so the image's vertical end sits on the tile.
 	const scale = TILE_WIDTH / texture.width;
 	sprite.scale.set(scale);
-	sprite.anchor.set(0.5, 1);
+
+	// Billboards carry uneven transparent margins, so the visible creature isn't
+	// at the texture's horizontal center. Anchor X on the opaque art's center (a
+	// fraction of the texture width) instead of a flat 0.5 so the creature — not
+	// the padded image — is centered on its cell. Y stays at 1 to keep its feet on
+	// the tile.
+	const ob = opaqueBounds(texture);
+	const anchorX = (ob.x + ob.width / 2) / texture.width;
+	sprite.anchor.set(anchorX, 1);
 
 	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
 	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
@@ -832,6 +892,28 @@ async function placeMonster(
 
 	sprite.eventMode = 'static';
 	sprite.cursor = 'pointer';
+
+	// Purple frame around the summoned creature. Added as a child of the sprite so
+	// it inherits the sprite's scale, position, fade-in alpha, later moves and
+	// removal with no extra bookkeeping. Fitted to the opaque pixels (see
+	// opaqueBounds) rather than the padded texture rectangle. Coordinates are in
+	// the sprite's unscaled texture space; a pixel (px,py) sits at
+	// (px - anchorX*texW, py - texH). Because anchorX is the opaque center, the
+	// frame's left edge is simply -ob.width/2. Stroke width, radius and padding are
+	// divided by `scale` to stay a constant size on screen.
+	const pad = 6 / scale; // a few screen px of breathing room outside the art
+	const border = new Graphics();
+	border
+		.roundRect(
+			-ob.width / 2 - pad,
+			ob.y - texture.height - pad,
+			ob.width + pad * 2,
+			ob.height + pad * 2,
+			10 / scale
+		)
+		.stroke({ width: 3 / scale, color: 0xa855f7, alignment: 0.5 });
+	border.eventMode = 'none';
+	sprite.addChild(border);
 
 	units.addChild(sprite);
 
