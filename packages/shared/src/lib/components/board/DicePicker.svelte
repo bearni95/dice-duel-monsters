@@ -21,29 +21,66 @@
 		onconfirm: (dice: SpawnedDie[]) => void;
 	} = $props();
 
-	// Dice are picked by their position in the pool (duplicates are distinct picks).
-	// Seed the selection with the first `pickCount` so the player can just hit Roll,
-	// or swap in different dice first. The component remounts for each turn's pick
-	// (the board only renders it while `pickingDice` is true), so capturing the pool's
-	// initial value here is exactly the intent — untrack keeps it a one-time seed.
-	let selected = $state<Set<number>>(
-		untrack(() => new Set(pool.map((_, i) => i).slice(0, pickCount)))
+	// One row per distinct die (type × level) the player owns, with how many copies —
+	// rather than a card per identical copy. The player then chooses how many of each
+	// to roll. Deduped by die id, order preserved from the pool.
+	interface DiceGroup {
+		die: SpawnedDie;
+		count: number;
+	}
+	let groups = $derived.by<DiceGroup[]>(() => {
+		const byId = new Map<string, DiceGroup>();
+		for (const die of pool) {
+			const g = byId.get(die.id);
+			if (g) g.count++;
+			else byId.set(die.id, { die, count: 1 });
+		}
+		return [...byId.values()];
+	});
+
+	// How many of each distinct die the player has chosen to roll, keyed by die id.
+	// Seeded so the roll count is already met — filled greedily across the groups (up
+	// to each group's owned count) so the player can just hit Roll or adjust first.
+	// The component remounts for each turn's pick (the board only renders it while
+	// `pickingDice` is true), so capturing the initial pool here is exactly the intent.
+	let chosen = $state<Record<string, number>>(
+		untrack(() => {
+			const seed: Record<string, number> = {};
+			let left = pickCount;
+			for (const die of pool) {
+				if (left <= 0) break;
+				seed[die.id] = (seed[die.id] ?? 0) + 1;
+				left--;
+			}
+			return seed;
+		})
 	);
 
-	let count = $derived(selected.size);
-	let canRoll = $derived(count === pickCount);
+	let total = $derived(Object.values(chosen).reduce((sum, n) => sum + n, 0));
+	let canRoll = $derived(total === pickCount);
 
-	function toggle(i: number) {
-		const next = new Set(selected);
-		if (next.has(i)) next.delete(i);
-		// Ignore extra picks past the limit; the player deselects one first.
-		else if (next.size < pickCount) next.add(i);
-		selected = next;
+	function qty(id: string): number {
+		return chosen[id] ?? 0;
+	}
+
+	function inc(group: DiceGroup) {
+		if (total >= pickCount || qty(group.die.id) >= group.count) return;
+		chosen = { ...chosen, [group.die.id]: qty(group.die.id) + 1 };
+	}
+
+	function dec(group: DiceGroup) {
+		if (qty(group.die.id) <= 0) return;
+		chosen = { ...chosen, [group.die.id]: qty(group.die.id) - 1 };
 	}
 
 	function roll() {
 		if (!canRoll) return;
-		onconfirm([...selected].map((i) => pool[i]));
+		// Expand each chosen quantity back into that many copies of the die.
+		const dice: SpawnedDie[] = [];
+		for (const { die } of groups) {
+			for (let i = 0; i < qty(die.id); i++) dice.push(die);
+		}
+		onconfirm(dice);
 	}
 </script>
 
@@ -64,31 +101,50 @@
 				</p>
 			</div>
 
-			<div class="grid max-h-80 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
-				{#each pool as die, i (i)}
-					<button
-						type="button"
+			<div class="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+				{#each groups as group (group.die.id)}
+					{@const selected = qty(group.die.id) > 0}
+					<div
 						class={classNames(
 							'flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-colors',
-							selected.has(i)
-								? 'border-primary bg-primary/10'
-								: 'border-transparent bg-base-200 hover:border-base-300'
+							selected ? 'border-primary bg-primary/10' : 'border-base-200 bg-base-200'
 						)}
-						aria-pressed={selected.has(i)}
-						aria-label={die.name}
-						title={die.name}
-						onclick={() => toggle(i)}
 					>
-						<DiceDistinctFaces dieId={die.id} faces={diceAdapter.distinctFaces(die)} />
-						<span class="text-base-content/70 truncate text-[10px] font-medium capitalize">
-							{die.role} · R{die.rarity}
+						<DiceDistinctFaces dieId={group.die.id} faces={diceAdapter.distinctFaces(group.die)} />
+						<span class="text-base-content/80 text-xs font-semibold capitalize">
+							{group.die.role} · R{group.die.rarity}
 						</span>
-					</button>
+						<span class="text-base-content/50 text-[10px]">owned ×{group.count}</span>
+
+						<div class="mt-1 flex items-center gap-1">
+							<button
+								type="button"
+								class="btn btn-circle btn-xs"
+								aria-label={`Roll one fewer ${group.die.name}`}
+								disabled={qty(group.die.id) <= 0}
+								onclick={() => dec(group)}
+							>
+								−
+							</button>
+							<span class="w-5 text-center text-sm font-bold tabular-nums">
+								{qty(group.die.id)}
+							</span>
+							<button
+								type="button"
+								class="btn btn-circle btn-xs"
+								aria-label={`Roll one more ${group.die.name}`}
+								disabled={total >= pickCount || qty(group.die.id) >= group.count}
+								onclick={() => inc(group)}
+							>
+								+
+							</button>
+						</div>
+					</div>
 				{/each}
 			</div>
 
 			<div class="card-actions items-center justify-between">
-				<span class="text-base-content/60 text-sm">{count}/{pickCount} selected</span>
+				<span class="text-base-content/60 text-sm">{total}/{pickCount} selected</span>
 				<button class="btn btn-primary" disabled={!canRoll} onclick={roll}>Roll</button>
 			</div>
 		</div>
