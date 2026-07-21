@@ -809,7 +809,7 @@ const HAND_CARD_GAP = 6;
 const HAND_MARGIN = 12;
 // World-px shift of the pyramid below the grid's midline, biasing it toward the
 // board's bottom-left corner while keeping every row on-screen.
-const HAND_BOTTOM_BIAS = 190;
+const HAND_BOTTOM_BIAS = 150;
 
 // The world-space hand row (built in init, added to `camera`) and a token bumped on
 // each render so a slow PNG load from a superseded render can't paint a stale card.
