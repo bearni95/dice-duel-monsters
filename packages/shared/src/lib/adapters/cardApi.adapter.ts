@@ -156,7 +156,11 @@ export class CardApiAdapter extends AdapterClass {
         const catalog = await loadCatalogData();
         // Restrict to the deck-derived cards — one entry per id, every card the
         // decks contain (no playable filter; the full-catalog browser had none).
-        const restricted = queryCatalog(catalog, { ids: uniqueIds }).cards;
+        // Spell and Trap cards are excluded outright, so the /cards browser only
+        // shows monsters; dropping them here also empties the spell/trap facets.
+        const restricted = queryCatalog(catalog, { ids: uniqueIds }).cards.filter(
+            (card) => card.type !== 'Spell Card' && card.type !== 'Trap Card'
+        );
 
         // Apply the UI filters + pagination over just those cards. Monsters only
         // surface once they have a cutout (billboard) prepared for the board.
