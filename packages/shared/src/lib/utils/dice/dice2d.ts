@@ -3,7 +3,7 @@ import type { Application, Container, Texture } from 'pixi.js';
 // Renders the six faces of a die as a flat 2D grid on a PixiJS canvas, styled to
 // match a settled face of the 3D icon die (IconDiceCanvas3D): a full-colour face
 // body with a darker edge, a cream-tinted icon with a black drop-shadow, and a
-// large face value centred on top of the icon, with its own matching drop-shadow.
+// large black-outlined face value centred on top of the icon.
 //
 // Every preview is drawn through ONE shared Pixi renderer and handed back as its
 // own extracted 2D canvas, so any number of dice can be shown without spending a
@@ -174,34 +174,25 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			root.addChild(icon);
 		}
 
-		// Large face value, centred on top of the icon with a matching drop-shadow.
+		// Large face value, centred on top of the icon (black outline, no drop-shadow).
 		const str = faceLabels[i];
 		if (str) {
-			const numberStyle = {
-				fontFamily: 'Arial, sans-serif',
-				fontSize: NUMBER_FONT,
-				fontWeight: '700' as const,
-				fill: TINT,
-				stroke: { color: SHADOW, width: NUMBER_STROKE, join: 'round' as const }
-			};
-
-			const number = new Text({ text: str, style: numberStyle });
+			const number = new Text({
+				text: str,
+				style: {
+					fontFamily: 'Arial, sans-serif',
+					fontSize: NUMBER_FONT,
+					fontWeight: '700',
+					fill: TINT,
+					stroke: { color: SHADOW, width: NUMBER_STROKE, join: 'round' }
+				}
+			});
 			number.anchor.set(0.5);
 			const numberScale = (2 * NUMBER_SPAN * H) / number.height;
 			// Nudge down so the digit's ink — not its padded box — is vertically centred.
 			const centreY = fcy - glyphCentreOffset(str, NUMBER_FONT, '700') * numberScale;
 			number.scale.set(numberScale);
 			number.position.set(fcx, centreY);
-
-			// A solid black copy, offset like the icon shadow (tint blacks out fill+stroke).
-			const numberShadow = new Text({ text: str, style: numberStyle });
-			numberShadow.anchor.set(0.5);
-			numberShadow.scale.set(numberScale);
-			numberShadow.tint = SHADOW;
-			numberShadow.alpha = SHADOW_ALPHA;
-			numberShadow.position.set(fcx + SHADOW_DX * H, centreY + SHADOW_DY * H);
-
-			root.addChild(numberShadow);
 			root.addChild(number);
 		}
 	}
