@@ -203,6 +203,13 @@ export function createBoardEngine() {
 	let playerDice = $state<SpawnedDie[]>([]);
 	let rivalDice = $state<SpawnedDie[]>([]);
 
+	// Fixed grid slot (0-based) each match die occupies, and the slot count of a full
+	// pool — both captured once at seed time (see seedMatchDice). The dice display draws
+	// every die at its slot against this total, so consumed dice leave their slot empty
+	// and the survivors never reflow.
+	let diceSlotById = new Map<string, number>();
+	let diceSlotCount = 0;
+
 	// The player's turn-start dice-pick phase: while true the board waits for the
 	// player to choose (up to) three of their owned dice to roll for energy; the DOM
 	// picker overlay reads `dicePool` / `dicePickCount` and calls `confirmDicePick`.
@@ -361,6 +368,13 @@ export function createBoardEngine() {
 		if (!diceConfig) return;
 		playerDice = diceAdapter.spawnAll(diceConfig);
 		rivalDice = diceAdapter.spawnAll(diceConfig);
+		// Pin each die to a fixed grid slot for the whole match. Both sides seed the same
+		// full matrix in the same order, so one id→slot map serves both. The dice display
+		// lays each die out by its slot (against this fixed total) instead of its live array
+		// index, so a die rolled and consumed leaves its slot empty rather than letting the
+		// survivors slide up to close the gap.
+		diceSlotById = new Map(playerDice.map((d, i) => [d.id, i]));
+		diceSlotCount = playerDice.length;
 	}
 
 	// Remove the given dice (matched by id, one occurrence per entry) from a match
@@ -1790,22 +1804,34 @@ async function renderDiceDisplay() {
 
 	for (const side of sides) {
 		const { uHat, vHat, mid } = diceBlockAxes(side.matrix);
-		const n = side.dice.length;
+
+		// Slots (and their centring) are reckoned against a full pool so every die keeps its
+		// place for the whole match; an empty pool falls back to its own length.
+		const slotTotal = diceSlotCount || side.dice.length;
 
 		// Build each die, then add them back-to-front (smaller screen y first) so a die
 		// nearer the viewer correctly overlaps the ones behind it.
 		const built: { node: Container; cy: number }[] = [];
-		side.dice.forEach((die, k) => {
-			// A picked die has left the grid for the roller — skip drawing it, but keep
-			// deriving its position from the die's original index so the dice that remain
-			// stay put in their slots instead of reflowing to close the gap.
-			if (side.interactive && dicePick.includes(die.id)) return;
-
+		side.dice.forEach((die) => {
 			const f = dieCubeFaces(die);
 
-			const { cx, cy } = matchDieCenter(k, n, mid, uHat, vHat);
+			// Draw the die at its fixed match slot (against the full pool total), so a die
+			// that has been rolled and consumed simply leaves its slot empty.
+			const slot = diceSlotById.get(die.id) ?? 0;
+			const { cx, cy } = matchDieCenter(slot, slotTotal, mid, uHat, vHat);
 			const wrap = new Container();
 			wrap.position.set(cx, cy);
+
+			// A soft ring under a die the player has picked for this roll. The die stays in
+			// the grid while selected and only leaves once the Roll consumes it.
+			if (side.interactive && dicePick.includes(die.id)) {
+				const ring = new Graphics()
+					.ellipse(0, MATCH_DIE_SIZE * 0.2, MATCH_DIE_SIZE * 0.72, MATCH_DIE_SIZE * 0.44)
+					.fill({ color: 0xffdd33, alpha: 0.35 })
+					.stroke({ width: 3, color: 0xffdd33 });
+				ring.eventMode = 'none';
+				wrap.addChild(ring);
+			}
 
 			wrap.addChild(
 				buildStaticDie(pixi, {
@@ -1833,7 +1859,7 @@ async function renderDiceDisplay() {
 
 		// The player's Roll button, one row past the block while the pick is open.
 		if (side.interactive && pickingDice) {
-			const rows = Math.max(1, Math.ceil(n / MATCH_DIE_COLS));
+			const rows = Math.max(1, Math.ceil(slotTotal / MATCH_DIE_COLS));
 			const out = MATCH_DIE_OUT_GAP + rows * MATCH_DIE_ROW_STEP + MATCH_DIE_ROW_STEP;
 			const enabled = dicePick.length === dicePickCount();
 			const btn = buildActionButton(
