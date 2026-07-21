@@ -25,8 +25,9 @@ export interface IGameCreature{
     def: number
     cost: number
     speed: number
-    // How far the creature can strike, derived from whether it has an effect:
-    // effectless (vanilla) monsters reach 1, effect monsters reach 2.
+    // How far the creature can strike: base 1, +1 when it carries an effect.
+    // Effectless (vanilla / effectless Fusion / Ritual) monsters reach 1, effect
+    // monsters (including Fusion / Ritual effect variants) reach 2.
     reach: number
 }
 export class CreatureAdapter extends AdapterClass {
@@ -110,9 +111,12 @@ export class CreatureAdapter extends AdapterClass {
             def: 3 + this.getTributesForLevel(card.lvl || 0),
             cost: card.lvl || 1,
             speed: 1 + (card.lvl || 0),
-            // Reach is driven by whether the monster has an effect: effectless
-            // (vanilla "Normal Monster") creatures reach 1, effect monsters reach 2.
-            reach: this.hasEffect(card) ? 2 : 1
+            // Reach starts at 1 and gains +1 when the monster carries an effect
+            // (detected from the card type — see `hasEffect`). Effectless creatures
+            // (e.g. vanilla "Normal Monster", "Fusion Monster", "Ritual Monster")
+            // reach 1, while effect monsters — including the now-playable Fusion /
+            // Ritual effect variants like "Ritual Effect Monster" — reach 2.
+            reach: 1 + (this.hasEffect(card) ? 1 : 0)
         }
     }
 }
