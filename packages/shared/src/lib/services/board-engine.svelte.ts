@@ -780,9 +780,10 @@ $effect(() => {
 });
 
 // The player's hand rendered as upright card PNGs (the same generated bitmaps the
-// right sidebar and the board plaques use) as two left-aligned rows at the grid's
-// bottom-left. Like the red/blue plaques it lives inside `camera`, so it pans and zooms
-// with the board — but unlike them the cards are drawn upright (plain sprites, no
+// right sidebar and the board plaques use) as a single row under the player's red
+// board plaque, on the grid's bottom-right side. Like the red/blue plaques it lives
+// inside `camera`, so it pans and zooms with the board — but unlike them the cards are
+// drawn upright (plain sprites, no
 // isometric shear), standing rather than lying flat. Each card is two grid cells wide.
 // Calibrated against the on-screen grid: the sprite.width setter on the loaded PNG
 // renders at ~2× the nominal value (unlike the .scale.set() the board billboards use),
@@ -791,9 +792,9 @@ $effect(() => {
 const HAND_CARD_W = CELL_WIDTH;
 const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
 const HAND_CARD_GAP = 6;
-// World-px shift of the pyramid below the grid's midline, biasing it toward the
-// board's bottom-left corner while keeping every row on-screen.
-const HAND_BOTTOM_BIAS = 150;
+// World-px gap between the bottom edge of the player's red board plaque and the top
+// of the hand row sitting under it.
+const HAND_PLAQUE_GAP = 24;
 
 // The world-space hand row (built in init, added to `camera`) and a token bumped on
 // each render so a slow PNG load from a superseded render can't paint a stale card.
@@ -935,9 +936,6 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	handLayer.addChild(cardContainer);
 }
 
-// The player's hand is laid out as two left-aligned rows of 3 cards each
-// (6 = HAND_SIZE) — filled in draw order.
-const HAND_ROWS = [3, 3];
 
 // (Re)draw the player's hand from scratch for the current `hand` (in draw order), as a
 // left-aligned two-row block of upright cards in the board's lower-left. The anchor
@@ -959,36 +957,31 @@ async function renderHand() {
 		return;
 	}
 
-	// Left-align the block with the grid's leftmost point (the west vertex of the
-	// leftmost cell, first col / last row) and grow the rows downward. isoPosOf gives
-	// that cell's center, so the drawn diamond's left tip — the grid's westmost pixel —
-	// sits half a drawn tile (HAND_CARD_W / 2 = CELL_WIDTH / 2) further left. The block
-	// is tall (two rows of upright cards), so bias its vertical center below the grid's
-	// midline (worldCenterY = half the bottom corner's y, since the top corner sits at
-	// y=0) — this keeps the whole block in the board's lower-left rather than running
-	// off the bottom.
-	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
-	const bottomCorner = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
-	const worldCenterY = bottomCorner.y / 2;
-	const blockHeight = HAND_ROWS.length * HAND_CARD_H + (HAND_ROWS.length - 1) * HAND_CARD_GAP;
+	// The hand is one horizontal row of upright cards sitting under the player's red
+	// board plaque, on the grid's bottom-right side. Derive the plaque's on-screen box
+	// from its ground matrix (the same transform that lays the plaque flat), then center
+	// the row horizontally on the plaque and drop it just below the plaque's lowest edge.
+	const plaqueCorners = [
+		PLAYER_BOARD_MATRIX.apply({ x: 0, y: 0 }),
+		PLAYER_BOARD_MATRIX.apply({ x: TAG_WIDTH, y: 0 }),
+		PLAYER_BOARD_MATRIX.apply({ x: 0, y: TAG_HEIGHT }),
+		PLAYER_BOARD_MATRIX.apply({ x: TAG_WIDTH, y: TAG_HEIGHT })
+	];
+	const plaqueCenterX = plaqueCorners.reduce((sum, p) => sum + p.x, 0) / plaqueCorners.length;
+	const plaqueBottomY = Math.max(...plaqueCorners.map((p) => p.y));
 
-	const leftX = leftCorner.x - HAND_CARD_W / 2;
-	const topY = worldCenterY - blockHeight / 2 + HAND_BOTTOM_BIAS;
-
-	// The hand is laid out cheapest-first: sort a copy by cost ascending, then fill the
-	// rows in that order. Fix each card's world position up front.
+	// The hand is laid out cheapest-first: sort a copy by cost ascending, then fill a
+	// single row in that order. Fix each card's world position up front.
 	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
+	const rowWidth = ordered.length * HAND_CARD_W + (ordered.length - 1) * HAND_CARD_GAP;
+	const leftX = plaqueCenterX - rowWidth / 2;
+	const rowY = plaqueBottomY + HAND_PLAQUE_GAP;
+
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
-	let index = 0;
-	let rowY = topY;
-	for (const count of HAND_ROWS) {
-		let x = leftX;
-		for (let c = 0; c < count && index < ordered.length; c++) {
-			placements.push({ card: ordered[index], x, y: rowY });
-			x += HAND_CARD_W + HAND_CARD_GAP;
-			index++;
-		}
-		rowY += HAND_CARD_H + HAND_CARD_GAP;
+	let x = leftX;
+	for (const card of ordered) {
+		placements.push({ card, x, y: rowY });
+		x += HAND_CARD_W + HAND_CARD_GAP;
 	}
 
 	// Preload every card's PNG in parallel (null on a miss → placeholder).
