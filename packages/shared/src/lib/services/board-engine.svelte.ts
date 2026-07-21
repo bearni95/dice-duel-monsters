@@ -3528,8 +3528,12 @@ type NetThumb = { container: Container; bg: Graphics; glyph: Graphics; index: nu
 let netThumbs: NetThumb[] = [];
 
 // Inset from the triangle's edges, and how many thumbnails sit in each row from top to
-// bottom — rows widen toward the bottom to match the triangle (1 + 2 + 3 + 5 = 11).
+// bottom — rows widen toward the bottom to match the triangle (1 + 2 + 3 + 5 = 11). The
+// left leg and bottom leg use half the margin so the thumbnails hug the right-angle
+// corner, while the top vertex and the hypotenuse keep the fuller inset.
 const NET_PANEL_MARGIN = 16;
+const NET_PANEL_MARGIN_LEFT = NET_PANEL_MARGIN / 2;
+const NET_PANEL_MARGIN_BOTTOM = NET_PANEL_MARGIN / 2;
 const NET_PANEL_ROWS = [1, 2, 3, 5];
 const NET_THUMB_SIZE = 34;
 
@@ -3567,13 +3571,14 @@ function buildNetPanel() {
 	// x of the hypotenuse at a given y (the right boundary of the usable area; the left
 	// boundary is the vertical left leg).
 	const hypX = (y: number) => left.x + ((y - left.y) * (bottom.x - left.x)) / (bottom.y - left.y);
-	const band = (bottom.y - left.y - NET_PANEL_MARGIN * 2) / NET_PANEL_ROWS.length;
+	const band =
+		(bottom.y - left.y - NET_PANEL_MARGIN - NET_PANEL_MARGIN_BOTTOM) / NET_PANEL_ROWS.length;
 
 	netThumbs = [];
 	let index = 0;
 	NET_PANEL_ROWS.forEach((count, row) => {
 		const cy = left.y + NET_PANEL_MARGIN + band * (row + 0.5);
-		const rowLeft = corner.x + NET_PANEL_MARGIN;
+		const rowLeft = corner.x + NET_PANEL_MARGIN_LEFT;
 		const rowRight = hypX(cy) - NET_PANEL_MARGIN;
 		const slot = (rowRight - rowLeft) / count;
 
