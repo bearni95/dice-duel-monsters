@@ -25,7 +25,8 @@ export interface IGameCreature{
     def: number
     cost: number
     speed: number
-    // How far the creature can strike, derived from its level: ceil(level / 4).
+    // How far the creature can strike, derived from whether it has an effect:
+    // effectless (vanilla) monsters reach 1, effect monsters reach 2.
     reach: number
 }
 export class CreatureAdapter extends AdapterClass {
@@ -44,6 +45,14 @@ export class CreatureAdapter extends AdapterClass {
     // monster with battle stats). Non-monster cards (spells, traps, …) are not.
     isMonster(card: CardAsset): boolean {
         return Boolean(card.atk || card.def || card.lvl);
+    }
+
+    // Whether a monster carries an effect. Yugioh encodes this in the card's
+    // `type`: vanilla monsters are "Normal Monster" (no effect), while every
+    // effect-bearing monster has "Effect" in its type ("Effect Monster",
+    // "Flip Effect Monster", "Pendulum Effect Monster", …).
+    hasEffect(card: CardAsset): boolean {
+        return (card.type ?? '').includes('Effect');
     }
 
     // Produce an IGameCreature for *any* card so the shared card renderer can
@@ -101,9 +110,9 @@ export class CreatureAdapter extends AdapterClass {
             def: 3 + this.getTributesForLevel(card.lvl || 0),
             cost: card.lvl || 1,
             speed: 1 + (card.lvl || 0),
-            // Reach scales with level in bands of four: levels 1–4 reach 1,
-            // 5–8 reach 2, and so on.
-            reach: Math.ceil((card.lvl || 0) / 4)
+            // Reach is driven by whether the monster has an effect: effectless
+            // (vanilla "Normal Monster") creatures reach 1, effect monsters reach 2.
+            reach: this.hasEffect(card) ? 2 : 1
         }
     }
 }
