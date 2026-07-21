@@ -11,7 +11,20 @@ import {
 	type Vec3
 } from '$utils/dice/cube3d';
 import rollDie from '$utils/dice/rollDie';
-import type { Application, Container, Graphics, Text as PixiText, Matrix } from 'pixi.js';
+import type {
+	Application,
+	Assets as PixiAssets,
+	Container,
+	Graphics,
+	Sprite,
+	Text as PixiText,
+	Texture,
+	Matrix
+} from 'pixi.js';
+
+// Directory the baked face PNGs are served from; a die's face N loads from
+// `${FACE_SRC_BASE}/${id}-${N}.png` — the same art the collection canvas shows.
+const FACE_SRC_BASE = '/dice/generated';
 
 // A pool of six-sided dice drawn as genuine 3D geometry directly inside an
 // existing PixiJS scene, rather than in a canvas of its own. It renders into a
@@ -43,6 +56,10 @@ interface Die {
 	color: number;
 	labels: PixiText[]; // numerals 1..6, index 0 => "1"
 	labelHalf: Array<[number, number]>; // each glyph's unscaled half-size
+	// A textured die (an owned energy die) carries its six baked face PNGs instead
+	// of painted numerals; `faces` is empty for a plain numeral die.
+	faces: Sprite[];
+	faceHalf: Array<[number, number]>;
 }
 
 // The pixi.js constructors the renderer needs, passed in by the host module so
@@ -56,6 +73,17 @@ export interface PixiCtors {
 		style: Record<string, unknown>;
 	}) => PixiText;
 	Matrix: new (a: number, b: number, c: number, d: number, tx: number, ty: number) => Matrix;
+	// Optional so numeral-only rolls (HP, combat) don't need them; the textured
+	// energy roll (rollTextured) requires both to load and paint face PNGs.
+	Sprite?: new (texture?: Texture) => Sprite;
+	Assets?: typeof PixiAssets;
+}
+
+// One die in a textured roll: the die id its six baked face PNGs load from, and an
+// optional body tint. Mirrors the collection canvas's DieSpec.
+export interface EnergyDieSpec {
+	id?: string;
+	color?: number | string;
 }
 
 export interface Dice3DOptions {
@@ -165,7 +193,8 @@ export class Dice3D {
 		cy: number,
 		scale: number,
 		color: number,
-		resting: boolean
+		resting: boolean,
+		textures?: Texture[]
 	): Die {
 		const finalFaceQ = quatNormalize(faceFrontQuat(value));
 		const spinStartQ = randomQuat();
@@ -173,16 +202,32 @@ export class Dice3D {
 		const spinAngle = (Math.random() < 0.5 ? -1 : 1) * Math.PI * 2 * (0.5 + Math.random() * 0.6);
 		const labels: PixiText[] = [];
 		const labelHalf: Array<[number, number]> = [];
-		for (let n = 1; n <= 6; n++) {
-			const text = new this.pixi.Text({
-				text: String(n),
-				style: { fontFamily: 'Arial, sans-serif', fontSize: 120, fontWeight: '700', fill: NUM }
-			});
-			text.anchor.set(0.5);
-			text.visible = false;
-			labels.push(text);
-			labelHalf.push([text.width / 2, text.height / 2]);
-			this.group.addChild(text);
+		const faces: Sprite[] = [];
+		const faceHalf: Array<[number, number]> = [];
+
+		// A textured die paints its six baked face PNGs; a plain die paints numerals.
+		// Only one set is built so draw() has a single source per die.
+		if (textures && this.pixi.Sprite) {
+			for (let n = 1; n <= 6; n++) {
+				const sprite = new this.pixi.Sprite(textures[n - 1]);
+				sprite.anchor.set(0.5);
+				sprite.visible = false;
+				faces.push(sprite);
+				faceHalf.push([sprite.width / 2 || 1, sprite.height / 2 || 1]);
+				this.group.addChild(sprite);
+			}
+		} else {
+			for (let n = 1; n <= 6; n++) {
+				const text = new this.pixi.Text({
+					text: String(n),
+					style: { fontFamily: 'Arial, sans-serif', fontSize: 120, fontWeight: '700', fill: NUM }
+				});
+				text.anchor.set(0.5);
+				text.visible = false;
+				labels.push(text);
+				labelHalf.push([text.width / 2, text.height / 2]);
+				this.group.addChild(text);
+			}
 		}
 		return {
 			value,
@@ -198,15 +243,17 @@ export class Dice3D {
 			scale,
 			color,
 			labels,
-			labelHalf
+			labelHalf,
+			faces,
+			faceHalf
 		};
 	}
 
 	private clearDice() {
 		for (const die of this.dice) {
-			for (const label of die.labels) {
-				label.parent?.removeChild(label);
-				label.destroy();
+			for (const node of [...die.labels, ...die.faces]) {
+				node.parent?.removeChild(node);
+				node.destroy();
 			}
 		}
 		this.dice = [];
@@ -243,10 +290,49 @@ export class Dice3D {
 		);
 	}
 
+	// Lay a face's baked PNG edge to edge over its projected quad — the same
+	// full-bleed affine fit the collection canvas uses. `light` (0..1) tints it so a
+	// face angled away darkens exactly like the backing polygon behind it.
+	private positionFace(
+		die: Die,
+		face: (typeof CUBE_FACES)[number],
+		worldQ: Quat,
+		light: number
+	) {
+		const sprite = die.faces[face.value - 1];
+		if (!sprite) return;
+		const [hw, hh] = die.faceHalf[face.value - 1];
+		// The face plane spans u,v in [-1, 1], so a span of 1 covers the whole face.
+		const spanV = 1;
+		const spanU = spanV * (hw / hh);
+		const at = (u: number, v: number): [number, number] => {
+			const [x, y] = project(
+				rotateVec(worldQ, [
+					face.normal[0] + face.right[0] * u + face.up[0] * v,
+					face.normal[1] + face.right[1] * u + face.up[1] * v,
+					face.normal[2] + face.right[2] * u + face.up[2] * v
+				]),
+				die.cx,
+				die.cy,
+				die.scale
+			);
+			return [x, y];
+		};
+		const [cx, cy] = at(0, 0);
+		const [rx, ry] = at(spanU, 0);
+		const [ux, uy] = at(0, spanV);
+		sprite.visible = true;
+		sprite.tint = shade(0xffffff, light);
+		sprite.setFromMatrix(
+			new this.pixi.Matrix((rx - cx) / hw, (ry - cy) / hw, (cx - ux) / hh, (cy - uy) / hh, cx, cy)
+		);
+	}
+
 	// Builds the Graphics geometry for the current pose of every die.
 	private draw() {
 		this.g.clear();
-		for (const die of this.dice) for (const label of die.labels) label.visible = false;
+		for (const die of this.dice)
+			for (const node of [...die.labels, ...die.faces]) node.visible = false;
 
 		for (const die of this.dice) {
 			const worldQ = die.cubeQ;
@@ -276,7 +362,10 @@ export class Dice3D {
 					.poly(poly)
 					.fill(shade(die.color, light))
 					.stroke({ width: 2, color: edge, join: 'round', alignment: 0.5 });
-				this.positionLabel(die, face, worldQ);
+				// A textured die paints its baked face PNG over the backing polygon (which
+				// fills any sub-pixel edge gap); a plain die paints its numeral.
+				if (die.faces.length) this.positionFace(die, face, worldQ, light);
+				else this.positionLabel(die, face, worldQ);
 			}
 		}
 	}
@@ -360,18 +449,76 @@ export class Dice3D {
 		const col = toColor(color) ?? this.baseColor;
 		const { cell, scale } = layout(count, S);
 		for (let i = 0; i < count; i++) {
-			// Row 0 is the bottom row and fills first; overflow rows stack above it, so
-			// the throw grows upward from the box centre and the bottom row stays anchored.
-			const r = Math.floor(i / MAX_DICE_COLS);
-			const rowStart = r * MAX_DICE_COLS;
-			const rowCount = Math.min(MAX_DICE_COLS, count - rowStart);
-			const c = i - rowStart;
-
-			// Each row is centred horizontally on the box centre; the bottom row sits on
-			// the box centre vertically, each higher row one cell above the last.
-			const cx = S / 2 + (c - (rowCount - 1) / 2) * cell;
-			const cy = S / 2 - r * cell;
+			const { cx, cy } = this.dieCenter(i, count, cell, S);
 			this.dice.push(this.makeDie(rollDie(6), cx, cy, scale, col, false));
+		}
+		this.animStart = performance.now();
+		this.animating = true;
+		return new Promise((res) => (this.rollResolve = res));
+	}
+
+	// Group-space centre of die `i` of `count`, laid out in rows of MAX_DICE_COLS.
+	// Row 0 is the bottom row and fills first; overflow rows stack above it, so the
+	// throw grows upward from the box centre and the bottom row stays anchored.
+	private dieCenter(i: number, count: number, cell: number, S: number): { cx: number; cy: number } {
+		const r = Math.floor(i / MAX_DICE_COLS);
+		const rowStart = r * MAX_DICE_COLS;
+		const rowCount = Math.min(MAX_DICE_COLS, count - rowStart);
+		const c = i - rowStart;
+		// Each row is centred horizontally on the box centre; the bottom row sits on the
+		// box centre vertically, each higher row one cell above the last.
+		return { cx: S / 2 + (c - (rowCount - 1) / 2) * cell, cy: S / 2 - r * cell };
+	}
+
+	// Roll a set of *owned* dice, each painted with its own baked face PNGs and body
+	// tint (from `specs`), resolving with their landed face indices (1..6) once they
+	// settle — the caller maps each index onto that die's face to score its energy.
+	// The face textures are loaded up front so a slow asset never leaves half-built
+	// dice drawn; a die whose textures fail to load (or that has no id) falls back to
+	// a plain numeral die in its body tint.
+	async rollTextured(
+		specs: EnergyDieSpec[],
+		center?: { x: number; y: number }
+	): Promise<number[]> {
+		if (this.rollResolve) {
+			const resolve = this.rollResolve;
+			this.rollResolve = null;
+			resolve(this.dice.map((d) => d.value));
+		}
+		this.animating = false;
+
+		const Assets = this.pixi.Assets;
+		const textureSets = await Promise.all(
+			specs.map(async (spec): Promise<Texture[] | undefined> => {
+				if (!spec.id || !Assets || !this.pixi.Sprite) return undefined;
+				try {
+					return await Promise.all(
+						Array.from({ length: 6 }, (_, i) =>
+							Assets.load<Texture>(`${FACE_SRC_BASE}/${spec.id}-${i + 1}.png`)
+						)
+					);
+				} catch {
+					return undefined; // fall back to numerals for this die
+				}
+			})
+		);
+
+		this.clearDice();
+		this.group.alpha = 1;
+
+		const S = this.boxSize;
+		if (center) this.group.position.set(center.x - S / 2, center.y - S / 2);
+
+		if (specs.length === 0) {
+			this.draw();
+			return [];
+		}
+
+		const { cell, scale } = layout(specs.length, S);
+		for (let i = 0; i < specs.length; i++) {
+			const { cx, cy } = this.dieCenter(i, specs.length, cell, S);
+			const col = toColor(specs[i].color) ?? this.baseColor;
+			this.dice.push(this.makeDie(rollDie(6), cx, cy, scale, col, false, textureSets[i]));
 		}
 		this.animStart = performance.now();
 		this.animating = true;
