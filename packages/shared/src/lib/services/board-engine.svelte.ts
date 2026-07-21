@@ -1101,9 +1101,6 @@ $effect(() => {
 const HAND_CARD_W = CELL_WIDTH;
 const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
 const HAND_CARD_GAP = 6;
-// World-px gap between the bottom edge of the player's red board plaque and the top
-// of the hand row sitting under it.
-const HAND_PLAQUE_GAP = 24;
 
 // The world-space hand row (built in init, added to `camera`) and a token bumped on
 // each render so a slow PNG load from a superseded render can't paint a stale card.
@@ -1332,35 +1329,37 @@ async function renderHand() {
 		return;
 	}
 
-	// The hand is one horizontal row of upright cards sitting under the player's red
-	// board plaque, on the grid's bottom-right side. Derive the plaque's on-screen box
-	// from its ground matrix (the same transform that lays the plaque flat), then center
-	// the row horizontally on the plaque and drop it just below the plaque's lowest edge.
-	const plaqueCorners = [
-		PLAYER_BOARD_MATRIX.apply({ x: 0, y: 0 }),
-		PLAYER_BOARD_MATRIX.apply({ x: TAG_WIDTH, y: 0 }),
-		PLAYER_BOARD_MATRIX.apply({ x: 0, y: TAG_HEIGHT }),
-		PLAYER_BOARD_MATRIX.apply({ x: TAG_WIDTH, y: TAG_HEIGHT })
-	];
-	const plaqueCenterX = plaqueCorners.reduce((sum, p) => sum + p.x, 0) / plaqueCorners.length;
-	const plaqueBottomY = Math.max(...plaqueCorners.map((p) => p.y));
+	// The hand runs along the grid's bottom-left boundary — the isometric edge from the
+	// bottom corner (cell L12) up to the left corner (cell A12) — as a diagonal row of
+	// upright cards tucked just outside it. Every card's top-right corner is pinned to
+	// that border line, so the row steps up-and-left in lockstep with the grid's 2:1 iso
+	// slope and tracks the board as the camera pans/zooms (handLayer lives in world space).
+	//
+	// The two edge vertices in world coords: the bottom vertex is the outer (lower) point
+	// of the L12 corner cell, the left vertex the outer (left) point of the A12 corner cell.
+	const bottomVertex = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
+	bottomVertex.y += TILE_HEIGHT / 2;
+	const leftVertex = isoPosOf(0, GRID_HEIGHT - 1);
+	leftVertex.x -= TILE_WIDTH / 2;
+	// Rise-over-run of that border (the constant 1:2 iso diagonal, for any grid size).
+	const edgeSlope = (leftVertex.y - bottomVertex.y) / (leftVertex.x - bottomVertex.x);
 
-	// The hand is laid out cheapest-first: sort a copy by cost ascending, then fill a
-	// single row in that order. Fix each card's world position up front.
+	// Lay the hand cheapest-first, stepping up-left along the border from the bottom
+	// corner. One card-width plus a gap per step, so neighbours never overlap; each
+	// card's top-right corner rides the border and its body hangs just below-left of the
+	// grid, clear of the play area.
 	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
-	const rowWidth = ordered.length * HAND_CARD_W + (ordered.length - 1) * HAND_CARD_GAP;
-	const leftX = plaqueCenterX - rowWidth / 2;
-	// Drop the hand below whichever reaches lower: the plaque itself or the player's
-	// match-dice block laid past it (reserved at full size so the row never jumps as
-	// dice are consumed), so the dice and the hand never overlap.
-	const rowY = Math.max(plaqueBottomY, playerDiceBlockBottomY()) + HAND_PLAQUE_GAP;
+	const step = HAND_CARD_W + HAND_CARD_GAP;
 
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
-	let x = leftX;
-	for (const card of ordered) {
-		placements.push({ card, x, y: rowY });
-		x += HAND_CARD_W + HAND_CARD_GAP;
-	}
+	ordered.forEach((card, i) => {
+		// Top-right corner marching up-left along the border, then back off one card width
+		// to reach the card's top-left origin (its top edge stays horizontal, so only the
+		// corner touches the diagonal — the border pulls away above the rest of the top edge).
+		const cornerX = bottomVertex.x - i * step;
+		const cornerY = bottomVertex.y + edgeSlope * (cornerX - bottomVertex.x);
+		placements.push({ card, x: cornerX - HAND_CARD_W, y: cornerY });
+	});
 
 	// Preload every card's PNG in parallel (null on a miss → placeholder).
 	const textures = await Promise.all(
@@ -1748,23 +1747,6 @@ function matchDieCenter(
 		cx: mid.x + uHat.x * along + vHat.x * out,
 		cy: mid.y + uHat.y * along + vHat.y * out
 	};
-}
-
-// The lowest screen y the player's fully stocked dice block (plus its Roll button)
-// reaches, so the hand can be dropped clear below it. Computed against a full pool
-// (MATCH_DICE_MAX_ROWS rows) so the reservation — and the hand row — stays put as dice
-// are consumed rather than creeping up.
-function playerDiceBlockBottomY(): number {
-	const { uHat, vHat, mid } = diceBlockAxes(PLAYER_BOARD_MATRIX);
-	const fullCount = MATCH_DIE_COLS * MATCH_DICE_MAX_ROWS;
-	let maxY = mid.y;
-	for (let k = 0; k < fullCount; k++) {
-		const { cy } = matchDieCenter(k, fullCount, mid, uHat, vHat);
-		maxY = Math.max(maxY, cy + MATCH_DIE_SIZE / 2);
-	}
-	// The Roll button hangs one row past the block.
-	const btnOut = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
-	return Math.max(maxY, mid.y + vHat.y * btnOut + ACTION_BTN_H);
 }
 
 // (Re)draw both sides' remaining match dice past their plaques. Preloads only the three
