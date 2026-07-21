@@ -15,6 +15,7 @@
 import {
 	Application,
 	Assets,
+	ColorMatrixFilter,
 	Container,
 	Graphics,
 	Matrix,
@@ -853,10 +854,17 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	const affordable = canSummon(card);
 
 	// The whole card as one pointer target, positioned at the card's world corner so its
-	// children lay out in local (0,0)-based coords. 70% opacity when unaffordable.
+	// children lay out in local (0,0)-based coords. Unaffordable cards are drawn at 70%
+	// opacity and desaturated to black-and-white (the canvas echo of the DOM tray's
+	// grayscale + dimmed tiles).
 	const cardContainer = new Container();
 	cardContainer.position.set(x, y);
 	cardContainer.alpha = affordable ? 1 : 0.7;
+	if (!affordable) {
+		const grayscale = new ColorMatrixFilter();
+		grayscale.desaturate();
+		cardContainer.filters = [grayscale];
+	}
 	cardContainer.eventMode = 'static';
 	cardContainer.cursor = 'pointer';
 	// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in the
@@ -967,14 +975,16 @@ async function renderHand() {
 	const leftX = leftCorner.x - HAND_CARD_W / 2;
 	const topY = worldCenterY - blockHeight / 2 + HAND_BOTTOM_BIAS;
 
-	// Fix each card's world position up front (in draw order, filling the rows).
+	// The hand is laid out cheapest-first: sort a copy by cost ascending, then fill the
+	// rows in that order. Fix each card's world position up front.
+	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
 	let index = 0;
 	let rowY = topY;
 	for (const count of HAND_ROWS) {
 		let x = leftX;
-		for (let c = 0; c < count && index < hand.length; c++) {
-			placements.push({ card: hand[index], x, y: rowY });
+		for (let c = 0; c < count && index < ordered.length; c++) {
+			placements.push({ card: ordered[index], x, y: rowY });
 			x += HAND_CARD_W + HAND_CARD_GAP;
 			index++;
 		}
