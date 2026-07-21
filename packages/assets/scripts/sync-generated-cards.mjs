@@ -8,7 +8,7 @@
 //
 // Usage: sync-generated-cards <destStaticDir>   (dest resolved against cwd)
 
-import { mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs';
+import { mkdirSync, existsSync, readdirSync, statSync, copyFileSync, rmSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -27,14 +27,32 @@ if (!existsSync(from)) {
 	process.exit(0);
 }
 
+// The assets package is the single source of truth, so mirror it rather than
+// merely copying over: a card that was deleted or re-baked (its old PNG removed)
+// here must not survive as a stale bitmap in the destination — that is exactly
+// how a broken render lingers on after the good one is regenerated.
+const sourceFiles = new Set(
+	readdirSync(from).filter((f) => statSync(join(from, f)).isFile())
+);
+
 mkdirSync(to, { recursive: true });
-let copied = 0;
-for (const f of readdirSync(from)) {
-	const src = join(from, f);
-	if (statSync(src).isFile()) {
-		copyFileSync(src, join(to, f));
-		copied++;
+
+let removed = 0;
+for (const f of readdirSync(to)) {
+	const dest = join(to, f);
+	if (statSync(dest).isFile() && !sourceFiles.has(f)) {
+		rmSync(dest);
+		removed++;
 	}
 }
 
-console.log(`[sync-generated-cards] synced ${copied} generated card PNG(s) into ${to}`);
+let copied = 0;
+for (const f of sourceFiles) {
+	copyFileSync(join(from, f), join(to, f));
+	copied++;
+}
+
+console.log(
+	`[sync-generated-cards] synced ${copied} generated card PNG(s) into ${to}` +
+		(removed ? ` (removed ${removed} stale file(s))` : '')
+);
