@@ -9,7 +9,9 @@ import { serveDataAssets } from './vite/serve-data-assets';
 export default defineConfig({
 	plugins: [serveDataAssets(), tailwindcss(), sveltekit()],
 	server: {
-		// A distinct port so admin can run alongside the frontend dev server.
-		port: 5174
+		// The admin dev server must always run on 6040; fail rather than
+		// silently pick another port when it is taken.
+		port: 6040,
+		strictPort: true
 	}
 });
