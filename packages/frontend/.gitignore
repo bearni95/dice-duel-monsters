@@ -8,3 +8,7 @@
 /static/card-effects/
 /static/decks/
 /static/dice/
+
+# Generated card PNGs — the source of truth lives in the `assets` package and is
+# copied in by sync-generated-cards before `dev`/`build` (see the gen:data script).
+/static/cards/generated/

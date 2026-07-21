@@ -5,8 +5,9 @@
 	"type": "module",
 	"scripts": {
 		"sync:data": "sync-served-data static",
+		"sync:cards": "sync-generated-cards static",
 		"gen:catalog": "CARD_CATALOG_OUT=static/cards/catalog.json build-card-catalog",
-		"gen:data": "pnpm sync:data && pnpm gen:catalog",
+		"gen:data": "pnpm sync:data && pnpm sync:cards && pnpm gen:catalog",
 		"dev": "pnpm gen:data && vite dev",
 		"dev:qq": "node scripts/generate-qq-locale.js",
 		"build": "pnpm gen:data && vite build",
@@ -24,6 +25,7 @@
 	},
 	"dependencies": {
 		"data": "workspace:*",
+		"assets": "workspace:*",
 		"shared": "workspace:*",
 		"@supabase/supabase-js": "^2.110.7",
 		"@sveltejs/adapter-static": "^3.0.9",
