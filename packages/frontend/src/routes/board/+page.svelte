@@ -12,6 +12,7 @@
 	import CombatResultToast from '$components/board/CombatResultToast.svelte';
 	import RivalTurnBadge from '$components/board/RivalTurnBadge.svelte';
 	import GameOverModal from '$components/board/GameOverModal.svelte';
+	import DicePicker from '$components/board/DicePicker.svelte';
 
 	const engine = createBoardEngine();
 
@@ -64,6 +65,14 @@
 		{/if}
 	</div>
 </div>
+
+{#if engine.pickingDice}
+	<DicePicker
+		pool={engine.dicePool}
+		pickCount={engine.dicePickCount}
+		onconfirm={(dice) => engine.confirmDicePick(dice)}
+	/>
+{/if}
 
 {#if engine.rivalThinking}
 	<RivalTurnBadge />
