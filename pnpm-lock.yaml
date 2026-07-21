@@ -13,6 +13,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.110.7
         version: 2.110.7
+      assets:
+        specifier: workspace:*
+        version: link:../assets
       classnames:
         specifier: ^2.5.1
         version: 2.5.1
@@ -71,6 +74,8 @@ importers:
       vite:
         specifier: ^7.0.4
         version: 7.3.6(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)
+
+  packages/assets: {}
 
   packages/data: {}
 

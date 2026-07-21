@@ -21,7 +21,8 @@ export const DICE_FILE = dataPath('dice', 'dice.json');
 export const CATALOG_SCRIPT = require.resolve('data/scripts/build-card-catalog.mjs');
 export const CATALOG_OUT = dataPath('dist', 'catalog.json');
 
-// Generated card PNGs stay served from the frontend's static tree (they are
-// images, not part of the JSON data set). packages/data and packages/frontend
-// are siblings, so resolve it relative to the data root.
-export const GENERATED_DIR = join(DATA_ROOT, '..', 'frontend', 'static', 'cards', 'generated');
+// Generated card PNGs live in the `assets` package (their git-tracked home, from
+// which the frontend syncs them into its static tree). The admin bake endpoints
+// read and write them there directly; resolve the dir from that workspace dep.
+const ASSETS_ROOT = dirname(require.resolve('assets/package.json'));
+export const GENERATED_DIR = join(ASSETS_ROOT, 'cards', 'generated');

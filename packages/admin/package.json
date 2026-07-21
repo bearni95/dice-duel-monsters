@@ -17,6 +17,7 @@
 	"dependencies": {
 		"shared": "workspace:*",
 		"data": "workspace:*",
+		"assets": "workspace:*",
 		"@supabase/supabase-js": "^2.110.7",
 		"classnames": "^2.5.1",
 		"pixi.js": "^8.19.0",

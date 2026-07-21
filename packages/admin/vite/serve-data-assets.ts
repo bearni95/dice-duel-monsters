@@ -5,17 +5,18 @@ import type { Plugin } from 'vite';
 
 // Serves the runtime game assets the admin pages fetch — the same URLs the
 // shipped frontend serves from its static tree — straight from the `data`
-// package (and, for generated card PNGs, the frontend's static tree). Because it
-// reads through on every request, an edit made via an admin write-endpoint is
-// immediately visible to the admin UI with no copy/sync step.
+// package (and, for generated card PNGs, the `assets` package where the admin
+// bake endpoints write them). Because it reads through on every request, an edit
+// made via an admin write-endpoint is immediately visible to the admin UI with
+// no copy/sync step.
 const require = createRequire(import.meta.url);
 const DATA_ROOT = dirname(require.resolve('data/package.json'));
-const FRONTEND_GENERATED = join(DATA_ROOT, '..', 'frontend', 'static', 'cards', 'generated');
+const ASSETS_GENERATED = join(dirname(require.resolve('assets/package.json')), 'cards', 'generated');
 
 // Ordered URL matchers → absolute file path. First match wins.
 const routes: Array<{ re: RegExp; to: (m: RegExpMatchArray) => string }> = [
 	{ re: /^\/cards\/catalog\.json$/, to: () => join(DATA_ROOT, 'dist', 'catalog.json') },
-	{ re: /^\/cards\/generated\/([^/]+)$/, to: (m) => join(FRONTEND_GENERATED, m[1]) },
+	{ re: /^\/cards\/generated\/([^/]+)$/, to: (m) => join(ASSETS_GENERATED, m[1]) },
 	{ re: /^\/card-effects\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'card-effects', m[1]) },
 	{ re: /^\/decks\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'decks', m[1]) },
 	{ re: /^\/dice\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'dice', m[1]) }
