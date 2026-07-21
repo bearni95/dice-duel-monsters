@@ -19,6 +19,11 @@
 	let host: HTMLDivElement;
 	let leftPanel: HTMLElement | undefined = $state();
 
+	// Whether the right column (hand + detail) is collapsed. When collapsed the sidebar
+	// takes no width and the canvas flexes to fill the whole row (the engine's resize
+	// observer reframes the board into the new space automatically).
+	let sidebarCollapsed = $state(false);
+
 	// Boot the renderer once the host is in the DOM; the engine returns its teardown.
 	onMount(() => engine.mount(host, leftPanel));
 </script>
@@ -36,6 +41,18 @@
 	     track the canvas, not the whole window. The player and rival "board" plaques are
 	     drawn on the canvas itself (Pixi objects laid flat on the isometric ground). -->
 	<div bind:this={host} class="viewport">
+		<!-- Collapse toggle: pinned to the top-right corner of the canvas, which is exactly
+		     the sidebar's left edge when it's open — so the button stays put and visible
+		     whether the sidebar is collapsed or not. -->
+		<button
+			class="btn btn-circle btn-sm absolute top-2 right-2 z-20"
+			onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+			aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+			title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+		>
+			{sidebarCollapsed ? '«' : '»'}
+		</button>
+
 		{#if engine.combatBoxHits && engine.combatBoxHits.length}
 			<CombatHitMarkers hits={engine.combatBoxHits} />
 		{/if}
@@ -53,7 +70,7 @@
 		</aside>
 	</div>
 
-	<BoardSidebar {engine} />
+	<BoardSidebar {engine} collapsed={sidebarCollapsed} />
 </div>
 
 {#if engine.rivalThinking}
