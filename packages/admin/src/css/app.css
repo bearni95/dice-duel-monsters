@@ -1,2 +1,9 @@
 @import 'tailwindcss';
 @plugin "daisyui";
+
+/* The shared UI (GameCard and friends) lives outside this app's tree, so
+   Tailwind's automatic content detection never sees it. Without this the
+   arbitrary-value utilities used only in shared components (w-[18px] icons,
+   border-[5px] frame, text-[11px] stats, aspect-square, mask-image icons) are
+   dropped from the build, which is what collapsed the baked /print card PNGs. */
+@source "../../../shared/src";
