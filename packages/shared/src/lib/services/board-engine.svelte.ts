@@ -1344,21 +1344,22 @@ async function renderHand() {
 	// Rise-over-run of that border (the constant 1:2 iso diagonal, for any grid size).
 	const edgeSlope = (leftVertex.y - bottomVertex.y) / (leftVertex.x - bottomVertex.x);
 
-	// Lay the hand cheapest-first, stepping up-left along the border from the bottom
-	// corner. One card-width plus a gap per step, so neighbours never overlap; each
-	// card's top-right corner rides the border and its body hangs just below-left of the
-	// grid, clear of the play area.
+	// Lay the hand cheapest-first, starting at the grid's leftmost point: the first card's
+	// left margin sits on the left vertex, and the row steps down-right along the border
+	// toward the bottom corner. One card-width plus a gap per step, so neighbours never
+	// overlap; each card's top-right corner rides the border and its body hangs just
+	// below-left of the grid, clear of the play area.
 	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
 	const step = HAND_CARD_W + HAND_CARD_GAP;
 
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
 	ordered.forEach((card, i) => {
-		// Top-right corner marching up-left along the border, then back off one card width
-		// to reach the card's top-left origin (its top edge stays horizontal, so only the
-		// corner touches the diagonal — the border pulls away above the rest of the top edge).
-		const cornerX = bottomVertex.x - i * step;
-		const cornerY = bottomVertex.y + edgeSlope * (cornerX - bottomVertex.x);
-		placements.push({ card, x: cornerX - HAND_CARD_W, y: cornerY });
+		// The card's top-left origin marches down-right from the left vertex; its top-right
+		// corner (one card-width along) rides the border. The top edge stays horizontal, so
+		// only that corner touches the diagonal — the border pulls away above the rest.
+		const leftX = leftVertex.x + i * step;
+		const cornerY = bottomVertex.y + edgeSlope * (leftX + HAND_CARD_W - bottomVertex.x);
+		placements.push({ card, x: leftX, y: cornerY });
 	});
 
 	// Preload every card's PNG in parallel (null on a miss → placeholder).
