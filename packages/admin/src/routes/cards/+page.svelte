@@ -12,7 +12,7 @@
 	import type { CardEffectImplementation } from '$types/card-effect.type';
 	import { cardEffects, ensureCardEffects } from '$services/card-effects.service';
 	import { decks as deckStore, refreshDecks } from '$services/deck.service';
-	import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
+	import { enabledCardIds } from '$utils/deck/enabledCardIds';
 	import type { Deck } from '$types/deck.type';
 
 	// Paginated browser over just the cards that belong to the saved decks (the
@@ -30,26 +30,22 @@
 	let loading = $state(true);
 	let loadError = $state('');
 
-	// The union of every saved deck's enabled card ids (and separately their forced
-	// ids), derived from the deck store. These drive which cards the browser shows;
-	// they update whenever a deck is added, edited, or removed.
+	// The union of every saved deck's enabled card ids, derived from the deck store.
+	// This drives which cards the browser shows; it updates whenever a deck is
+	// added, edited, or removed.
 	let deckCardIds = $state<number[]>([]);
-	let deckForcedIds = $state<number[]>([]);
 
 	// Recompute the deck-derived card set on every store change and reload from the
 	// first page, so newly imported decks immediately show their cards. The store
 	// starts empty and is populated by refreshDecks() in onMount.
 	deckStore.subscribe((list: Deck[]) => {
 		const ids = new Set<number>();
-		const forced = new Set<number>();
 		for (const deck of list) {
 			for (const id of enabledCardIds(deck, [...deck.main, ...deck.extra, ...deck.side])) {
 				ids.add(id);
 			}
-			for (const id of forcedCardIds(deck)) forced.add(id);
 		}
 		deckCardIds = [...ids];
-		deckForcedIds = [...forced];
 		reload();
 	});
 
@@ -105,7 +101,6 @@
 		try {
 			const res = await cardApiAdapter.loadDeckCatalog(
 				deckCardIds,
-				deckForcedIds,
 				page,
 				search,
 				categoryFilter,
