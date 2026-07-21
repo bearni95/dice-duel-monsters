@@ -1406,14 +1406,13 @@ function buildActionButton(
 	label: string,
 	variant: keyof typeof ACTION_VARIANTS,
 	enabled: boolean,
-	onClick: () => void,
-	width: number = ACTION_BTN_W
+	onClick: () => void
 ): Container {
 	const btn = new Container();
 	btn.alpha = enabled ? 1 : 0.45;
 
 	const bg = new Graphics()
-		.roundRect(0, 0, width, ACTION_BTN_H, 6)
+		.roundRect(0, 0, ACTION_BTN_W, ACTION_BTN_H, 6)
 		.fill({ color: ACTION_VARIANTS[variant] });
 	btn.addChild(bg);
 
@@ -1424,9 +1423,9 @@ function buildActionButton(
 	});
 	text.anchor.set(0.5);
 	// Shrink an over-long label to fit inside the button width.
-	const maxTextW = width - 16;
+	const maxTextW = ACTION_BTN_W - 16;
 	if (text.width > maxTextW) text.scale.set(maxTextW / text.width);
-	text.position.set(width / 2, ACTION_BTN_H / 2);
+	text.position.set(ACTION_BTN_W / 2, ACTION_BTN_H / 2);
 	btn.addChild(text);
 
 	if (enabled) {
@@ -1696,9 +1695,6 @@ const MATCH_DIE_COLS = 6;
 const MATCH_DIE_COL_STEP = 50;
 const MATCH_DIE_ROW_STEP = 40;
 const MATCH_DIE_OUT_GAP = 30;
-// World-px gap between the last dice row's outer edge and the near edge of the Roll bar
-// that renders as one more row past the block.
-const MATCH_DIE_ROLL_GAP = 8;
 
 // The number of rows a fully stocked dice block spans (MATCH_DIE_COLS × this = the full
 // pool). Used to reserve the block's footprint so the hand and the board frame leave room
@@ -1889,29 +1885,18 @@ async function renderDiceDisplay() {
 			.sort((a, b) => a.cy - b.cy)
 			.forEach(({ node }) => diceDisplayLayer!.addChild(node));
 
-		// The player's Roll button renders as one more row past the dice while the pick is
-		// open: a flat bar in the same isometric plane, spanning the dice-row width and
-		// skewed onto the block's uHat/vHat axes so it matches the cubes' orientation rather
-		// than standing upright.
+		// The player's Roll button, one row past the block while the pick is open.
 		if (side.interactive && pickingDice) {
 			const rows = Math.max(1, Math.ceil(slotTotal / MATCH_DIE_COLS));
-			const rowWidth = (MATCH_DIE_COLS - 1) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE;
-			// Near edge of the bar: just past the last dice row's outer edge.
-			const lastRowOut = MATCH_DIE_OUT_GAP + (rows - 1) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
-			const outNear = lastRowOut + MATCH_DIE_SIZE / 2 + MATCH_DIE_ROLL_GAP;
+			const out = MATCH_DIE_OUT_GAP + rows * MATCH_DIE_ROW_STEP + MATCH_DIE_ROW_STEP;
 			const enabled = dicePick.length === dicePickCount();
 			const btn = buildActionButton(
 				`Roll ${dicePick.length}/${dicePickCount()}`,
 				enabled ? 'primary' : 'neutral',
 				enabled,
-				rollDicePick,
-				rowWidth
+				rollDicePick
 			);
-			// Lay the bar flat: local +x → uHat (along the row), local +y → vHat (outward),
-			// with its origin at the row-centred near-edge corner.
-			const p0x = mid.x - uHat.x * (rowWidth / 2) + vHat.x * outNear;
-			const p0y = mid.y - uHat.y * (rowWidth / 2) + vHat.y * outNear;
-			btn.setFromMatrix(new Matrix(uHat.x, uHat.y, vHat.x, vHat.y, p0x, p0y));
+			btn.position.set(mid.x + vHat.x * out - ACTION_BTN_W / 2, mid.y + vHat.y * out);
 			diceDisplayLayer.addChild(btn);
 		}
 	}
@@ -1969,19 +1954,9 @@ function playAreaPoints(): { x: number; y: number }[] {
 			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
 			pts.push({ x: cx + MATCH_DIE_SIZE, y: cy + MATCH_DIE_SIZE });
 		}
-		// The Roll bar renders as a flat row one step past the block; reserve its far corners
-		// (row-wide, laid along uHat and pushed out along vHat) so it stays in bounds too.
-		const rowWidth = (MATCH_DIE_COLS - 1) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE;
-		const lastRowOut = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS - 1) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
-		const outFar = lastRowOut + MATCH_DIE_SIZE / 2 + MATCH_DIE_ROLL_GAP + ACTION_BTN_H;
-		pts.push({
-			x: mid.x + uHat.x * (rowWidth / 2) + vHat.x * outFar,
-			y: mid.y + uHat.y * (rowWidth / 2) + vHat.y * outFar
-		});
-		pts.push({
-			x: mid.x - uHat.x * (rowWidth / 2) + vHat.x * outFar,
-			y: mid.y - uHat.y * (rowWidth / 2) + vHat.y * outFar
-		});
+		// The Roll button hangs one row past the block; keep its reach in bounds too.
+		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
+		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
 	}
 
 	return pts;
