@@ -391,6 +391,13 @@ export function createBoardEngine() {
 		return card.cost <= energyPoints;
 	}
 
+	// Flag a hand card for summoning — the player then picks a tile to place it on.
+	// Driven by both the DOM hand tiles' Select button and the on-canvas hand cards'
+	// summon button.
+	function selectMonster(card: IGameCreature) {
+		selectedMonster = card;
+	}
+
 	// Hand order: summonable (affordable) cards first, then by cost ascending.
 	let sortedHand = $derived(
 		[...hand].sort((a, b) => {
@@ -792,57 +799,125 @@ const HAND_BOTTOM_BIAS = 150;
 let handLayer: Container | undefined;
 let handToken = 0;
 
+// A pill-shaped "Summon" button centered on a hand card, mirroring the DOM hand
+// tray's Select overlay button. Enabled buttons paint primary-blue; disabled ones
+// (unaffordable card, or a summon/move/combat already in flight) paint gray and take
+// no clicks. Returned as a self-contained Container sized to its label; the caller
+// positions and wires it. Text laid out in local coords with the label centered.
+function buildSummonButton(text: string, enabled: boolean): Container {
+	const btn = new Container();
+
+	const label = new Text({
+		text,
+		style: { fill: 0xffffff, fontSize: 13, fontWeight: 'bold' },
+		resolution: LABEL_RESOLUTION
+	});
+	label.anchor.set(0.5);
+
+	const padX = 12;
+	const padY = 7;
+	const w = label.width + padX * 2;
+	const h = label.height + padY * 2;
+
+	const bg = new Graphics()
+		.roundRect(0, 0, w, h, 6)
+		.fill({ color: enabled ? 0x2563eb : 0x4b5563 });
+	btn.addChild(bg);
+
+	label.position.set(w / 2, h / 2);
+	btn.addChild(label);
+
+	return btn;
+}
+
 // Draw one hand card as an upright PNG at world (x, y) (its top-left) from an already-
 // loaded texture, or a "card not found" placeholder when the bitmap is missing — the
 // same fallback the plaques and hand tiles use. Synchronous: renderHand preloads every
 // texture first, so the whole hand is laid down in one atomic pass (no per-card await,
-// so a re-render can't leave a half-drawn hand). Cards too costly for the current energy
-// pool are dimmed, echoing the sidebar's grayed-out tiles.
+// so a re-render can't leave a half-drawn hand).
+//
+// The card is a single container: clicking it inspects the card (like the DOM hand
+// tile), and hovering reveals a darkening scrim with a centered Summon button that
+// flags the card for placement (like the tile's Select overlay). Cards too costly for
+// the current energy pool are shown at 70% opacity with their Summon button disabled,
+// echoing the sidebar's dimmed tiles.
 function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture | null) {
 	if (!handLayer) return;
 
-	const dim = canSummon(card) ? 1 : 0.45;
+	const affordable = canSummon(card);
+
+	// The whole card as one pointer target, positioned at the card's world corner so its
+	// children lay out in local (0,0)-based coords. 70% opacity when unaffordable.
+	const cardContainer = new Container();
+	cardContainer.position.set(x, y);
+	cardContainer.alpha = affordable ? 1 : 0.7;
+	cardContainer.eventMode = 'static';
+	cardContainer.cursor = 'pointer';
+	// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in the
+	// DOM hand tray (both call inspectCard, loading it into the detail panel).
+	cardContainer.on('pointertap', () => inspectCard(card));
 
 	if (texture) {
 		const sprite = new Sprite(texture);
 		sprite.width = HAND_CARD_W;
 		sprite.height = HAND_CARD_H;
-		sprite.position.set(x, y);
-		sprite.alpha = dim;
-		// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in
-		// the DOM hand tray (both call inspectCard, loading it into the detail panel).
-		sprite.eventMode = 'static';
-		sprite.cursor = 'pointer';
-		sprite.on('pointertap', () => inspectCard(card));
-		handLayer.addChild(sprite);
-		return;
+		cardContainer.addChild(sprite);
+	} else {
+		const box = new Graphics()
+			.rect(0, 0, HAND_CARD_W, HAND_CARD_H)
+			.fill({ color: 0x000000, alpha: 0.3 })
+			.stroke({ width: 1, color: 0xffffff, alpha: 0.6 });
+		cardContainer.addChild(box);
+
+		const label = new Text({
+			text: 'card not found',
+			style: {
+				fill: 0xffffff,
+				fontSize: 10,
+				align: 'center',
+				wordWrap: true,
+				wordWrapWidth: HAND_CARD_W - 8
+			},
+			resolution: LABEL_RESOLUTION
+		});
+		label.anchor.set(0.5);
+		label.position.set(HAND_CARD_W / 2, HAND_CARD_H / 2);
+		cardContainer.addChild(label);
 	}
 
-	const box = new Graphics()
-		.rect(x, y, HAND_CARD_W, HAND_CARD_H)
-		.fill({ color: 0x000000, alpha: 0.3 })
-		.stroke({ width: 1, color: 0xffffff, alpha: 0.6 });
-	box.alpha = dim;
-	box.eventMode = 'static';
-	box.cursor = 'pointer';
-	box.on('pointertap', () => inspectCard(card));
-	handLayer.addChild(box);
+	// Hover overlay: a darkening scrim plus the centered Summon button, both hidden until
+	// the pointer enters the card (pointerenter/leave, so moving onto the button doesn't
+	// toggle it off the way bubbling over/out would).
+	const hover = new Container();
+	hover.visible = false;
 
-	const label = new Text({
-		text: 'card not found',
-		style: {
-			fill: 0xffffff,
-			fontSize: 10,
-			align: 'center',
-			wordWrap: true,
-			wordWrapWidth: HAND_CARD_W - 8
-		},
-		resolution: LABEL_RESOLUTION
-	});
-	label.anchor.set(0.5);
-	label.alpha = dim;
-	label.position.set(x + HAND_CARD_W / 2, y + HAND_CARD_H / 2);
-	handLayer.addChild(label);
+	const scrim = new Graphics()
+		.rect(0, 0, HAND_CARD_W, HAND_CARD_H)
+		.fill({ color: 0x000000, alpha: 0.3 });
+	scrim.eventMode = 'none';
+	hover.addChild(scrim);
+
+	const selected = selectedMonster?.id === card.id;
+	const canAct = affordable && !summoning && !moving && !combating;
+	const button = buildSummonButton(selected ? 'Selected' : 'Summon', canAct);
+	button.position.set((HAND_CARD_W - button.width) / 2, (HAND_CARD_H - button.height) / 2);
+	if (canAct) {
+		button.eventMode = 'static';
+		button.cursor = 'pointer';
+		// Summon selects the card for placement; stopPropagation keeps the same click from
+		// also inspecting the card via the container's handler.
+		button.on('pointertap', (e) => {
+			e.stopPropagation();
+			selectMonster(card);
+		});
+	}
+	hover.addChild(button);
+	cardContainer.addChild(hover);
+
+	cardContainer.on('pointerenter', () => (hover.visible = true));
+	cardContainer.on('pointerleave', () => (hover.visible = false));
+
+	handLayer.addChild(cardContainer);
 }
 
 // The player's hand is laid out as two left-aligned rows of 3 cards each
@@ -914,10 +989,16 @@ async function renderHand() {
 }
 
 // Repaint the on-canvas hand whenever the hand changes or the energy pool shifts (so
-// the affordability dim tracks the current energy). Guarded until the container exists.
+// the affordability dim tracks the current energy), and whenever the summon-button state
+// changes — the selected card (Summon → Selected) or an in-flight summon / move / combat
+// that disables it. Guarded until the container exists.
 $effect(() => {
 	void hand;
 	void energyPoints;
+	void selectedMonster;
+	void summoning;
+	void moving;
+	void combating;
 	renderHand();
 });
 
@@ -3350,9 +3431,7 @@ tile.on('pointerout', () => {
 		canSummon,
 		toggleSort,
 		inspectCard,
-		selectMonster: (card: IGameCreature) => {
-			selectedMonster = card;
-		},
+		selectMonster,
 		startMove,
 		cancelMove,
 		startCombat,
