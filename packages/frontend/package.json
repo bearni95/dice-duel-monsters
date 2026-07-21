@@ -6,8 +6,9 @@
 	"scripts": {
 		"sync:data": "sync-served-data static",
 		"sync:cards": "sync-generated-cards static",
+		"sync:dice": "sync-generated-dice static",
 		"gen:catalog": "CARD_CATALOG_OUT=static/cards/catalog.json build-card-catalog",
-		"gen:data": "pnpm sync:data && pnpm sync:cards && pnpm gen:catalog",
+		"gen:data": "pnpm sync:data && pnpm sync:cards && pnpm sync:dice && pnpm gen:catalog",
 		"dev": "pnpm gen:data && vite dev",
 		"dev:qq": "node scripts/generate-qq-locale.js",
 		"build": "pnpm gen:data && vite build",
