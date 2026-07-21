@@ -496,8 +496,9 @@ export function createBoardEngine() {
 		// Throw the picked dice in the 3D roller just past the pool's down-right (+uHat) end —
 		// its bottom-right corner, toward the grid's bottom corner — at the row band's mid-
 		// thickness, so the roller aligns to that end instead of hanging off the outward
-		// bottom-left (+vHat). The dice still run along uHat to match the pool's row
-		// orientation, and stay upright 3D cubes.
+		// bottom-left (+vHat). The dice run along vHat (the pool's outward/column axis, the
+		// other iso diagonal — a 90° turn from the rows) so they line up with the pool's
+		// right edge, and stay upright 3D cubes.
 		const { uHat, vHat, mid } = playerDiceAxes();
 		const poolEndAlong = ((MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE / 2;
 		const rollerAlong = poolEndAlong + MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
@@ -506,7 +507,7 @@ export function createBoardEngine() {
 			x: mid.x + uHat.x * rollerAlong + vHat.x * bandOut,
 			y: mid.y + uHat.y * rollerAlong + vHat.y * bandOut
 		};
-		await rollEnergyDice(playerEnergyDice, picked, center, energy, uHat);
+		await rollEnergyDice(playerEnergyDice, picked, center, energy, vHat);
 		energyRolled = true;
 	}
 
