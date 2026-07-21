@@ -1224,15 +1224,13 @@ function renderActionButtons() {
 	if (!diceCenter) return;
 
 	// A staged Fusion / Ritual summon takes over the column: a wrapped instruction,
-	// then Confirm (once the sacrifices satisfy the condition) and Cancel while still
-	// picking them. During placement only the instruction shows — the sacrifices are
-	// already spent and the tile is clicked directly, so there's nothing to cancel.
+	// then Cancel while still picking sacrifices. Selecting a satisfying set advances
+	// to placement automatically (no Confirm step). During placement only the
+	// instruction shows — the sacrifices are already spent and the tile is clicked
+	// directly, so there's nothing to cancel.
 	if (specialPhase) {
 		const rows: Container[] = [buildActionPrompt(specialPrompt)];
 		if (specialPhase === 'materials') {
-			rows.push(
-				buildActionButton('Confirm Summon', 'primary', specialReady, confirmSpecialMaterials)
-			);
 			rows.push(buildActionButton('Cancel', 'error', true, cancelSpecialSummon));
 		}
 		stackActionRows(rows, diceCenter);
@@ -2442,6 +2440,14 @@ function toggleMaterial(unit: PlacedUnit) {
 	}
 
 	specialReady = materialsSatisfy(specialCard, specialMaterials);
+
+	// The moment the selection satisfies the summon condition, advance straight to
+	// placement — no explicit Confirm step.
+	if (specialReady) {
+		confirmSpecialMaterials();
+		return;
+	}
+
 	refreshMaterialHighlight();
 	updateSpecialPrompt();
 }
