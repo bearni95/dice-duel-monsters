@@ -3,7 +3,7 @@
 	import { untrack } from 'svelte';
 	import { diceAdapter } from '$adapters/dice.adapter';
 	import DiceDistinctFaces from '$components/dice/DiceDistinctFaces.svelte';
-	import type { SpawnedDie } from '$types/dice.type';
+	import type { DiceRole, SpawnedDie } from '$types/dice.type';
 
 	// The turn-start dice picker: a modal the player uses to choose which of their
 	// owned dice to roll for energy. Pure UI — the board engine owns the pick phase
@@ -37,6 +37,23 @@
 		}
 		return [...byId.values()];
 	});
+
+	// The grid columns: one per die type, in a fixed order, each listing that type's
+	// distinct dice sorted by rarity ascending.
+	const COLUMNS: { role: DiceRole; label: string }[] = [
+		{ role: 'summon', label: 'Summon' },
+		{ role: 'move', label: 'Move' },
+		{ role: 'attack', label: 'Attack' }
+	];
+	let columns = $derived(
+		COLUMNS.map(({ role, label }) => ({
+			role,
+			label,
+			groups: groups
+				.filter((g) => g.die.role === role)
+				.sort((a, b) => a.die.rarity - b.die.rarity)
+		}))
+	);
 
 	// How many of each distinct die the player has chosen to roll, keyed by die id.
 	// Seeded so the roll count is already met — filled greedily across the groups (up
@@ -101,44 +118,55 @@
 				</p>
 			</div>
 
-			<div class="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-				{#each groups as group (group.die.id)}
-					{@const selected = qty(group.die.id) > 0}
-					<div
-						class={classNames(
-							'flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-colors',
-							selected ? 'border-primary bg-primary/10' : 'border-base-200 bg-base-200'
-						)}
-					>
-						<DiceDistinctFaces dieId={group.die.id} faces={diceAdapter.distinctFaces(group.die)} />
-						<span class="text-base-content/80 text-xs font-semibold capitalize">
-							{group.die.role} · R{group.die.rarity}
-						</span>
-						<span class="text-base-content/50 text-[10px]">owned ×{group.count}</span>
+			<div class="grid max-h-80 grid-cols-3 gap-2 overflow-y-auto">
+				{#each columns as column (column.role)}
+					<div class="flex flex-col gap-2">
+						<h3 class="text-base-content/70 text-center text-xs font-semibold uppercase tracking-wide">
+							{column.label}
+						</h3>
+						{#if column.groups.length === 0}
+							<p class="text-base-content/40 text-center text-[10px] italic">None owned</p>
+						{/if}
+						{#each column.groups as group (group.die.id)}
+							{@const selected = qty(group.die.id) > 0}
+							<div
+								class={classNames(
+									'flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-colors',
+									selected ? 'border-primary bg-primary/10' : 'border-base-200 bg-base-200'
+								)}
+							>
+								<DiceDistinctFaces
+									dieId={group.die.id}
+									faces={diceAdapter.distinctFaces(group.die)}
+								/>
+								<span class="text-base-content/80 text-xs font-semibold">R{group.die.rarity}</span>
+								<span class="text-base-content/50 text-[10px]">owned ×{group.count}</span>
 
-						<div class="mt-1 flex items-center gap-1">
-							<button
-								type="button"
-								class="btn btn-circle btn-xs"
-								aria-label={`Roll one fewer ${group.die.name}`}
-								disabled={qty(group.die.id) <= 0}
-								onclick={() => dec(group)}
-							>
-								−
-							</button>
-							<span class="w-5 text-center text-sm font-bold tabular-nums">
-								{qty(group.die.id)}
-							</span>
-							<button
-								type="button"
-								class="btn btn-circle btn-xs"
-								aria-label={`Roll one more ${group.die.name}`}
-								disabled={total >= pickCount || qty(group.die.id) >= group.count}
-								onclick={() => inc(group)}
-							>
-								+
-							</button>
-						</div>
+								<div class="mt-1 flex items-center gap-1">
+									<button
+										type="button"
+										class="btn btn-circle btn-xs"
+										aria-label={`Roll one fewer ${group.die.name}`}
+										disabled={qty(group.die.id) <= 0}
+										onclick={() => dec(group)}
+									>
+										−
+									</button>
+									<span class="w-5 text-center text-sm font-bold tabular-nums">
+										{qty(group.die.id)}
+									</span>
+									<button
+										type="button"
+										class="btn btn-circle btn-xs"
+										aria-label={`Roll one more ${group.die.name}`}
+										disabled={total >= pickCount || qty(group.die.id) >= group.count}
+										onclick={() => inc(group)}
+									>
+										+
+									</button>
+								</div>
+							</div>
+						{/each}
 					</div>
 				{/each}
 			</div>
