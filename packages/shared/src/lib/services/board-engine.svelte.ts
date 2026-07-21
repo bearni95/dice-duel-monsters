@@ -1654,6 +1654,55 @@ function frameBoard() {
 	camera.y = app.screen.height / 2 - worldCenterY * scale;
 }
 
+// A yellow reference outline framing the whole play area: the isometric grid plus
+// the red (player) and blue (rival) card plaques that flank it at opposite corners.
+// Lives inside `camera`, so it pans and zooms with the board. Purely a visual guide.
+let boardFrame: Graphics | undefined;
+function drawBoardFrame() {
+	if (!camera) return;
+
+	// Every point the frame must enclose, in world (camera-local) space.
+	const pts: { x: number; y: number }[] = [];
+
+	// The grid's bounding box: half a tile out from the extreme corner cells. The
+	// widest cells sit at (0, GRID_HEIGHT-1) / (GRID_WIDTH-1, 0); the top-most is
+	// (0,0) and the bottom-most is (GRID_WIDTH-1, GRID_HEIGHT-1).
+	pts.push(
+		{ x: isoPosOf(0, GRID_HEIGHT - 1).x - TILE_WIDTH / 2, y: isoPosOf(0, 0).y - TILE_HEIGHT / 2 },
+		{
+			x: isoPosOf(GRID_WIDTH - 1, 0).x + TILE_WIDTH / 2,
+			y: isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1).y + TILE_HEIGHT / 2
+		}
+	);
+
+	// Each plaque's local rectangle (0..TAG_WIDTH, 0..TAG_HEIGHT) projected onto the
+	// ground plane by its board matrix, so the frame reaches out past both corners.
+	for (const m of [PLAYER_BOARD_MATRIX, RIVAL_BOARD_MATRIX]) {
+		for (const [lx, ly] of [
+			[0, 0],
+			[TAG_WIDTH, 0],
+			[TAG_WIDTH, TAG_HEIGHT],
+			[0, TAG_HEIGHT]
+		]) {
+			pts.push(m.apply({ x: lx, y: ly }));
+		}
+	}
+
+	const xs = pts.map((p) => p.x);
+	const ys = pts.map((p) => p.y);
+	const minX = Math.min(...xs);
+	const maxX = Math.max(...xs);
+	const minY = Math.min(...ys);
+	const maxY = Math.max(...ys);
+
+	boardFrame?.destroy();
+	boardFrame = new Graphics()
+		.rect(minX, minY, maxX - minX, maxY - minY)
+		.stroke({ width: 3, color: 0xffff00 });
+	boardFrame.eventMode = 'none';
+	camera.addChild(boardFrame);
+}
+
 const tiles = new Map<string, Graphics>();
 // The always-visible cell outline (no fill) for each cell, kept so paintCell can
 // switch a cell's border from the faint empty state to its network color.
@@ -4181,6 +4230,10 @@ hpDice = new Dice3D({
 			// each side's played-cards list repaint them as cards are summoned.
 			renderPlaque(playerPlaque, playedCards);
 			renderPlaque(rivalPlaque, cpuPlayedCards);
+
+			// Yellow reference outline around the grid + both card plaques, added on top
+			// of the board layers so its lines stay visible.
+			drawBoardFrame();
 
 			// Paint the (initially empty) hand row; its $effect repaints it as cards are
 			// drawn, summoned, and as the energy pool changes.
