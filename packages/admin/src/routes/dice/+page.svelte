@@ -4,6 +4,7 @@
 	import IconDiceCanvas3D from '$components/dice/IconDiceCanvas3D.svelte';
 	import DiceFaceViewer from '$components/dice/DiceFaceViewer.svelte';
 	import DiceFacesCanvas2D from '$components/dice/DiceFacesCanvas2D.svelte';
+	import DiceFacesPng2D from '$components/dice/DiceFacesPng2D.svelte';
 	import Button from '$components/core/Button.svelte';
 	import { ThemeColors, ThemeSizes } from '$types/core.type';
 	import { diceAdapter } from '$adapters/dice.adapter';
@@ -197,6 +198,14 @@
 								showCaptions={false}
 							/>
 						{/key}
+
+						<!-- PNG extracted from the 2D faces canvas, shown full width. -->
+						<DiceFacesPng2D
+							faceIcons={diceAdapter.faceIcons(selected)}
+							faceLabels={diceAdapter.faceLabels(selected)}
+							baseColor={diceAdapter.colorNumber(selected) ?? 0xd7382f}
+							classes="w-full"
+						/>
 					</div>
 				</div>
 			{/if}
