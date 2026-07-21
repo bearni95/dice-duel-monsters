@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process';
 import { join, dirname } from 'path';
 import { createRequire } from 'module';
 
-// The catalog generator lives in the card-data package; resolve its script from
+// The catalog generator lives in the data package; resolve its script from
 // there rather than the frontend's own tree.
 const require = createRequire(import.meta.url);
 
@@ -91,10 +91,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 function rebuildCatalog() {
 	try {
-		// Run the card-data generator, pointing its inputs (this package's
+		// Run the data generator, pointing its inputs (this package's
 		// admin-authored assignments/positions) and output (the served static
 		// catalog) back at the frontend tree via the CARD_CATALOG_* env vars.
-		const script = require.resolve('card-data/scripts/build-card-catalog.mjs');
+		const script = require.resolve('data/scripts/build-card-catalog.mjs');
 		execFileSync(process.execPath, [script], {
 			cwd: process.cwd(),
 			stdio: 'ignore',

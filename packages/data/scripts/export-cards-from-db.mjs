@@ -106,9 +106,9 @@ const dataMap = new Map(
 // Load existing card images
 let imageMap = new Map();
 try {
-	const cardsJson = JSON.parse(readFileSync(join(root, 'data/cards/cards.json'), 'utf8'));
+	const cardsJson = JSON.parse(readFileSync(join(root, 'cards/cards.json'), 'utf8'));
 	for (const c of cardsJson.cards) imageMap.set(c.id, c);
-	console.log(`Loaded ${imageMap.size} card images from data/cards/cards.json`);
+	console.log(`Loaded ${imageMap.size} card images from cards/cards.json`);
 } catch {}
 
 // Build combined output

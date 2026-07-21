@@ -41,7 +41,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # `pnpm build` delegates to the frontend package, which regenerates the
-      # card catalog from the card-data workspace package (pure JS over its
+      # card catalog from the data workspace package (pure JS over its
       # committed cardinfo.json — no sqlite needed) then runs `vite build`,
       # emitting the static SPA to packages/frontend/dist with an index.html
       # fallback.

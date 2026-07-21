@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import type { CardDetail } from '$types/card.type';
 
-// Full YGOPRODeck records live in the card-data package now.
-const CARDINFO = createRequire(import.meta.url).resolve('card-data/data/cards/cardinfo.json');
+// Full YGOPRODeck records live in the data package now.
+const CARDINFO = createRequire(import.meta.url).resolve('data/cards/cardinfo.json');
 
 // Returns the complete card record for a single id, with every field available
 // in the source data — unlike the grid endpoint, which returns only the subset
@@ -19,7 +19,7 @@ export const GET: RequestHandler = async ({ params }) => {
 		: null;
 
 	if (!raw || !raw.data || !Array.isArray(raw.data))
-		throw error(503, 'Cards data not found — check card-data/data/cards/cardinfo.json');
+		throw error(503, 'Cards data not found — check data/cards/cardinfo.json');
 
 	const card = (raw.data as CardDetail[]).find((c) => c.id === id);
 	if (!card) throw error(404, `Card ${id} not found`);

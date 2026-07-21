@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 // authoritative `playable` verdict — is precomputed here so dev and prod share
 // one code path against one dataset.
 //
-// Source: this package's committed data/cards/cardinfo.json (full YGOPRODeck
+// Source: this package's committed cards/cardinfo.json (full YGOPRODeck
 // records), merged with two consumer-supplied inputs — the effect assignments
 // authored on /admin/cards and the per-card board positioning authored in the
 // board-preview modal. The consumer (the frontend) points those, and the
@@ -26,9 +26,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const fromEnv = (name, fallback) =>
 	process.env[name] ? resolve(process.cwd(), process.env[name]) : join(root, fallback);
 
-const CARDINFO = join(root, 'data/cards/cardinfo.json');
-const ASSIGNMENTS = fromEnv('CARD_CATALOG_ASSIGNMENTS', 'data/cards/assignments.json');
-const POSITIONS = fromEnv('CARD_CATALOG_POSITIONS', 'data/cards/positions.json');
+const CARDINFO = join(root, 'cards/cardinfo.json');
+const ASSIGNMENTS = fromEnv('CARD_CATALOG_ASSIGNMENTS', 'cards/assignments.json');
+const POSITIONS = fromEnv('CARD_CATALOG_POSITIONS', 'cards/positions.json');
 const OUT = fromEnv('CARD_CATALOG_OUT', 'dist/catalog.json');
 
 // --- playable classification (mirrors the old +server.ts rules) -------------

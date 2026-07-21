@@ -4,10 +4,10 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createRequire } from 'module';
 
-const SOURCE = '/database/cards from card-data/data/cards/cardinfo.json';
+const SOURCE = '/database/cards from data/cards/cardinfo.json';
 
-// Full YGOPRODeck records live in the card-data package now.
-const CARDINFO = createRequire(import.meta.url).resolve('card-data/data/cards/cardinfo.json');
+// Full YGOPRODeck records live in the data package now.
+const CARDINFO = createRequire(import.meta.url).resolve('data/cards/cardinfo.json');
 
 type CardItem = {
 	id: number;
@@ -111,7 +111,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		: null;
 
 	if (!raw || !raw.data || !Array.isArray(raw.data))
-		throw error(503, 'Cards data not found — check card-data/data/cards/cardinfo.json');
+		throw error(503, 'Cards data not found — check data/cards/cardinfo.json');
 	const allCards = raw.data as CardItem[];
 	let filtered = allCards;
 

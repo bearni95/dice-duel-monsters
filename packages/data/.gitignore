@@ -6,4 +6,4 @@
 /ref/
 
 # Intermediate batches from scripts/import-card-assets.mjs
-/data/cards/.partials/
+/cards/.partials/

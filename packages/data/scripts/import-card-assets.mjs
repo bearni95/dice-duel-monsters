@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 // Resolve everything from this script's location, not the cwd: the raw source
-// (ref/) and the card index (data/cards/) live in this package, while the
+// (ref/) and the card index (cards/) live in this package, while the
 // billboard/full-art PNGs are copied into the frontend package's served static
 // tree.
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,7 +14,7 @@ const sourceRoot = path.join(pkgRoot, 'ref/DL Assets 29-April-18 v2.6 by Skylex7
 const billboardSource = path.join(sourceRoot, 'duel/monsterbillboard/en-us');
 const fullCardSource = path.join(sourceRoot, 'card/en-us/m');
 const staticRoot = path.join(frontendRoot, 'static/cards');
-const dataRoot = path.join(pkgRoot, 'data/cards');
+const dataRoot = path.join(pkgRoot, 'cards');
 const billboardDestination = path.join(staticRoot, 'monster-billboards');
 const fullCardDestination = path.join(staticRoot, 'full');
 const partialDestination = path.join(dataRoot, '.partials');
@@ -187,7 +187,7 @@ if (process.argv[2] === '--combine') {
 		.sort((a, b) => a.id - b.id);
 	if (cards.length !== billboardFiles.length) throw new Error(`Expected ${billboardFiles.length} cards, found ${cards.length}`);
 	await writeFile(path.join(dataRoot, 'cards.json'), `${JSON.stringify({ cards }, null, '\t')}\n`);
-	console.log(`Wrote ${cards.length} cards to data/cards/cards.json`);
+	console.log(`Wrote ${cards.length} cards to cards/cards.json`);
 	process.exit(0);
 }
 
