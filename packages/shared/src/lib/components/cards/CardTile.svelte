@@ -1,6 +1,6 @@
 <script lang="ts">
 	import GameCard, { type CardAsset } from '$components/cards/GameCard.svelte';
-	import CardImage from '$components/cards/CardImage.svelte';
+	import AdminCardPreview from '$components/cards/AdminCardPreview.svelte';
 	import { CreatureAdapter } from '$adapters/creature.adapter';
 
 	// Single renderer used for every card on the browser: every card type renders
@@ -10,9 +10,9 @@
 	// when the parent supplies an `onEffects` handler, an "Effects" button that
 	// opens the effect-implementation editor for this card. `effectCount` badges
 	// how many effect templates the card already implements.
-	// When `png` is set the card visual is rendered from a rasterized PNG (the same
-	// image /print produces) instead of the live GameCard DOM. Used by the
-	// /cards grid; every other caller keeps the default DOM render.
+	// When `png` is set the card visual is served straight from the /print?id=<id>
+	// raw image endpoint (the same source the /decks grid uses) instead of the live
+	// GameCard DOM. Used by the /cards grid; every other caller keeps the DOM render.
 	let {
 		card,
 		onSelect,
@@ -41,7 +41,7 @@
 
 <div class="flex flex-col gap-2">
 	{#if png}
-		<CardImage card={creature} showStats={isMonster} />
+		<AdminCardPreview {card} name={card.name} />
 	{:else}
 		<GameCard card={creature} showStats={isMonster} />
 	{/if}
