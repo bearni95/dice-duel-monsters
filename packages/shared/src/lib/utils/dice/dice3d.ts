@@ -460,14 +460,25 @@ export class Dice3D {
 	// Group-space centre of die `i` of `count`, laid out in rows of MAX_DICE_COLS.
 	// Row 0 is the bottom row and fills first; overflow rows stack above it, so the
 	// throw grows upward from the box centre and the bottom row stays anchored.
-	private dieCenter(i: number, count: number, cell: number, S: number): { cx: number; cy: number } {
+	//
+	// `dir` is the unit vector each row runs along (default horizontal). Pass an angled
+	// vector to turn the row — e.g. onto an isometric diagonal — while every die stays an
+	// upright cube (only its centre moves; makeDie draws it camera-parallel regardless).
+	private dieCenter(
+		i: number,
+		count: number,
+		cell: number,
+		S: number,
+		dir: { x: number; y: number } = { x: 1, y: 0 }
+	): { cx: number; cy: number } {
 		const r = Math.floor(i / MAX_DICE_COLS);
 		const rowStart = r * MAX_DICE_COLS;
 		const rowCount = Math.min(MAX_DICE_COLS, count - rowStart);
 		const c = i - rowStart;
-		// Each row is centred horizontally on the box centre; the bottom row sits on the
-		// box centre vertically, each higher row one cell above the last.
-		return { cx: S / 2 + (c - (rowCount - 1) / 2) * cell, cy: S / 2 - r * cell };
+		// Each row is centred on the box centre and runs along `dir`; overflow rows stack
+		// one cell upward off that centre.
+		const along = (c - (rowCount - 1) / 2) * cell;
+		return { cx: S / 2 + dir.x * along, cy: S / 2 + dir.y * along - r * cell };
 	}
 
 	// Roll a set of *owned* dice, each painted with its own baked face PNGs and body
@@ -478,7 +489,8 @@ export class Dice3D {
 	// a plain numeral die in its body tint.
 	async rollTextured(
 		specs: EnergyDieSpec[],
-		center?: { x: number; y: number }
+		center?: { x: number; y: number },
+		rowDir?: { x: number; y: number }
 	): Promise<number[]> {
 		if (this.rollResolve) {
 			const resolve = this.rollResolve;
@@ -516,7 +528,7 @@ export class Dice3D {
 
 		const { cell, scale } = layout(specs.length, S);
 		for (let i = 0; i < specs.length; i++) {
-			const { cx, cy } = this.dieCenter(i, specs.length, cell, S);
+			const { cx, cy } = this.dieCenter(i, specs.length, cell, S, rowDir);
 			const col = toColor(specs[i].color) ?? this.baseColor;
 			this.dice.push(this.makeDie(rollDie(6), cx, cy, scale, col, false, textureSets[i]));
 		}

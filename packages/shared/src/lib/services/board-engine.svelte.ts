@@ -348,13 +348,14 @@ export function createBoardEngine() {
 	async function rollBoardTextured(
 		instance: Dice3D | undefined,
 		specs: EnergyDieSpec[],
-		center: { x: number; y: number }
+		center: { x: number; y: number },
+		rowDir?: { x: number; y: number }
 	): Promise<number[]> {
 		if (!instance) return specs.map(() => rollDie(6));
 
 		rolling = true;
 		try {
-			return await instance.rollTextured(specs, center);
+			return await instance.rollTextured(specs, center, rowDir);
 		} finally {
 			rolling = false;
 		}
@@ -415,12 +416,13 @@ export function createBoardEngine() {
 		instance: Dice3D | undefined,
 		dice: SpawnedDie[],
 		center: { x: number; y: number },
-		pool: EnergyPools
+		pool: EnergyPools,
+		rowDir?: { x: number; y: number }
 	): Promise<void> {
 		if (!diceConfig || dice.length === 0) return;
 		const map = (iconRoleMap ??= diceAdapter.roleByIcon(diceConfig));
 		const specs: EnergyDieSpec[] = dice.map((d) => ({ id: d.id, color: diceAdapter.colorNumber(d) }));
-		const faces = await rollBoardTextured(instance, specs, center);
+		const faces = await rollBoardTextured(instance, specs, center, rowDir);
 		faces.forEach((face, i) => {
 			const scored = diceAdapter.faceEnergy(diceConfig!, dice[i], face, map);
 			if (scored) pool[scored.role] += scored.value;
@@ -491,8 +493,14 @@ export function createBoardEngine() {
 		// moment Roll is hit (leaving their slots empty); the throw then plays out with them
 		// already gone, and we still await it before banking the energy.
 		playerDice = consumeDice(playerDice, picked);
-		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
-		await rollEnergyDice(playerEnergyDice, picked, center, energy);
+		// Throw the picked dice in the 3D roller laid one row past the static isometric dice
+		// block (down-left border), turned so the tumbling dice run along the block's uHat
+		// diagonal — the roller keeps its upright 3D cubes, it's only moved and angled to sit
+		// as the next row after the grid dice.
+		const { uHat, vHat, mid } = playerDiceAxes();
+		const rollerOut = MATCH_DIE_OUT_GAP + MATCH_DICE_MAX_ROWS * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
+		const center = { x: mid.x + vHat.x * rollerOut, y: mid.y + vHat.y * rollerOut };
+		await rollEnergyDice(playerEnergyDice, picked, center, energy, uHat);
 		energyRolled = true;
 	}
 
