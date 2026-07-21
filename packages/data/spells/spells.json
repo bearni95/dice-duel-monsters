@@ -2,37 +2,55 @@
   {
     "key": "trap-hole",
     "name": "Trap Hole",
-    "description": "Hide a trap on X red cells, callable on your turn.",
-    "card": null
+    "description": "Hide a trap on 1d6 red cells, callable on your turn.",
+    "card": {
+      "id": 29401950,
+      "name": "Bottomless Trap Hole"
+    }
   },
   {
     "key": "shield",
     "name": "Shield +1",
-    "description": "Distribute X points of extra shield, up to 6.",
-    "card": null
+    "description": "Distribute 1d6 points of extra shield, up to 6.",
+    "card": {
+      "id": 8730435,
+      "name": "Gladiator Beast's Battle Archfiend Shield"
+    }
   },
   {
     "key": "sword",
     "name": "Sword +1",
-    "description": "Distribute X points of extra attack, no limit.",
-    "card": null
+    "description": "Distribute 1d6 points of extra attack, no limit.",
+    "card": {
+      "id": 31423101,
+      "name": "Divine Sword - Phoenix Blade"
+    }
   },
   {
     "key": "field",
     "name": "Field Card +X",
     "description": "All monsters with the chosen attribute or type gain +1 ATK, +2 ATK and +1 DEF.",
-    "card": null
+    "card": {
+      "id": 73628505,
+      "name": "Terraforming"
+    }
   },
   {
     "key": "wings",
     "name": "Wings",
-    "description": "Distribute the flying attribute to X/2 (round up) monsters, letting them fly over creatures and empty cells.",
-    "card": null
+    "description": "Distribute the flying attribute to 1d6/2 (round up) monsters, letting them fly over creatures and empty cells.",
+    "card": {
+      "id": 15471265,
+      "name": "Berserker Crush"
+    }
   },
   {
     "key": "energy",
     "name": "Energy",
     "description": "Gain the d6 roll in energy.",
-    "card": null
+    "card": {
+      "id": 55144522,
+      "name": "Pot of Greed"
+    }
   }
 ]

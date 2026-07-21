@@ -29,19 +29,19 @@ export const DEFAULT_SPELLS: SpellDefinition[] = [
 	{
 		key: 'trap-hole',
 		name: 'Trap Hole',
-		description: 'Hide a trap on X red cells, callable on your turn.',
+		description: 'Hide a trap on 1d6 red cells, callable on your turn.',
 		card: null
 	},
 	{
 		key: 'shield',
 		name: 'Shield +1',
-		description: 'Distribute X points of extra shield, up to 6.',
+		description: 'Distribute 1d6 points of extra shield, up to 6.',
 		card: null
 	},
 	{
 		key: 'sword',
 		name: 'Sword +1',
-		description: 'Distribute X points of extra attack, no limit.',
+		description: 'Distribute 1d6 points of extra attack, no limit.',
 		card: null
 	},
 	{
@@ -55,7 +55,7 @@ export const DEFAULT_SPELLS: SpellDefinition[] = [
 		key: 'wings',
 		name: 'Wings',
 		description:
-			'Distribute the flying attribute to X/2 (round up) monsters, letting them fly over creatures and empty cells.',
+			'Distribute the flying attribute to 1d6/2 (round up) monsters, letting them fly over creatures and empty cells.',
 		card: null
 	},
 	{
