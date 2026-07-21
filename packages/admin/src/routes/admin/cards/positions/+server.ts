@@ -2,22 +2,17 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { join, dirname } from 'path';
-import { createRequire } from 'module';
-
-// The catalog generator lives in the data package; resolve its script from
-// there rather than the frontend's own tree.
-const require = createRequire(import.meta.url);
+import { dirname } from 'path';
+import { POSITIONS, CATALOG_SCRIPT, CATALOG_OUT } from '$lib/server/data-paths';
 
 // Per-card board positioning (a billboard size factor plus an x/y pixel offset of
 // the image — its red square — relative to its cell — the purple square),
-// persisted as a single JSON map (`cardId -> { size?, x?, y? }`) under
-// data/cards/ — the same source tree the catalog is assembled from, so the values
-// are baked into static/cards/catalog.json at build time (see
-// scripts/build-card-catalog.mjs). Edited from the board-preview modal on
-// /admin/cards. Only fields adjusted away from their default (size 1, x/y 0) are
-// stored, and a card left fully at the default carries no entry at all.
-const FILE = join(process.cwd(), 'data/cards/positions.json');
+// persisted as a single JSON map (`cardId -> { size?, x?, y? }`) in the data
+// package alongside the cardinfo the catalog is assembled from, so the values
+// are baked into the catalog at build time. Edited from the board-preview modal
+// on /admin/cards. Only fields adjusted away from their default (size 1, x/y 0)
+// are stored, and a card left fully at the default carries no entry at all.
+const FILE = POSITIONS;
 
 // Field defaults and the margins within which an incoming value is treated as
 // "back to default" and dropped from storage.
@@ -91,19 +86,13 @@ export const POST: RequestHandler = async ({ request }) => {
 
 function rebuildCatalog() {
 	try {
-		// Run the data generator, pointing its inputs (this package's
-		// admin-authored assignments/positions) and output (the served static
-		// catalog) back at the frontend tree via the CARD_CATALOG_* env vars.
-		const script = require.resolve('data/scripts/build-card-catalog.mjs');
-		execFileSync(process.execPath, [script], {
-			cwd: process.cwd(),
+		// Run the data generator. Its inputs (cardinfo, assignments, positions) all
+		// default to the data package now, so we only point the output at the
+		// catalog the admin app serves read-through; the frontend regenerates its
+		// own copy on its next build/dev.
+		execFileSync(process.execPath, [CATALOG_SCRIPT], {
 			stdio: 'ignore',
-			env: {
-				...process.env,
-				CARD_CATALOG_ASSIGNMENTS: join(process.cwd(), 'static/card-effects/assignments.json'),
-				CARD_CATALOG_POSITIONS: join(process.cwd(), 'data/cards/positions.json'),
-				CARD_CATALOG_OUT: join(process.cwd(), 'static/cards/catalog.json')
-			}
+			env: { ...process.env, CARD_CATALOG_OUT: CATALOG_OUT }
 		});
 	} catch (e) {
 		console.error('[positions] catalog rebuild failed:', e);

@@ -1,16 +1,17 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { dirname } from 'path';
 import type { DiceDefinition, DiceFace } from '$types/dice.type';
 import { DICE_FACE_COUNT } from '$types/dice.type';
+import { DICE_FILE } from '$lib/server/data-paths';
 
 // Die definitions are persisted as a single JSON array under `static/dice/` —
 // the source of truth the game reads at runtime, and this endpoint is the
 // dev-time authoring surface that writes it (mirroring how card effects and
 // decks persist their JSON under static/). The card catalog stays read-only;
 // only these die definitions live here and are edited from /admin/dice.
-const FILE = join(process.cwd(), 'static/dice/dice.json');
+const FILE = DICE_FILE;
 
 // Lowercase, ASCII, hyphen-separated. Derives a filename-safe id from a die name
 // and sanitises any incoming id so it stays a stable, readable key.

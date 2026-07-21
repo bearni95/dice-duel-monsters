@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { ObjectServiceClass } from '../../src/services/classes/object-service.class';
+import { ObjectServiceClass } from '$services/classes/object-service.class';
 import { createMockItem, getLocalStorageItem } from '../utils/test-helpers';
 
 interface TestObject {

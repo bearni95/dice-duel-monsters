@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { GENERATED_DIR } from '$lib/server/data-paths';
 
 // Write side of the /admin/print PNG cache. A card is rasterized in the browser
 // (see renderCardToPng / generateQueue), which is expensive and non-deterministic;
@@ -9,7 +10,7 @@ import { join } from 'path';
 // which GET /admin/print then serves directly. These files are committed to git —
 // they are the authored, baked-in art for each card. Like the other /admin
 // endpoints this is dev tooling and is absent from the static production build.
-const DIR = join(process.cwd(), 'static/cards/generated');
+const DIR = GENERATED_DIR;
 
 // Card ids are numeric; restrict to digits so the id can't escape the target
 // directory when composing the file path.

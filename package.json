@@ -5,10 +5,10 @@
 	"type": "module",
 	"scripts": {
 		"dev": "pnpm --filter frontend dev",
-		"dev:public": "pnpm --filter frontend dev:public",
+		"dev:admin": "pnpm --filter admin dev",
 		"build": "pnpm --filter frontend build",
 		"preview": "pnpm --filter frontend preview",
-		"check": "pnpm --filter frontend check",
+		"check": "pnpm --filter frontend check && pnpm --filter admin check",
 		"format": "pnpm --filter frontend format",
 		"lint": "pnpm --filter frontend lint",
 		"test": "pnpm --filter frontend test",

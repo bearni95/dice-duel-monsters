@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { GENERATED_DIR } from '$lib/server/data-paths';
 
 // Serves a card's baked full-size PNG. `GET /admin/print?id=<cardId>` returns the
 // image bytes from static/cards/generated/<id>.png, or 404 when that card has not
@@ -11,7 +12,7 @@ import { join } from 'path';
 // endpoint serves it. Anything unexpected is logged to the dev server console so
 // print problems are visible in the backend log. Like the other /admin endpoints
 // this is dev tooling and is absent from the static production build.
-const DIR = join(process.cwd(), 'static/cards/generated');
+const DIR = GENERATED_DIR;
 
 export const GET: RequestHandler = async ({ url }) => {
 	const rawId = url.searchParams.get('id');

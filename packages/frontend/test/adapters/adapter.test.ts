@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AdapterClass } from '../../src/adapters/classes/adapter.class';
+import { AdapterClass } from '$adapters/classes/adapter.class';
 
 describe('AdapterClass', () => {
 	describe('Initialization', () => {

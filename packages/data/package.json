@@ -5,7 +5,8 @@
 	"type": "module",
 	"bin": {
 		"build-card-catalog": "scripts/build-card-catalog.mjs",
-		"export-cards-from-db": "scripts/export-cards-from-db.mjs"
+		"export-cards-from-db": "scripts/export-cards-from-db.mjs",
+		"sync-served-data": "scripts/sync-served-data.mjs"
 	},
 	"scripts": {
 		"build": "node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs",

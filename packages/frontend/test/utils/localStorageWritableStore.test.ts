@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import localStorageWritableStore from '../../src/utils/localStorageWritableStore';
+import localStorageWritableStore from '$utils/localStorageWritableStore';
 
 describe('localStorageWritableStore', () => {
 	const testKey = 'test-store-key';

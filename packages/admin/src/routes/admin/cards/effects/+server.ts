@@ -1,15 +1,16 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { dirname } from 'path';
 import type { CardEffectImplementation } from '$types/card-effect.type';
+import { CARD_EFFECTS } from '$lib/server/data-paths';
 
 // Which effect templates each card implements, persisted as a single static JSON
 // map (`cardId -> implementations[]`) alongside the card assets. Edited from
 // /admin/cards (the effects modal) and read at runtime as a static asset. The
 // card catalog itself stays read-only; only these per-card assignments live here.
-const DIR = join(process.cwd(), 'static/card-effects');
-const FILE = join(DIR, 'assignments.json');
+const FILE = CARD_EFFECTS;
+const DIR = dirname(FILE);
 
 type EffectsMap = Record<string, CardEffectImplementation[]>;
 

@@ -10,7 +10,7 @@ vi.mock('$app/environment', () => ({
 }));
 
 // Import after mocking
-import localStorageWritableStore from '../../src/utils/localStorageWritableStore';
+import localStorageWritableStore from '$utils/localStorageWritableStore';
 
 describe('localStorageWritableStore (SSR mode)', () => {
 	beforeEach(() => {

@@ -1,13 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-import { createRequire } from 'module';
+import { CARDINFO, CARD_EFFECTS } from '$lib/server/data-paths';
 
 const SOURCE = '/database/cards from data/cards/cardinfo.json';
-
-// Full YGOPRODeck records live in the data package now.
-const CARDINFO = createRequire(import.meta.url).resolve('data/cards/cardinfo.json');
 
 type CardItem = {
 	id: number;
@@ -80,10 +76,9 @@ function isPlainEffectMonster(card: CardItem): boolean {
 // /admin/cards, persisted alongside the card catalog. A card is "playable" when
 // it has at least one implementation here (or is a vanilla monster).
 function readEffectAssignments(): Record<string, unknown[]> {
-	const filePath = join(process.cwd(), 'static/card-effects/assignments.json');
-	if (!existsSync(filePath)) return {};
+	if (!existsSync(CARD_EFFECTS)) return {};
 	try {
-		const data = JSON.parse(readFileSync(filePath, 'utf8'));
+		const data = JSON.parse(readFileSync(CARD_EFFECTS, 'utf8'));
 		return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 	} catch {
 		return {};

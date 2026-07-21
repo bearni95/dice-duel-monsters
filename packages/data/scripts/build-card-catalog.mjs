@@ -27,7 +27,7 @@ const fromEnv = (name, fallback) =>
 	process.env[name] ? resolve(process.cwd(), process.env[name]) : join(root, fallback);
 
 const CARDINFO = join(root, 'cards/cardinfo.json');
-const ASSIGNMENTS = fromEnv('CARD_CATALOG_ASSIGNMENTS', 'cards/assignments.json');
+const ASSIGNMENTS = fromEnv('CARD_CATALOG_ASSIGNMENTS', 'card-effects/assignments.json');
 const POSITIONS = fromEnv('CARD_CATALOG_POSITIONS', 'cards/positions.json');
 const OUT = fromEnv('CARD_CATALOG_OUT', 'dist/catalog.json');
 

@@ -9,13 +9,14 @@ import {
 	unlinkSync
 } from 'fs';
 import { join } from 'path';
+import { DECKS_DIR } from '$lib/server/data-paths';
 
-// Saved decks are persisted as JSON files under `static/decks/` — one file per
-// deck (`<id>.json`) plus a regenerated `manifest.json` aggregate the client
-// reads in a single request. This mirrors how cards are exported to
-// `static/cards/`: the files are the source of truth and this endpoint is the
-// dev-time authoring surface that writes them.
-const DIR = join(process.cwd(), 'static/decks');
+// Saved decks are persisted as JSON files in the data package's `decks/` — one
+// file per deck (`<id>.json`) plus a regenerated `manifest.json` aggregate the
+// client reads in a single request. The files are the source of truth and this
+// endpoint is the dev-time authoring surface that writes them; the frontend
+// serves (or syncs) them from the same data package.
+const DIR = DECKS_DIR;
 const MANIFEST = join(DIR, 'manifest.json');
 const ASSIGNMENTS = join(DIR, 'assignments.json');
 // Aggregate/index files that live alongside the per-deck files but aren't decks.

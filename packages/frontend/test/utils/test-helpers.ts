@@ -1,4 +1,4 @@
-import type { ID } from '../../src/types/core.type';
+import type { ID } from '$types/core.type';
 
 /**
  * Helper function to create mock items with IDs for testing
