@@ -28,6 +28,7 @@ const dest = resolve(process.cwd(), destArg);
 const items = [
 	['card-effects/assignments.json', 'card-effects/assignments.json'],
 	['dice/templates.json', 'dice/templates.json'],
+	['spells/spells.json', 'spells/spells.json'],
 	['decks', 'decks'] // manifest.json, assignments.json + individual deck files
 ];
 

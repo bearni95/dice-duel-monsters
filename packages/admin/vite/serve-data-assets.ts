@@ -37,6 +37,7 @@ const routes: Array<{ re: RegExp; to: (m: RegExpMatchArray) => string }> = [
 	{ re: /^\/card-effects\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'card-effects', m[1]) },
 	{ re: /^\/decks\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'decks', m[1]) },
 	{ re: /^\/dice\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'dice', m[1]) },
+	{ re: /^\/spells\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'spells', m[1]) },
 	// Static media from the frontend's static tree. `/characters` is also an admin
 	// page, so only portrait files under it (a name with an extension) are matched.
 	{ re: /^\/(assets|textures)\/(.+)$/, to: (m) => join(FRONTEND_STATIC, m[1], m[2]) },

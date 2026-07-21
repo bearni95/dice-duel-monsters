@@ -15,6 +15,7 @@ export const POSITIONS = dataPath('cards', 'positions.json');
 export const CARD_EFFECTS = dataPath('card-effects', 'assignments.json');
 export const DECKS_DIR = dataPath('decks');
 export const DICE_FILE = dataPath('dice', 'dice.json');
+export const SPELLS_FILE = dataPath('spells', 'spells.json');
 
 // The catalog generator and the file it emits (served read-through in dev and
 // synced into the frontend's static tree at build).
