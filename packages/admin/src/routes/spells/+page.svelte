@@ -204,6 +204,11 @@
 									placeholder="What the spell does"
 								></textarea>
 							</label>
+							<div class="flex items-center gap-2 pt-1">
+								<button class="btn btn-primary btn-sm" onclick={save} disabled={saving}>
+									{saving ? 'Saving…' : 'Save name & description'}
+								</button>
+							</div>
 						</div>
 					</div>
 				</article>
