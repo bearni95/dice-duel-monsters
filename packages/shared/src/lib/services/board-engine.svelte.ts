@@ -809,6 +809,11 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 		sprite.height = HAND_CARD_H;
 		sprite.position.set(x, y);
 		sprite.alpha = dim;
+		// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in
+		// the DOM hand tray (both call inspectCard, loading it into the detail panel).
+		sprite.eventMode = 'static';
+		sprite.cursor = 'pointer';
+		sprite.on('pointertap', () => inspectCard(card));
 		handLayer.addChild(sprite);
 		return;
 	}
@@ -818,6 +823,9 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 		.fill({ color: 0x000000, alpha: 0.3 })
 		.stroke({ width: 1, color: 0xffffff, alpha: 0.6 });
 	box.alpha = dim;
+	box.eventMode = 'static';
+	box.cursor = 'pointer';
+	box.on('pointertap', () => inspectCard(card));
 	handLayer.addChild(box);
 
 	const label = new Text({
@@ -2862,7 +2870,10 @@ camera.addChild(rivalPlaque.container);
 // the board; added above them so its cards read on top. Painted by renderHand
 // (reactive to `hand`).
 handLayer = new Container();
-handLayer.eventMode = 'none';
+// 'passive' (not 'none'): the layer itself isn't hit-tested, but its interactive
+// children — the clickable hand cards added by addHandCard — still emit events.
+// 'none' would suppress events on the children too.
+handLayer.eventMode = 'passive';
 camera.addChild(handLayer);
 
 app.stage.addChild(camera);
