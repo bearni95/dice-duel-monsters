@@ -1,5 +1,5 @@
 /**
- * Full Yu-Gi-Oh! card record as stored in static/cards/cardinfo.json.
+ * Full Yu-Gi-Oh! card record as stored in data/cards/cardinfo.json.
  *
  * The grid endpoint returns only a lightweight subset for rendering tiles; this
  * is the complete shape served by the card-detail endpoint (/database/cards/[id])

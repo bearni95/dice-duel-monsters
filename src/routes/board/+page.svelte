@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 import classNames from 'classnames';
-import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Matrix, Sprite, Text, Texture, Ticker } from 'pixi.js';
 	import GameCard from '$components/cards/GameCard.svelte';
+	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
 	import DiceRoller from '$components/dice/DiceRoller.svelte';
 
 	import type { IGameCreature } from '$adapters/creature.adapter';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
 	import { getDeckById, getPlayerDeck, getCpuDeck } from '$services/deck.service';
 	import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
+	import { textureForType } from '$utils/card/typeTexture';
 	import rollDie from '$utils/dice/rollDie';
+	import { Dice3D } from '$utils/dice/dice3d';
 
 	// The two sides' decks are chosen on the home page and passed here as
 	// `?player=<deckId>&cpu=<deckId>` query params. Read them once so each side
@@ -23,10 +26,11 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 
 	let host: HTMLDivElement;
 
-	// The two fixed overlay panels flanking the board. Measured on mount so the
-	// grid can be framed into the free gap between them (see frameBoard).
+	// The fixed dice panel floating over the top-left of the canvas, measured on mount
+	// so the grid can be framed into the free space beside it (see frameBoard). The
+	// right column isn't measured: the canvas viewport reserves its width (--right-col-w)
+	// on the right, so it never overlaps the play area.
 	let leftPanel = $state<HTMLElement | undefined>();
-	let rightPanel = $state<HTMLElement | undefined>();
 
 	// The player's draw pile (cards not yet drawn) and current hand. At the start
 	// of each player turn the hand is refilled from the top of the deck up to
@@ -35,6 +39,15 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	let deck = $state<IGameCreature[]>([]);
 	let hand = $state<IGameCreature[]>([]);
 	let loading = $state(false);
+
+	// Cards the player has summoned this match, in play order (newest last). Mirrored
+	// into the red "player board" plaque drawn on the canvas (see renderPlaque), each
+	// rendered as its pre-generated PNG.
+	let playedCards = $state<IGameCreature[]>([]);
+
+	// The rival's mirror of playedCards: the cards the CPU has summoned this match,
+	// shown in the blue plaque at the top-left end of the grid (see renderPlaque).
+	let cpuPlayedCards = $state<IGameCreature[]>([]);
 
 	// The hand is refilled to this size at the start of every turn (both sides).
 	const HAND_SIZE = 6;
@@ -68,7 +81,7 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	let inspectedCreature = $state<IGameCreature | null>(null);
 
 	// Which side of the board a unit belongs to. The player commands the red
-	// network (origin O1); the CPU rival commands the blue one (origin A15).
+	// network (origin L12); the CPU rival commands the blue one (origin A1).
 	type Side = 'player' | 'cpu';
 
 	// A creature that has been summoned onto the board, with its live sprite and
@@ -81,6 +94,11 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 		sprite: Sprite;
 		// Flattened black ellipse painted on the unit's cell as its shadow.
 		shadow: Graphics;
+		// Purple reference square on the unit's cell — the fixed cell marker the
+		// /admin/cards board-preview modal draws (the offset is measured against it),
+		// mirrored here so the board matches the preview. Independent of the sprite,
+		// so it never moves with the card's x/y offset.
+		cellSquare: Graphics;
 		x: number;
 		y: number;
 		hp: number;
@@ -109,7 +127,8 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	let movingUnit: PlacedUnit | null = null;
 	let moveHighlight: string[] = [];
 
-	// Highlight color for reachable destination tiles during move mode.
+	// Fill color of the translucent overlay laid over reachable destination tiles
+	// during move mode (see startMove / moveOverlay).
 	const MOVE_TARGET_COLOR = 0x33dd66;
 
 	// Combat mode: true while the player is choosing a target for the attacker
@@ -120,6 +139,10 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	// while targeting; restored on cancel/resolve.
 	let attackingUnit: PlacedUnit | null = null;
 	let combatHighlight: string[] = [];
+	// The clickable sword icons floating over each combat target while targeting
+	// (see createCombatTargetIcon). Rebuilt on startCombat, torn down when combat
+	// ends (cancel/resolve, via clearCombatTargetIcons).
+	let combatTargetIcons: Container[] = [];
 	// Whether the inspected player unit has at least one rival target in immediate
 	// range — computed on click to drive the Combat button (inspectedUnit isn't
 	// reactive on its own).
@@ -173,24 +196,185 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	// number advances.
 	let turnNumber = $state(1);
 
-	// Bound instance of the top-left DiceRoller panel, used to roll a summoned
-	// creature's HP dice and the rival's energy dice in the shared 3D dice box.
-	let diceRoller:
-		| { rollPool: (count: number, themeColor?: string) => Promise<number[]> }
-		| undefined;
+	// The board's own 3D dice, rendered directly on the game canvas. `anchorDice`
+	// lives in screen space at a fixed spot (bottom-center) for the player's combat
+	// rolls; the rest live inside the camera (world space), so they pan and zoom with
+	// the board: `playerEnergyDice` / `rivalEnergyDice` sit at each side's origin
+	// hearts for the turn-start roll (each side keeps its own so both show at once),
+	// and `hpDice` floats above a freshly summoned creature.
+	let anchorDice: Dice3D | undefined;
+	let playerEnergyDice: Dice3D | undefined;
+	let rivalEnergyDice: Dice3D | undefined;
+	let hpDice: Dice3D | undefined;
+
+	// The combat box is screen-space and sized in px (its hit-marker overlay is
+	// pinned to the same bottom-center spot). The energy/HP boxes are board objects,
+	// so they're sized in world units and move with the camera.
+	const DICE_BOX_SIZE = 200;
+	const DICE_BOTTOM_MARGIN = 24;
+	const DICE_WORLD_SIZE = 160; // ≈ 2.5 tiles wide (turn-start energy at the hearts)
+	const HP_DICE_WORLD_SIZE = 130; // ≈ 2 tiles wide (HP roll above a creature)
+
+	// True while any on-board dice throw is tumbling — disables End Turn so a turn
+	// can't be ended mid-roll.
+	let rolling = $state(false);
+	// Whether the player has rolled their energy for the current turn yet (the
+	// opening roll fires automatically; End Turn stays disabled until it lands).
+	let energyRolled = $state(false);
+
+	// The player's red energy dice (matching their red network).
+	const ENERGY_DICE_COLOR = '#ff3344';
 
 	// Theme color for the rival's dice in the shared 3D box (blue, matching its
-	// blue network), so its rolls read differently from the player's green ones.
+	// blue network), so its rolls read differently from the player's red ones.
 	const RIVAL_DICE_COLOR = '#4d8cff';
 
-	// Theme color for a summoned creature's HP dice in the shared 3D box (red), so
-	// an HP roll reads differently from the player's green energy rolls.
-	const HP_DICE_COLOR = '#ff3344';
+	// Theme color for a summoned creature's HP dice (green), matching the healthy HP
+	// bar the roll fills. Both sides' summons roll their HP with these same dice.
+	const HP_DICE_COLOR = '#33dd66';
 
 	// Theme color for the player's combat dice in the shared 3D box: black, so an
-	// attack roll reads distinctly from green energy and red HP rolls. The dice that
+	// attack roll reads distinctly from red energy and green HP rolls. The dice that
 	// land as hits are then marked with white result squares over the box.
 	const COMBAT_DICE_COLOR = '#0f0f0f';
+
+	// Screen-space centre of the fixed dice box (bottom-center of the canvas). The
+	// combat-hit markers overlay is pinned to the same spot with Tailwind classes.
+	function anchorCenter(): { x: number; y: number } {
+		return {
+			x: app.screen.width / 2,
+			y: app.screen.height - DICE_BOTTOM_MARGIN - DICE_BOX_SIZE / 2
+		};
+	}
+
+	// Roll `count` dice in the shared anchor box, flipping `rolling` for the throw so
+	// End Turn stays disabled while they tumble. Defaults to the fixed bottom-center
+	// spot (combat rolls), but callers can pass a `center` to place the throw
+	// elsewhere (the turn-start energy rolls sit by each side's origin hearts). Falls
+	// back to a plain RNG if the board dice aren't ready yet, so a roll never blocks.
+	async function rollAnchor(
+		count: number,
+		color?: string,
+		center: { x: number; y: number } = anchorCenter()
+	): Promise<number[]> {
+		if (!anchorDice) return Array.from({ length: count }, () => rollDie(6));
+
+		rolling = true;
+		try {
+			return await anchorDice.roll(count, color, center);
+		} finally {
+			rolling = false;
+		}
+	}
+
+	// Roll `count` dice in one of the board-bound boxes (energy / HP), at a world-
+	// space `center` so the throw sits on the board and tracks the camera. Flips
+	// `rolling` for the throw; falls back to a plain RNG if the box isn't ready.
+	async function rollBoard(
+		instance: Dice3D | undefined,
+		count: number,
+		color: string,
+		center: { x: number; y: number }
+	): Promise<number[]> {
+		if (!instance) return Array.from({ length: count }, () => rollDie(6));
+
+		rolling = true;
+		try {
+			return await instance.roll(count, color, center);
+		} finally {
+			rolling = false;
+		}
+	}
+
+	// Roll the player's 3d6 energy for this turn below the player's (red) origin
+	// hearts and bank the total. Guarded so it only happens once per turn.
+	async function rollPlayerEnergy() {
+		if (energyRolled || rolling) return;
+
+		// The energy roll drops any lingering combat marks.
+		combatBoxHits = null;
+
+		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
+		const faces = await rollBoard(playerEnergyDice, 3, ENERGY_DICE_COLOR, center);
+		energyPoints += faces.reduce((sum, face) => sum + face, 0);
+		energyRolled = true;
+	}
+
+	// Roll the rival's 3d6 energy above the rival's (blue) origin hearts and set its
+	// pool. Called at the start of the rival's own turn (see runCpuTurn) — each side
+	// rolls on its own turn, never together.
+	async function rollRivalEnergy() {
+		const center = turnDiceCenterFor(blueOrigin, true) ?? { x: 0, y: 0 };
+		const faces = await rollBoard(rivalEnergyDice, 3, RIVAL_DICE_COLOR, center);
+		cpuEnergy = faces.reduce((sum, face) => sum + face, 0);
+	}
+
+	// End the player's turn: clear the combat dice, hand control to the rival (which
+	// rolls and spends its own energy on its turn), then roll the player's energy for
+	// their next turn. Driven by the panel's End Turn button.
+	async function endTurn() {
+		if (rolling || rivalThinking) return;
+
+		anchorDice?.clear();
+		energyRolled = false;
+		combatBoxHits = null;
+
+		await runCpuTurn();
+		await rollPlayerEnergy();
+	}
+
+	// World-space centre for a summoned creature's HP dice: the dice sit in a single
+	// row at the centre of their (invisible) box, so this returns where that row's
+	// centre should land — just above the HP progressbar. The bar's bottom edge sits
+	// HP_BAR_GAP above the sprite's top edge (see positionHealthBar) and it grows upward
+	// by its own height, so its top edge is that much higher again. The row is placed so
+	// its own bottom (centre minus the die half-height) clears the bar's top by the same
+	// HP_BAR_GAP — matching the gap between the bar and the top of the creature's red
+	// container. World coordinates (the box lives inside the camera), so the dice sit on
+	// the board and track pan/zoom.
+	function hpDiceCenterFor(sprite: Sprite, count: number): { x: number; y: number } {
+		// The progressbar's top edge (mirrors positionHealthBar + the bar's height).
+		const barTopY =
+			sprite.y - sprite.height * sprite.anchor.y - HP_BAR_GAP - healthBarHeight();
+		const dieHalf = hpDice?.diceHalfExtent(count) ?? 0;
+		return {
+			x: sprite.x,
+			// Lift the row's centre so its bottom edge clears the bar's top by HP_BAR_GAP.
+			y: barTopY - HP_BAR_GAP - dieHalf
+		};
+	}
+
+	// World-space centre for a turn-start energy roll, placed right at an origin's
+	// heart counter: `above` the rival's (upward-rising) hearts, or below the
+	// player's (downward-hanging) ones. The hearts spread across the origin's frame
+	// cells; this centres the dice horizontally on that cluster and puts them one
+	// grid row past its outermost heart cell — continuing the isometric diagonal, as
+	// if the grid kept going — so they sit snug against the hearts. World coordinates,
+	// so the dice belong to the board. Null before the origin exists.
+	function turnDiceCenterFor(
+		origin: OriginCell | null,
+		above: boolean
+	): { x: number; y: number } | null {
+		if (!origin) return null;
+
+		const { x: isoX, y: isoY } = isoPosOf(origin.x, origin.y);
+		const offsets = origin.heartOffsets ?? [[0, 0]];
+
+		// Horizontal centre of the heart cluster.
+		const avgX = offsets.reduce((sum, [ox]) => sum + ox, 0) / offsets.length;
+		// The outermost heart cell (top for the rival, bottom for the player), then two
+		// straight grid rows beyond it (each a TILE_HEIGHT step up/down on screen) so
+		// the dice clear the hearts entirely instead of overlapping the last one.
+		const outerY = above
+			? Math.min(...offsets.map(([, oy]) => oy))
+			: Math.max(...offsets.map(([, oy]) => oy));
+		const rowStep = (above ? -TILE_HEIGHT : TILE_HEIGHT) * 2;
+
+		return {
+			x: isoX + avgX,
+			y: isoY + outerY + rowStep
+		};
+	}
 
 	// The CPU rival's deck (loaded from the selected CPU deck), the card ids it
 	// has already summoned, its energy for the current rival turn, and a flag
@@ -211,9 +395,6 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 	// panel and update live as the CPU spends it during its turn.
 	let cpuEnergy = $state(0);
 	let rivalThinking = $state(false);
-	// The rival's last 3d6 energy roll, mirrored in the DiceRoller panel so the
-	// player can see what the CPU rolled. Null faces until its first turn.
-	let rivalFaces = $state<(number | null)[]>([null, null, null]);
 
 	const cpuAdapter = new CardApiAdapter();
 
@@ -366,15 +547,26 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture, Ticker
 
 		const TILE_WIDTH = 64;
 		const TILE_HEIGHT = 32;
-		const GRID_WIDTH = 10;
-		const GRID_HEIGHT = 10;
+		const GRID_WIDTH = 12;
+		const GRID_HEIGHT = 12;
+
+		// Visual separation between adjacent isometric cells. Each drawn diamond is
+		// shrunk toward its own center by this fraction of its half-extents, opening a
+		// noticeable gap between neighboring tiles. Only the drawn diamond shrinks —
+		// cell centers (and everything positioned by isoPosOf: sprites, shadows,
+		// hearts) are unchanged, so gameplay layout is unaffected.
+		const CELL_GAP = 0.16;
+
+		// The drawn width of a single cell after the gap is applied. Billboards are
+		// sized to this (rather than the full TILE_WIDTH) so a summoned creature's
+		// default footprint matches the visible tile it stands on.
+		const CELL_WIDTH = TILE_WIDTH * (1 - CELL_GAP);
 
 		const MIN_ZOOM = 0.25;
 		const MAX_ZOOM = 4;
 
 		let camera: Container;
 let grid: Container;
-let labels: Container;
 // Sits below `units` so each creature's shadow ellipse renders on its cell,
 // under the sprites.
 let shadows: Container;
@@ -382,6 +574,349 @@ let units: Container;
 // Sits above `units` so HP bars and origin LP counters always render on top of
 // the creature sprites.
 let overlays: Container;
+// Top-most board layer holding the translucent green move-target overlays: one
+// diamond drawn over each candidate destination cell while move mode is active,
+// torn down when it ends. Because these are separate objects laid over the floor
+// (never a repaint of the tile's own tint), the underlying floor is left exactly
+// as it was once the overlay is cleared.
+let moveOverlay: Container;
+
+// The "player board" plaque is drawn on the canvas as a Pixi object laid flat on
+// the isometric ground plane (see playerPlaque / renderPlaque), pinned to the
+// bottom-right end of the grid. Living inside the `camera` container, it pans and
+// zooms with the board automatically, so it needs no per-frame JS to track it.
+
+// Where the plaque sits, in grid space. Its local top-left corner is anchored to
+// this cell; before the 90° turn it spans TAG_COLS cells down the grid's +x axis.
+// After the turn its long (TAG_COLS) axis is its text/length running parallel to
+// the board's bottom-right edge (the x=11 column, 12 cells tall), and its short
+// axis is its thickness poking out past that edge — sized from the played-card
+// height rather than a fixed cell count (see TAG_HEIGHT). TAG_COLS is 8 so the
+// length leaves a 2-cell gap at each end
+// of that 12-cell edge (12 − 2 − 2), and the anchor centers it on the edge's
+// midline (grid center y = 5.5). anchor.x = 10 puts the plaque's inner long edge
+// (its top, the edge facing the board) at grid x = 12.5 — leaving a one-cell-wide
+// gap between it and the grid's bottom-right boundary (x = 11.5), as if a row of
+// grid cells sat between them — with its thickness poking outward from there. The
+// div's own px size is TILE_WIDTH per cell on each axis, matching the ground
+// matrix below.
+const TAG_ANCHOR = { x: 10, y: 4 };
+const TAG_COLS = 8;
+const TAG_WIDTH = TILE_WIDTH * TAG_COLS;
+
+// Layout of the played-card thumbnails inside the plaque's local px space. The
+// plaque holds a single row of up to PB_ROW_COUNT cards spanning its full length:
+// each card's width is derived so exactly that many fit side-to-side across
+// TAG_WIDTH, once the inner padding and the inter-card gaps are removed. Cards
+// flow left-to-right and wrap; the plaque's thickness only fits one row (see
+// TAG_HEIGHT), so at most PB_ROW_COUNT show at once.
+const PB_ROW_COUNT = 5;
+const PB_GAP = 6;
+const PB_PAD = 8;
+const PB_CARD_W = (TAG_WIDTH - PB_PAD * 2 - PB_GAP * (PB_ROW_COUNT - 1)) / PB_ROW_COUNT;
+// Generated card PNGs are 1080×1415, so the thumbnail height follows that aspect
+// (matching the hand tiles) instead of the old 59:86 print ratio.
+const PB_CARD_H = (PB_CARD_W * 1415) / 1080;
+
+// The plaque's short axis (its thickness poking past the board edge) hugs a single
+// card's height plus the inner padding above and below it, so the red backing is
+// exactly as tall as the card row it holds.
+const TAG_HEIGHT = PB_CARD_H + PB_PAD * 2;
+
+// The plaque's anchor cell in world (pre-camera) coordinates — the same mapping
+// isoPosOf does, inlined so it doesn't depend on that function's declaration
+// order. This is where the plaque's local (0,0) corner lands before the ground
+// projection and in-plane spin are applied (see PLAYER_BOARD_MATRIX).
+const TAG_ISO_X = (TAG_ANCHOR.x - TAG_ANCHOR.y) * (TILE_WIDTH / 2);
+const TAG_ISO_Y = (TAG_ANCHOR.x + TAG_ANCHOR.y) * (TILE_HEIGHT / 2);
+
+// The plaque's local px space (0..TAG_WIDTH, 0..TAG_HEIGHT) projected onto the
+// board's ground plane, as a single affine matrix set on the playerPlaque
+// container. It composes, in order applied to a local point: a 90° CCW in-plane
+// spin about the plaque's center (so its long axis runs along the board's bottom-
+// right edge), the isometric ground projection matrix(0.5, 0.25, -0.5, 0.25) — the
+// same 2:1 foreshortened, 45°-rotated map drawFloorFill uses for floor art — then a
+// translation to the anchor cell (TAG_ISO). Worked through, that reduces to the
+// entries below; a,b,c,d are the ground+spin rotation/shear (independent of where
+// the plaque sits) and tx/ty carry the anchor offset. Because the container lives
+// inside `camera`, the camera's pan/zoom is applied on top for free.
+const PLAYER_BOARD_MATRIX = new Matrix(
+	0.5,
+	-0.25,
+	0.5,
+	0.25,
+	TAG_ISO_X - TAG_HEIGHT / 2,
+	TAG_ISO_Y + TAG_WIDTH / 4
+);
+
+// The board's center in world (pre-camera) coordinates — the midpoint between the
+// two opposite origin corners (red L12 at bottom, blue A1 at top). Inlined like
+// TAG_ISO so it doesn't depend on isoPosOf's declaration order. Used to point-reflect
+// the player plaque into the rival's mirror below.
+const BOARD_CENTER_ISO_X = ((GRID_WIDTH - 1) - (GRID_HEIGHT - 1)) * (TILE_WIDTH / 4);
+const BOARD_CENTER_ISO_Y = ((GRID_WIDTH - 1) + (GRID_HEIGHT - 1)) * (TILE_HEIGHT / 4);
+
+// The rival's plaque: the player plaque point-reflected through the board center, so
+// it sits at the top-left end of the grid (poking past the A1 corner) exactly as the
+// player's mirrors the L12 corner. A point reflection negates the linear part (a 180°
+// spin — the cards face the rival) and maps each world point P to 2·center − P, so the
+// two plaques are a true mirror of one another. Set on the rivalBoard container in init.
+const RIVAL_BOARD_MATRIX = new Matrix(
+	-0.5,
+	0.25,
+	-0.5,
+	-0.25,
+	2 * BOARD_CENTER_ISO_X - (TAG_ISO_X - TAG_HEIGHT / 2),
+	2 * BOARD_CENTER_ISO_Y - (TAG_ISO_Y + TAG_WIDTH / 4)
+);
+
+// A card plaque laid flat on the board: the player's red one at the bottom-right, the
+// rival's blue one at the top-left. Each holds its live Pixi container (built in init,
+// added to `camera`), a token bumped on each render so a slow PNG load from a
+// superseded render can't paint stale art, and the border color of its network.
+interface CardPlaque {
+	container?: Container;
+	token: number;
+	borderColor: number;
+}
+
+const playerPlaque: CardPlaque = { token: 0, borderColor: 0xdc2626 };
+const rivalPlaque: CardPlaque = { token: 0, borderColor: 0x4d8cff };
+
+// Rasterization resolution for the plaque's text, matching the crisp-at-max-zoom
+// treatment the HP-bar / coordinate labels get inside the zoomable camera.
+const LABEL_RESOLUTION =
+	MAX_ZOOM * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+
+// Place one played card on the given plaque at local (x, y): its pre-generated PNG
+// (static/cards/generated/<id>.png), or a "card not found" placeholder when that
+// bitmap is missing — the same fallback the hand tiles use. The token guards against
+// a superseded render, and the sprite is added upright in local space, then sheared
+// flat by the container's board matrix along with everything else.
+async function addPlaqueCard(
+	plaque: CardPlaque,
+	card: IGameCreature,
+	x: number,
+	y: number,
+	token: number
+) {
+	let texture: Texture | null = null;
+	try {
+		texture = await Assets.load(`/cards/generated/${card.id}.png`);
+	} catch {
+		texture = null;
+	}
+	if (token !== plaque.token || !plaque.container) return;
+
+	if (texture) {
+		const sprite = new Sprite(texture);
+		sprite.width = PB_CARD_W;
+		sprite.height = PB_CARD_H;
+		sprite.position.set(x, y);
+		plaque.container.addChild(sprite);
+		return;
+	}
+
+	const box = new Graphics()
+		.rect(x, y, PB_CARD_W, PB_CARD_H)
+		.fill({ color: 0x000000, alpha: 0.3 })
+		.stroke({ width: 1, color: 0xffffff, alpha: 0.6 });
+	plaque.container.addChild(box);
+
+	const label = new Text({
+		text: 'card not found',
+		style: {
+			fill: 0xffffff,
+			fontSize: 11,
+			align: 'center',
+			wordWrap: true,
+			wordWrapWidth: PB_CARD_W - 8
+		},
+		resolution: LABEL_RESOLUTION
+	});
+	label.anchor.set(0.5);
+	label.position.set(x + PB_CARD_W / 2, y + PB_CARD_H / 2);
+	plaque.container.addChild(label);
+}
+
+// Corner radius (local px) of the plaque's rounded backing and clip mask.
+const PB_CORNER_RADIUS = 12;
+
+// (Re)draw a plaque for its list of played cards: a translucent backing with rounded
+// corners and the plaque's network border (clipped to its own bounds by a matching
+// rounded mask, mirroring the old DOM overflow-hidden), then every played card's PNG
+// laid out in wrapping rows. Empty until a card is summoned. Rebuilt from scratch on
+// each call; a no-op until the container exists (init calls it once the board is built).
+async function renderPlaque(plaque: CardPlaque, cards: IGameCreature[]) {
+	if (!plaque.container) return;
+	const token = ++plaque.token;
+
+	for (const child of plaque.container.removeChildren()) child.destroy();
+	plaque.container.mask = null;
+
+	const bg = new Graphics()
+		.roundRect(0, 0, TAG_WIDTH, TAG_HEIGHT, PB_CORNER_RADIUS)
+		.fill({ color: 0x000000, alpha: 0.5 })
+		.stroke({ width: 2, color: plaque.borderColor, alignment: 1 });
+	plaque.container.addChild(bg);
+
+	// Clip anything spilling past the plaque's rounded edges to its shape.
+	const mask = new Graphics()
+		.roundRect(0, 0, TAG_WIDTH, TAG_HEIGHT, PB_CORNER_RADIUS)
+		.fill(0xffffff);
+	plaque.container.addChild(mask);
+	plaque.container.mask = mask;
+
+	// Flow the cards left-to-right, wrapping to a new row when the next card would
+	// cross the plaque's right padding — the canvas mirror of the old flex-wrap row.
+	let cx = PB_PAD;
+	let cy = PB_PAD;
+	for (const card of cards) {
+		if (cx + PB_CARD_W > TAG_WIDTH - PB_PAD) {
+			cx = PB_PAD;
+			cy += PB_CARD_H + PB_GAP;
+		}
+		await addPlaqueCard(plaque, card, cx, cy, token);
+		cx += PB_CARD_W + PB_GAP;
+	}
+}
+
+// Re-render each on-canvas plaque whenever its side summons a card (its played-cards
+// list changes). Guarded inside renderPlaque until the container exists, and init
+// triggers the first render of both once the board is built.
+$effect(() => {
+	// Touch playedCards so this effect re-runs on every player summon.
+	void playedCards;
+	renderPlaque(playerPlaque, playedCards);
+});
+$effect(() => {
+	// Touch cpuPlayedCards so this effect re-runs on every rival summon.
+	void cpuPlayedCards;
+	renderPlaque(rivalPlaque, cpuPlayedCards);
+});
+
+// The player's hand rendered as upright card PNGs (the same generated bitmaps the
+// right sidebar and the board plaques use) as a left-aligned pyramid at the grid's
+// bottom-left. Like the red/blue plaques it lives inside `camera`, so it pans and zooms
+// with the board — but unlike them the cards are drawn upright (plain sprites, no
+// isometric shear), standing rather than lying flat. Each card is two grid cells wide
+// (2 × CELL_WIDTH — the drawn, gap-applied cell the billboards are sized to); its
+// height follows the 1080×1415 PNG aspect so the art isn't distorted.
+const HAND_CARD_W = CELL_WIDTH * 2;
+const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
+const HAND_CARD_GAP = 6;
+// Inset (world px) of the pyramid's left edge from the grid's left corner.
+const HAND_MARGIN = 12;
+// World-px shift of the pyramid below the grid's midline, biasing it toward the
+// board's bottom-left corner while keeping every row on-screen.
+const HAND_BOTTOM_BIAS = 190;
+
+// The world-space hand row (built in init, added to `camera`) and a token bumped on
+// each render so a slow PNG load from a superseded render can't paint a stale card.
+let handLayer: Container | undefined;
+let handToken = 0;
+
+// Place one hand card as an upright PNG at world (x, y) (its top-left), or a "card not
+// found" placeholder when the bitmap is missing — the same fallback the plaques and
+// hand tiles use. The token guards against a superseded render. Cards too costly for
+// the current energy pool are dimmed, echoing the sidebar's grayed-out tiles.
+async function addHandCard(card: IGameCreature, x: number, y: number, token: number) {
+	let texture: Texture | null = null;
+	try {
+		texture = await Assets.load(`/cards/generated/${card.id}.png`);
+	} catch {
+		texture = null;
+	}
+	if (token !== handToken || !handLayer) return;
+
+	const dim = canSummon(card) ? 1 : 0.45;
+
+	if (texture) {
+		const sprite = new Sprite(texture);
+		sprite.width = HAND_CARD_W;
+		sprite.height = HAND_CARD_H;
+		sprite.position.set(x, y);
+		sprite.alpha = dim;
+		handLayer.addChild(sprite);
+		return;
+	}
+
+	const box = new Graphics()
+		.rect(x, y, HAND_CARD_W, HAND_CARD_H)
+		.fill({ color: 0x000000, alpha: 0.3 })
+		.stroke({ width: 1, color: 0xffffff, alpha: 0.6 });
+	box.alpha = dim;
+	handLayer.addChild(box);
+
+	const label = new Text({
+		text: 'card not found',
+		style: {
+			fill: 0xffffff,
+			fontSize: 10,
+			align: 'center',
+			wordWrap: true,
+			wordWrapWidth: HAND_CARD_W - 8
+		},
+		resolution: LABEL_RESOLUTION
+	});
+	label.anchor.set(0.5);
+	label.alpha = dim;
+	label.position.set(x + HAND_CARD_W / 2, y + HAND_CARD_H / 2);
+	handLayer.addChild(label);
+}
+
+// The player's hand is laid out as a left-aligned pyramid of three rows — 1 card in
+// the first, 2 in the second, 3 in the third (6 = HAND_SIZE) — filled in draw order.
+const HAND_ROWS = [1, 2, 3];
+
+// (Re)draw the player's hand from scratch for the current `hand` (in draw order), as a
+// left-aligned three-row pyramid of upright cards just outside the grid's bottom-left
+// edge. The block is centered on that edge in world coords (computed from the two
+// corner cells), so it tracks the grid as the camera pans/zooms, and every row shares
+// the same left edge. Reactive to `hand` and `energyPoints` (the latter drives the
+// affordability dim); a no-op until the container exists (init creates it once the
+// board is built).
+async function renderHand() {
+	if (!handLayer) return;
+	const token = ++handToken;
+
+	for (const child of handLayer.removeChildren()) child.destroy();
+	if (!hand.length) return;
+
+	// Left-align the pyramid just inside the grid's left corner (first col, last row) and
+	// grow the rows downward. The block is tall (three rows of upright cards), so bias its
+	// vertical center below the grid's midline (worldCenterY = half the bottom corner's y,
+	// since the top corner sits at y=0) — this keeps the whole pyramid in the board's
+	// lower-left rather than running off the bottom. World coords, so it tracks the grid as
+	// the camera pans/zooms.
+	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
+	const bottomCorner = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
+	const worldCenterY = bottomCorner.y / 2;
+	const blockHeight = HAND_ROWS.length * HAND_CARD_H + (HAND_ROWS.length - 1) * HAND_CARD_GAP;
+
+	const leftX = leftCorner.x + HAND_MARGIN;
+	const topY = worldCenterY - blockHeight / 2 + HAND_BOTTOM_BIAS;
+
+	let index = 0;
+	let rowY = topY;
+	for (const count of HAND_ROWS) {
+		let x = leftX;
+		for (let c = 0; c < count && index < hand.length; c++) {
+			await addHandCard(hand[index], x, rowY, token);
+			x += HAND_CARD_W + HAND_CARD_GAP;
+			index++;
+		}
+		rowY += HAND_CARD_H + HAND_CARD_GAP;
+	}
+}
+
+// Repaint the on-canvas hand whenever the hand changes or the energy pool shifts (so
+// the affordability dim tracks the current energy). Guarded until the container exists.
+$effect(() => {
+	void hand;
+	void energyPoints;
+	renderHand();
+});
 
 // Frame the whole isometric grid into the horizontal gap the two fixed side
 // panels leave free, centered in that gap (and vertically in the canvas). Called
@@ -393,11 +928,12 @@ function frameBoard() {
 	const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
 	const worldCenterY = ((GRID_HEIGHT - 1) * TILE_HEIGHT) / 2;
 
-	// Width the panels leave free (their offsetWidth includes padding). Falls back
-	// to the full canvas before they've measured.
+	// The canvas already ends at the right column's left edge (the viewport reserves
+	// --right-col-w on the right), so only the left dice panel — which floats over the
+	// canvas at top-left — is subtracted here. Its offsetWidth includes padding; falls
+	// back to the full canvas before it's measured.
 	const leftW = leftPanel?.offsetWidth ?? 0;
-	const rightW = rightPanel?.offsetWidth ?? 0;
-	const availableW = Math.max(1, app.screen.width - leftW - rightW);
+	const availableW = Math.max(1, app.screen.width - leftW);
 
 	// Fit the grid into the free gap by width, but never let it spill past the top
 	// or bottom of the canvas — take whichever axis is the tighter constraint.
@@ -432,34 +968,156 @@ function columnLabel(index: number): string {
 	return label;
 }
 
+// A cell's coordinate in the same letter/number system the old edge headers used:
+// its 1-based row number followed by its (capital) column letter (e.g. "1A",
+// "10J", "12L"). Painted on a cell while it's hovered.
+function cellLabel(x: number, y: number): string {
+	return `${y + 1}${columnLabel(x)}`;
+}
+
 const tiles = new Map<string, Graphics>();
+// The always-visible cell outline (no fill) for each cell, kept so paintCell can
+// switch a cell's border from the faint empty state to its network color.
+const outlines = new Map<string, Graphics>();
+
+// Half-extents of the drawn (gapped) cell diamond, shared by the grid builder and
+// paintCell so an outline redraw matches the geometry buildGrid laid down.
+const CELL_HALF_W = (TILE_WIDTH / 2) * (1 - CELL_GAP);
+const CELL_HALF_H = (TILE_HEIGHT / 2) * (1 - CELL_GAP);
+
+// Trace the isometric cell diamond onto a Graphics (leaving fill/stroke to the
+// caller). Centered on the object's origin like every other cell-anchored shape.
+function drawCellDiamond(g: Graphics): Graphics {
+	return g
+		.moveTo(0, -CELL_HALF_H)
+		.lineTo(CELL_HALF_W, 0)
+		.lineTo(0, CELL_HALF_H)
+		.lineTo(-CELL_HALF_W, 0)
+		.closePath();
+}
 
 // Cell colors the engine can paint permanently.
 const CELL_RED = 0xff0000;
 const CELL_BLUE = 0x4d8cff;
 
+// An empty cell's border: white at half opacity, so the grid reads faintly until a
+// network claims a cell.
+const EMPTY_BORDER_COLOR = 0xffffff;
+const EMPTY_BORDER_ALPHA = 0.5;
+
 // Occupied cells and their painted color: tile key -> tint color.
-// Placed monsters and O1 are red; O15 is blue.
+// Placed monsters and the red origin (L12) are red; the blue origin (A1) is blue.
 const occupied = new Map<string, number>();
 
-// Paint a cell its recorded color and remember it as occupied.
-function paintCell(x: number, y: number, color: number) {
+// (Re)stroke a cell's outline diamond in the given color/opacity.
+function strokeOutline(outline: Graphics, color: number, alpha: number) {
+	drawCellDiamond(outline.clear()).stroke({ width: 1, color, alpha });
+}
+
+// Draw a cell's floor fill (leaving the tile's alpha to the caller, so the summon
+// unfold can fade it in). When a `texture` is given (a summon passes the played
+// monster's card-frame art), the floor is filled with that texture mapped into the
+// isometric diamond; otherwise the cell is a flat color tint.
+function drawFloorFill(tile: Graphics, color: number, texture?: Texture) {
+	if (texture) {
+		// Map the texture's square onto the cell diamond so the art lies flat in the
+		// board's isometric perspective (rotated 45° and foreshortened 2:1) rather than
+		// sitting upright. The texture corners land on the diamond vertices: (0,0)→top,
+		// (w,0)→right, (w,h)→bottom, (0,h)→left. That parallelogram map is exactly the
+		// isometric ground projection of a flat square.
+		const matrix = new Matrix(
+			CELL_HALF_W / texture.width,
+			CELL_HALF_H / texture.width,
+			-CELL_HALF_W / texture.height,
+			CELL_HALF_H / texture.height,
+			0,
+			-CELL_HALF_H
+		);
+		tile.clear();
+		drawCellDiamond(tile).fill({ texture, matrix });
+		// Lighten the floor with a 10% white overlay over the texture, so the card art
+		// reads as a subtle floor material rather than at full strength.
+		drawCellDiamond(tile).fill({ color: 0xffffff, alpha: 0.1 });
+		// The base fill was tinted white for the flat-color path; reset it so the
+		// texture shows its true colors.
+		tile.tint = 0xffffff;
+	} else {
+		tile.tint = color;
+	}
+}
+
+// Paint a cell its recorded color and remember it as occupied. The cell's outline
+// switches from the faint empty border to its network color at full opacity, and its
+// floor is drawn (textured or flat) fully opaque at once. The staggered summon uses
+// unfoldFloorCell instead; this is the instant path (origins, the Unfold action).
+function paintCell(x: number, y: number, color: number, texture?: Texture) {
 	const key = tileKey(x, y);
 	occupied.set(key, color);
+
+	// The claimed cell's border takes on its network color at full opacity.
+	const outline = outlines.get(key);
+	if (outline) strokeOutline(outline, color, 1);
 
 	const tile = tiles.get(key);
 	if (!tile) return;
 
-	tile.tint = color;
+	drawFloorFill(tile, color, texture);
 	tile.alpha = 1;
 }
 
-// Life points the two origin cells (red = O1, blue = A15) start with.
+// Per-cell fade duration and the delay between successive cells for the staggered
+// summon "unfold", where a creature's floor materializes outward from its own cell.
+const FLOOR_FADE_MS = 200;
+const FLOOR_STAGGER_MS = 80;
+
+// Reveal one floor cell for the staggered summon unfold: draw its floor starting
+// transparent, fade it in over `ms` (after `delay`), then lock its border to the
+// network color as the panel lands. Occupancy is recorded up front by the caller, so
+// this only animates the visuals. Resolves once the fade finishes.
+function unfoldFloorCell(
+	x: number,
+	y: number,
+	color: number,
+	texture: Texture | undefined,
+	ms: number,
+	delay: number
+): Promise<void> {
+	const key = tileKey(x, y);
+	const tile = tiles.get(key);
+	const outline = outlines.get(key);
+	if (!tile) return Promise.resolve();
+
+	drawFloorFill(tile, color, texture);
+	tile.alpha = 0;
+
+	return new Promise((resolve) => {
+		const start = performance.now() + delay;
+
+		const tick = (ticker: Ticker) => {
+			void ticker;
+			const t = (performance.now() - start) / ms;
+			// Hold transparent through the pre-roll delay, then fade in.
+			if (t < 0) return;
+			tile.alpha = Math.min(1, t);
+
+			if (t >= 1) {
+				app.ticker.remove(tick);
+				// Lock the cell's border to its network color as the panel lands.
+				if (outline) strokeOutline(outline, color, 1);
+				resolve();
+			}
+		};
+
+		app.ticker.add(tick);
+	});
+}
+
+// Life points the two origin cells (red = L12, blue = A1) start with.
 const ORIGIN_LP = 3;
 
 // A destroyable origin cell: its grid position, network side/color, remaining
-// life points and the vertical heart stack drawn over it as its LP counter
-// (one heart per point, rebuilt as it takes hits).
+// life points and the heart stack drawn over it as its LP counter (one heart per
+// point, rebuilt as it takes hits).
 interface OriginCell {
 	x: number;
 	y: number;
@@ -467,6 +1125,15 @@ interface OriginCell {
 	color: number;
 	lp: number;
 	hearts: Container;
+	// Optional per-heart world-space offsets (from the cell center) for the LP
+	// counter. When set, the hearts are laid out one per offset instead of the
+	// default vertical stack — used by the corner origins to spread their hearts
+	// onto the three grid cells framing them.
+	heartOffsets?: Array<[number, number]>;
+	// Optional anchor point for the hearts (a fraction of the texture height). The
+	// red corner origin uses HEART_TOP_Y so its hearts hang downward, mirroring the
+	// blue origin's upward hearts; defaults to HEART_TIP_Y (rise upward).
+	heartAnchorY?: number;
 }
 
 // The two origin cells, populated once the board is built in onMount.
@@ -504,45 +1171,121 @@ function depthFor(x: number, y: number): number {
 	return (x + y) * (TILE_HEIGHT / 2);
 }
 
+// Per-card board customizations authored in the /admin/cards board-preview modal
+// and baked into the catalog, applied here so a creature renders on the board
+// exactly as it previews there. `sizeOf` is the billboard scale multiplier (1 =
+// default), and `offsetOf` is its x/y nudge (in world px) from the cell center.
+function sizeOf(creature: IGameCreature): number {
+	return creature.size && creature.size > 0 ? creature.size : 1;
+}
+function offsetOf(creature: IGameCreature): { x: number; y: number } {
+	// The authored offset was calibrated against a full TILE_WIDTH cell in the
+	// /admin/cards preview. The board's cells (and the purple reference square) are
+	// now shrunk by CELL_GAP, so scale the offset by the same factor to keep the
+	// image's placement relative to the square identical to the calibration.
+	return {
+		x: (creature.x ?? 0) * (1 - CELL_GAP),
+		y: (creature.y ?? 0) * (1 - CELL_GAP)
+	};
+}
+
+// The world position of a creature's sprite on a given cell: the cell center plus
+// the card's authored x/y offset. Used wherever the sprite (and things that track
+// it) are placed, so a summon and a later move keep the same offset.
+function spritePosOf(creature: IGameCreature, x: number, y: number) {
+	const { x: isoX, y: isoY } = isoPosOf(x, y);
+	const { x: ox, y: oy } = offsetOf(creature);
+	return { x: isoX + ox, y: isoY + oy };
+}
+
 // The hearts icon shared with the card renderer (GameCard uses it for HP),
 // loaded once in init and stacked over each origin cell as its LP counter.
 let heartTexture: Texture | null = null;
 
+// The broadsword icon the cards use for their ATK stat (see GameCard), loaded
+// once in init and floated over each combat target as its clickable attack
+// handle (see createCombatTargetIcon).
+let swordTexture: Texture | null = null;
+
 // In the 512px hearts viewBox the bottom tip sits at y≈480.785 and the top of
 // the lobes at y≈31, so the drawn heart is ~0.878 of the box tall.
 const HEART_TIP_Y = 480.785 / 512;
+const HEART_TOP_Y = 31 / 512;
 const HEART_VISIBLE_H = (480.785 - 31) / 512;
 // Vertical gap left between two stacked hearts, in world px.
 const HEART_STACK_GAP = 2;
 
-// One heart sized to the tile, anchored at its bottom tip so the tip lands on
-// wherever the sprite is positioned.
-function heartSprite(): Sprite {
+// One heart sized to the tile, anchored so that `anchorY` (a fraction of the
+// texture height) lands on the sprite's position. The default HEART_TIP_Y pins
+// the bottom tip to the position so the heart rises upward from it; passing
+// HEART_TOP_Y instead pins the top of the lobes so the heart hangs downward.
+function heartSprite(anchorY: number = HEART_TIP_Y): Sprite {
 	const icon = new Sprite(heartTexture!);
-	icon.anchor.set(0.5, HEART_TIP_Y);
+	icon.anchor.set(0.5, anchorY);
 	icon.scale.set(TILE_HEIGHT / heartTexture!.height);
 	return icon;
 }
 
-// (Re)fill a container with one heart per life point, stacked vertically: the
-// bottom heart's tip sits at the container origin and each further heart rises
-// above it.
-function fillHearts(container: Container, lp: number) {
+// World-space offsets (from a cell's center) to the centers of the three grid
+// cells framing its top on the isometric board — top-left (grid x-1,y),
+// top (grid x-1,y-1) and top-right (grid x,y-1). Used to spread the blue corner
+// origin's LP hearts onto the cells above it instead of stacking them.
+const TOP_FRAME_HEART_OFFSETS: Array<[number, number]> = [
+	[-(TILE_WIDTH / 2), -(TILE_HEIGHT / 2)], // top-left  (NW neighbor)
+	[0, -TILE_HEIGHT], // top       (N neighbor)
+	[TILE_WIDTH / 2, -(TILE_HEIGHT / 2)] // top-right (NE neighbor)
+];
+
+// The vertical mirror of TOP_FRAME_HEART_OFFSETS: the three grid cells framing a
+// cell's bottom — bottom-left (grid x,y+1), bottom (grid x+1,y+1) and
+// bottom-right (grid x+1,y). Used to spread the red corner origin's LP hearts
+// onto the cells below it.
+const BOTTOM_FRAME_HEART_OFFSETS: Array<[number, number]> = [
+	[-(TILE_WIDTH / 2), TILE_HEIGHT / 2], // bottom-left  (SW neighbor)
+	[0, TILE_HEIGHT], // bottom       (S neighbor)
+	[TILE_WIDTH / 2, TILE_HEIGHT / 2] // bottom-right (SE neighbor)
+];
+
+// (Re)fill a container with one heart per life point. By default the hearts are
+// stacked vertically — the bottom heart's tip sits at the container origin and
+// each further heart rises above it. When `offsets` is given, heart i is instead
+// placed at that world-space offset from the origin (one heart per offset), so
+// the counter can be spread across neighboring cells.
+function fillHearts(
+	container: Container,
+	lp: number,
+	offsets?: Array<[number, number]>,
+	anchorY: number = HEART_TIP_Y
+) {
 	for (const child of container.removeChildren()) child.destroy();
 
 	const step = TILE_HEIGHT * HEART_VISIBLE_H + HEART_STACK_GAP;
 
 	for (let i = 0; i < lp; i++) {
-		const heart = heartSprite();
-		heart.position.set(0, -i * step);
+		const heart = heartSprite(anchorY);
+
+		if (offsets) {
+			const [ox, oy] = offsets[i] ?? [0, 0];
+			heart.position.set(ox, oy);
+		} else {
+			heart.position.set(0, -i * step);
+		}
+
 		container.addChild(heart);
 	}
 }
 
-// Build an origin cell's LP counter as a vertical stack of hearts (one per life
-// point) centered on the cell, returning the container so combat can rebuild it
-// as the origin loses life.
-function drawOriginHearts(x: number, y: number, lp: number): Container {
+// Build an origin cell's LP counter as hearts (one per life point) anchored on
+// the cell, returning the container so combat can rebuild it as the origin loses
+// life. Hearts stack vertically by default; passing `offsets` spreads them onto
+// the surrounding cells (see TOP_FRAME_HEART_OFFSETS).
+function drawOriginHearts(
+	x: number,
+	y: number,
+	lp: number,
+	offsets?: Array<[number, number]>,
+	anchorY: number = HEART_TIP_Y
+): Container {
 	if (!heartTexture) return new Container();
 
 	const { x: isoX, y: isoY } = isoPosOf(x, y);
@@ -551,14 +1294,51 @@ function drawOriginHearts(x: number, y: number, lp: number): Container {
 	container.position.set(isoX, isoY);
 	overlays.addChild(container);
 
-	fillHearts(container, lp);
+	fillHearts(container, lp, offsets, anchorY);
 
 	return container;
 }
 
-// HP progressbar dimensions (in board/world units, before camera zoom).
-const HP_BAR_WIDTH = 44;
+// HP progressbar dimensions (in board/world units, before camera zoom). The bar
+// spans the full width of the purple cell-reference square drawn under each unit
+// (CELL_WIDTH — see createCellSquare), so it reads as the monster's own footprint.
+// Its height is no longer fixed: it hugs the HP text it backs (see healthBarHeight),
+// with HP_BAR_HEIGHT kept only as a fallback before the label has measured.
+const HP_BAR_WIDTH = CELL_WIDTH;
 const HP_BAR_HEIGHT = 6;
+
+// Vertical padding (world units, per side) between the HP text and the top/bottom
+// edges of the progressbar that backs it.
+const HP_BAR_PADDING_Y = 2;
+
+// Every HP bar is the same height — the label's font never changes — so measure it
+// once from a throwaway label and cache it. Kept constant (independent of the bar's
+// current text) so the empty pre-roll bar and the later filled one never jump, and so
+// the summon dice can be placed above the bar before it has any text. The height is the
+// label's own text height plus padding above and below.
+let cachedHealthBarHeight: number | null = null;
+function healthBarHeight(): number {
+	if (cachedHealthBarHeight != null) return cachedHealthBarHeight;
+
+	const probe = new Text({
+		text: '0/0',
+		style: { fill: 0xffffff, fontSize: 10, fontWeight: '700' },
+		resolution: MAX_ZOOM * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+	});
+	const textHeight = probe.height > 0 ? probe.height : HP_BAR_HEIGHT;
+	probe.destroy();
+
+	cachedHealthBarHeight = textHeight + HP_BAR_PADDING_Y * 2;
+	return cachedHealthBarHeight;
+}
+
+// World-space gap the HP bar floats above the top of its creature's sprite. Shared
+// with hpDiceCenterFor so the summon dice tumble directly over the bar.
+const HP_BAR_GAP = 10;
+
+// Duration of a summoned creature's HP-bar fill animation. Shared with the summon's
+// floor unfold so the last floor cell finishes materializing exactly as the bar fills.
+const HP_BAR_FILL_MS = 300;
 
 // Bar fill color: green while healthy, amber past half, red when low.
 function hpColor(ratio: number): number {
@@ -567,15 +1347,17 @@ function hpColor(ratio: number): number {
 	return 0xff4444;
 }
 
-// Build a floating HP progressbar (background track + colored fill + label).
-// The fill Graphics is tagged so redrawHealthBar can find and rescale it.
-function createHealthBar(hp: number, maxHp: number): Container {
+// Build a floating, empty HP progressbar that doubles as the background of its HP
+// text: a full-height background track with a zero-width fill and, initially, no
+// numerals (the label starts empty and transparent). The bg/fill Graphics and the
+// label are tagged so redrawHealthBar / animateHealthBarFill can find them once the
+// HP roll lands. The bar's height is fixed (see healthBarHeight) so it never jumps
+// when the text later fades in.
+function createHealthBar(): Container {
 	const bar = new Container();
 
-	const bg = new Graphics()
-		.rect(-HP_BAR_WIDTH / 2, 0, HP_BAR_WIDTH, HP_BAR_HEIGHT)
-		.fill({ color: 0x000000, alpha: 0.65 })
-		.stroke({ width: 1, color: 0x000000, alpha: 0.9 });
+	const bg = new Graphics();
+	bg.label = 'bg';
 	bar.addChild(bg);
 
 	const fill = new Graphics();
@@ -585,37 +1367,115 @@ function createHealthBar(hp: number, maxHp: number): Container {
 	// The bar lives inside the zoomable `camera` container, so a Text baked at the
 	// default resolution 1 turns blurry once the board is zoomed in. Rasterize it at
 	// the max zoom (times the device pixel ratio) so it stays crisp all the way in.
+	// Added last so the numerals render on top of the progressbar backing them; it
+	// starts empty and transparent, revealed by the fill animation once the dice land.
 	const label = new Text({
 		text: '',
 		style: { fill: 0xffffff, fontSize: 10, fontWeight: '700' },
 		resolution: MAX_ZOOM * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
 	});
 	label.label = 'label';
-	label.anchor.set(0.5, 1);
-	label.position.set(0, -1);
+	label.anchor.set(0.5, 0.5);
+	label.alpha = 0;
 	bar.addChild(label);
 
 	overlays.addChild(bar);
 
-	redrawHealthBar(bar, hp, maxHp);
+	// Draw the empty track (full-height background, no fill) and centre where the
+	// numerals will later sit. The bar grows upward from the container origin (y = 0)
+	// so it stays above the sprite.
+	const height = healthBarHeight();
+	bg
+		.clear()
+		.rect(-HP_BAR_WIDTH / 2, -height, HP_BAR_WIDTH, height)
+		.fill({ color: 0x000000, alpha: 0.65 })
+		.stroke({ width: 1, color: 0x000000, alpha: 0.9 });
+	label.position.set(0, -height / 2);
 
 	return bar;
 }
 
-// Repaint an HP bar's fill width/color and label for the current HP value.
+// Repaint an HP bar's background/fill and label for the current HP value (used once
+// the bar is live — e.g. combat damage). The fill spans the fixed-height rectangle at
+// `ratio` width and the numerals sit centered over it, fully opaque.
 function redrawHealthBar(bar: Container, hp: number, maxHp: number) {
 	const ratio = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+
+	const height = healthBarHeight();
+
+	const label = bar.getChildByLabel('label') as Text | null;
+	if (label) {
+		label.text = `${hp}/${maxHp}`;
+		label.alpha = 1;
+		label.position.set(0, -height / 2);
+	}
+
+	const bg = bar.getChildByLabel('bg') as Graphics | null;
+	if (bg) {
+		bg
+			.clear()
+			.rect(-HP_BAR_WIDTH / 2, -height, HP_BAR_WIDTH, height)
+			.fill({ color: 0x000000, alpha: 0.65 })
+			.stroke({ width: 1, color: 0x000000, alpha: 0.9 });
+	}
 
 	const fill = bar.getChildByLabel('fill') as Graphics | null;
 	if (fill) {
 		fill
 			.clear()
-			.rect(-HP_BAR_WIDTH / 2, 0, HP_BAR_WIDTH * ratio, HP_BAR_HEIGHT)
+			.rect(-HP_BAR_WIDTH / 2, -height, HP_BAR_WIDTH * ratio, height)
 			.fill(hpColor(ratio));
 	}
+}
 
+// Animate an HP bar's fill from empty up to `targetHp` over `ms`, easing out, with
+// the numeral fading in and counting up alongside it. Used right after a summon's HP
+// dice land so the rolled total visibly fills the progressbar (the fill color slides
+// red → amber → green through hpColor as it grows) and its text appears in the dice's
+// place. Resolves when the fill reaches the target.
+function animateHealthBarFill(
+	bar: Container,
+	targetHp: number,
+	maxHp: number,
+	ms = 300
+): Promise<void> {
+	const fill = bar.getChildByLabel('fill') as Graphics | null;
 	const label = bar.getChildByLabel('label') as Text | null;
-	if (label) label.text = `${hp}/${maxHp}`;
+	const height = healthBarHeight();
+
+	return new Promise((resolve) => {
+		const start = performance.now();
+
+		const tick = (ticker: Ticker) => {
+			void ticker;
+			const t = Math.min(1, (performance.now() - start) / ms);
+			const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+			const current = targetHp * eased;
+			const ratio = maxHp > 0 ? Math.max(0, Math.min(1, current / maxHp)) : 0;
+
+			// The numerals fade in from transparent as the fill grows into the bar.
+			if (label) {
+				label.text = `${Math.round(current)}/${maxHp}`;
+				label.alpha = eased;
+			}
+
+			if (fill) {
+				fill
+					.clear()
+					.rect(-HP_BAR_WIDTH / 2, -height, HP_BAR_WIDTH * ratio, height)
+					.fill(hpColor(ratio));
+			}
+
+			if (t >= 1) {
+				app.ticker.remove(tick);
+				// Snap to the exact final value so rounding can't leave it a hair short.
+				redrawHealthBar(bar, targetHp, maxHp);
+				resolve();
+			}
+		};
+
+		app.ticker.add(tick);
+	});
 }
 
 // Shadow ellipse radii. Kept at the cell's 2:1 isometric proportions (from
@@ -644,12 +1504,43 @@ function positionShadow(unit: PlacedUnit) {
 	unit.shadow.position.set(isoX, isoY);
 }
 
-// Float a unit's HP bar just above the top of its sprite at its current tile.
-function positionHealthBar(unit: PlacedUnit) {
+// Build the purple cell square for a unit, rendered identically to the cell
+// square in the /admin/cards board-preview modal: an axis-aligned square whose
+// side equals the drawn (gapped) cell's horizontal diagonal (CELL_WIDTH),
+// matching the billboard width, centered on the cell
+// center (x = 0) with its bottom edge flush with it (y = 0), so it rises above
+// the cell. Its 1-world-unit stroke matches the grid outlines. Lives in `shadows`
+// (below the creature sprites) and is anchored to the cell center — never the
+// card's x/y offset — so the red image border can be read against it exactly as
+// in the preview.
+function createCellSquare(x: number, y: number): Graphics {
+	const square = new Graphics()
+		.rect(-CELL_WIDTH / 2, -CELL_WIDTH, CELL_WIDTH, CELL_WIDTH)
+		.stroke({ width: 1, color: 0xa855f7, alignment: 0.5 });
+
+	const { x: isoX, y: isoY } = isoPosOf(x, y);
+	square.position.set(isoX, isoY);
+	square.eventMode = 'none';
+
+	shadows.addChild(square);
+
+	return square;
+}
+
+// Keep a unit's cell square on the cell it currently stands on (mirrors
+// positionShadow).
+function positionCellSquare(unit: PlacedUnit) {
 	const { x: isoX, y: isoY } = isoPosOf(unit.x, unit.y);
+	unit.cellSquare.position.set(isoX, isoY);
+}
+
+// Float a unit's HP bar just above the top of its sprite. Tracks the sprite's
+// actual position (which already carries the card's x/y offset) and its scaled
+// height, so the bar stays centered over the creature however it's sized/nudged.
+function positionHealthBar(unit: PlacedUnit) {
 	unit.healthBar.position.set(
-		isoX,
-		isoY - unit.sprite.height * unit.sprite.anchor.y - 10
+		unit.sprite.x,
+		unit.sprite.y - unit.sprite.height * unit.sprite.anchor.y - HP_BAR_GAP
 	);
 }
 
@@ -659,6 +1550,39 @@ let previewTiles: string[] = [];
 // Bumped on every show/clear so a slow async texture load can't revive
 // a preview the pointer has already left.
 let previewToken = 0;
+
+// A single reusable Text painted with the hovered cell's coordinate (see
+// cellLabel), lazily created on first hover and repositioned/retexted as the
+// pointer moves between cells. Replaces the fixed row/column edge headers.
+let coordLabel: Text | null = null;
+
+// Paint the hovered cell's coordinate on its center. Lives in `overlays` so it
+// renders above the floor and any creature standing on the cell.
+function showCoordLabel(x: number, y: number) {
+	if (!coordLabel) {
+		coordLabel = new Text({
+			text: '',
+			style: { fill: 0x000000, fontSize: 14, fontWeight: '700' },
+			// Rasterize at max zoom (times DPR) so it stays crisp when zoomed in, the
+			// same treatment the HP-bar labels get inside the zoomable camera.
+			resolution: MAX_ZOOM * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+		});
+		coordLabel.anchor.set(0.5);
+		coordLabel.eventMode = 'none';
+		overlays.addChild(coordLabel);
+	}
+
+	coordLabel.text = cellLabel(x, y);
+
+	const { x: isoX, y: isoY } = isoPosOf(x, y);
+	coordLabel.position.set(isoX, isoY);
+	coordLabel.visible = true;
+}
+
+// Hide the hover coordinate once the pointer leaves the cell.
+function hideCoordLabel() {
+	if (coordLabel) coordLabel.visible = false;
+}
 
 function tileKey(x: number, y: number) {
 	return `${x},${y}`;
@@ -852,27 +1776,61 @@ async function placeMonster(
 ) {
 	const texture = await Assets.load(creature.billboard!);
 
-	// Stage 1 — paint the floor immediately, so the "T" path colors in the moment
-	// the tile is clicked. The played tile is the crossroads of the cross; every
-	// painted tile is recorded as occupied in this side's network color. Net
-	// squares that unfold onto a cell that already has ground are skipped — the
-	// net only ever lays new floor, never repaints (or overwrites) existing floor.
-	for (const [dx, dy] of offsets) {
-		const x = gridX + dx;
-		const y = gridY + dy;
-		if (occupied.has(tileKey(x, y))) continue;
-		paintCell(x, y, color);
-	}
+	// Both networks fill their floor with the played monster's card-frame texture —
+	// the same art GameCard paints behind the card (see textureForType) — so a
+	// summoned creature's floor reads as its own card material. Only the cell border
+	// differs per side (red for the player, blue for the rival, set by `color` in
+	// paintCell).
+	const floorTexture = await Assets.load(textureForType(creature.type));
+
+	// Stage 1 — unfold the floor. The played tile is the crossroads of the cross;
+	// its new-floor cells are ordered by distance from it so the floor materializes
+	// outward from under the monster: the creature's own cell fades in first, then the
+	// rest fade in with a slight per-cell delay. Net squares that fall on a cell that
+	// already has ground are skipped — the net only ever lays new floor. Occupancy is
+	// recorded for every cell up front (keeping board state consistent through the
+	// async summon); only the fade is staggered.
+	const floorCells = offsets
+		.map(([dx, dy]) => ({
+			x: gridX + dx,
+			y: gridY + dy,
+			dist: Math.abs(dx) + Math.abs(dy)
+		}))
+		.filter((c) => !occupied.has(tileKey(c.x, c.y)))
+		.sort((a, b) => a.dist - b.dist);
+
+	for (const c of floorCells) occupied.set(tileKey(c.x, c.y), color);
+
+	// Every cell but the farthest unfolds now, staggered by distance, concurrently
+	// with the creature's fade-in and HP roll below.
+	const floorFades: Promise<void>[] = [];
+	const earlyCells = floorCells.length > 1 ? floorCells.slice(0, -1) : floorCells;
+	earlyCells.forEach((c, i) => {
+		floorFades.push(
+			unfoldFloorCell(c.x, c.y, color, floorTexture, FLOOR_FADE_MS, i * FLOOR_STAGGER_MS)
+		);
+	});
+
+	// The farthest cell is held back to fade during the HP-bar fill (Stage 4), so the
+	// floor finishes unfolding exactly as the bar finishes filling. Null when the net
+	// laid only its crossroads.
+	const finalFloorCell = floorCells.length > 1 ? floorCells[floorCells.length - 1] : null;
 
 	// Isometric shadow ellipse on the creature's cell, under its sprite.
 	const shadow = createShadow(gridX, gridY);
 
+	// Purple cell-reference square on the creature's cell, matching the preview
+	// modal. Fixed to the cell center, so the sprite's x/y offset reads against it.
+	const cellSquare = createCellSquare(gridX, gridY);
+
 	const sprite = new Sprite(texture);
 
-	// As wide as the isometric cell, with the billboard's bottom edge anchored to
-	// the cell center (anchor.y = 1), so the image's vertical end sits on the tile.
-	const scale = TILE_WIDTH / texture.width;
-	sprite.scale.set(scale);
+	// As wide as the drawn (gapped) cell, with the billboard's bottom edge anchored
+	// to the cell center (anchor.y = 1), so the image's vertical end sits on the
+	// tile. The card's authored size factor (default 1) scales it, matching the
+	// board preview in /admin/cards 1:1.
+	const scale = CELL_WIDTH / texture.width;
+	sprite.scale.set(scale * sizeOf(creature));
 
 	// Billboards carry uneven transparent margins, so the visible creature isn't
 	// at the texture's horizontal center. Anchor X on the opaque art's center (a
@@ -883,35 +1841,33 @@ async function placeMonster(
 	const anchorX = (ob.x + ob.width / 2) / texture.width;
 	sprite.anchor.set(anchorX, 1);
 
-	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
-	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
+	// Cell center plus the card's authored x/y offset (default 0), so the billboard
+	// sits exactly where the board preview shows it.
+	const pos = spritePosOf(creature, gridX, gridY);
 
-	sprite.position.set(isoX, isoY);
+	sprite.position.set(pos.x, pos.y);
 	// Row-based depth so lower creatures overlap higher ones (see depthFor).
 	sprite.zIndex = depthFor(gridX, gridY);
 
 	sprite.eventMode = 'static';
 	sprite.cursor = 'pointer';
 
-	// Purple frame around the summoned creature. Added as a child of the sprite so
-	// it inherits the sprite's scale, position, fade-in alpha, later moves and
-	// removal with no extra bookkeeping. Fitted to the opaque pixels (see
-	// opaqueBounds) rather than the padded texture rectangle. Coordinates are in
-	// the sprite's unscaled texture space; a pixel (px,py) sits at
-	// (px - anchorX*texW, py - texH). Because anchorX is the opaque center, the
-	// frame's left edge is simply -ob.width/2. Stroke width, radius and padding are
-	// divided by `scale` to stay a constant size on screen.
-	const pad = 6 / scale; // a few screen px of breathing room outside the art
+	// Red frame around the summoned creature, rendered identically to the image
+	// border in the /admin/cards board-preview modal so a creature looks on the
+	// board exactly as it was calibrated there. It hugs the full texture rectangle
+	// (the whole image, transparent margins included), with square corners and no
+	// padding. Added as a child of the sprite so it inherits the sprite's scale,
+	// position, fade-in alpha, later moves and removal with no extra bookkeeping.
+	// Coordinates are in the sprite's unscaled texture space; a pixel (px,py) sits
+	// at (px - anchorX*texW, py - texH), so the image's left edge is -anchorX*texW
+	// and its top edge is -texH. The stroke is divided by the sprite's *full* scale
+	// (base × size factor) so the line stays a constant 1 world unit on screen, the
+	// same treatment the modal applies.
+	const spriteScale = scale * sizeOf(creature);
 	const border = new Graphics();
 	border
-		.roundRect(
-			-ob.width / 2 - pad,
-			ob.y - texture.height - pad,
-			ob.width + pad * 2,
-			ob.height + pad * 2,
-			10 / scale
-		)
-		.stroke({ width: 3 / scale, color: 0xa855f7, alignment: 0.5 });
+		.rect(-anchorX * texture.width, -texture.height, texture.width, texture.height)
+		.stroke({ width: 1 / spriteScale, color: 0xef4444, alignment: 0.5 });
 	border.eventMode = 'none';
 	sprite.addChild(border);
 
@@ -920,31 +1876,19 @@ async function placeMonster(
 	// Stage 2 — fade the creature in now that its floor is painted.
 	await fadeIn(sprite);
 
-	// Stage 3 — roll the creature's HP dice pool to fix its starting (and max) HP
-	// for this board instance. The player's own summons roll their HP dice in the
-	// shared 3D dice box so the roll is visible; the rival's summons roll silently
-	// (it fires many summons in quick succession during its turn).
-	let rolledHp = 0;
-	if (side === 'player' && diceRoller) {
-		// The HP roll takes over the shared box; drop any lingering combat marks.
-		combatBoxHits = null;
-		const faces = await diceRoller.rollPool(creature.hp, HP_DICE_COLOR);
-		rolledHp = faces.reduce((sum, face) => sum + face, 0);
-	} else {
-		for (let i = 0; i < creature.hp; i++) rolledHp += rollDie(6);
-	}
-
-	// Track the placed unit so it can later be moved around the board.
+	// Track the placed unit up front so its (empty) health bar can be shown before the
+	// HP roll. hp/maxHp are provisional 0 until the dice land and are set below.
 	const unit: PlacedUnit = {
 		unitId: ++unitSeq,
 		side,
 		creature,
 		sprite,
 		shadow,
+		cellSquare,
 		x: gridX,
 		y: gridY,
-		hp: rolledHp,
-		maxHp: rolledHp,
+		hp: 0,
+		maxHp: 0,
 		healthBar: null as unknown as Container
 	};
 
@@ -966,10 +1910,66 @@ async function placeMonster(
 
 	placedUnits.set(unit.unitId, unit);
 
-	// Stage 4 — the HP bar (with its rolled HP) fades in now the roll is done.
-	unit.healthBar = createHealthBar(rolledHp, rolledHp);
+	// Stage 3 — show the empty (textless) HP bar and roll the creature's HP dice pool
+	// over it. Both sides' summons roll their HP dice floating just above the bar so the
+	// roll is visible, using the exact same throw and fill animation. The bar fades in at
+	// the same time the dice appear, then the roll plays out; the bar carries no HP text
+	// yet, only its empty track.
+	unit.healthBar = createHealthBar();
 	positionHealthBar(unit);
-	await fadeIn(unit.healthBar);
+
+	let rolledHp = 0;
+	// Whether the HP dice were shown tumbling above this creature: drives the
+	// progressbar fill animation, which plays "once they land".
+	const showedHpDice = !!hpDice;
+	if (showedHpDice) {
+		// Fade the empty bar in alongside the tumbling dice — they appear together, so
+		// this fade isn't awaited; it runs while the roll resolves below.
+		void fadeIn(unit.healthBar);
+		const faces = await rollBoard(
+			hpDice,
+			creature.hp,
+			HP_DICE_COLOR,
+			hpDiceCenterFor(sprite, creature.hp)
+		);
+		rolledHp = faces.reduce((sum, face) => sum + face, 0);
+	} else {
+		for (let i = 0; i < creature.hp; i++) rolledHp += rollDie(6);
+	}
+
+	unit.hp = rolledHp;
+	unit.maxHp = rolledHp;
+
+	// Stage 4 — now the roll has landed, fill the bar. For a shown roll the numerals
+	// fade in and count up from empty to the rolled total over HP_BAR_FILL_MS while the
+	// landed dice stay above it; only once the bar is full do the dice fade out, leaving
+	// the bar's HP text as the readout in their place. A silent (no-dice) summon just
+	// snaps its full bar in. In step with the fill, the floor's farthest cell unfolds
+	// over the same duration so the ground finishes materializing exactly as the bar
+	// finishes filling.
+	if (finalFloorCell) {
+		floorFades.push(
+			unfoldFloorCell(
+				finalFloorCell.x,
+				finalFloorCell.y,
+				color,
+				floorTexture,
+				HP_BAR_FILL_MS,
+				0
+			)
+		);
+	}
+
+	if (showedHpDice) {
+		await animateHealthBarFill(unit.healthBar, rolledHp, rolledHp, HP_BAR_FILL_MS);
+		await hpDice!.fadeOut();
+	} else {
+		redrawHealthBar(unit.healthBar, rolledHp, rolledHp);
+		await fadeIn(unit.healthBar);
+	}
+
+	// Make sure every floor panel has finished unfolding before the summon completes.
+	await Promise.all(floorFades);
 
 	// Hand back the placed unit so the caller can re-point the inspect panel at it
 	// (e.g. a player summon inspecting the freshly landed creature once its HP roll
@@ -1048,6 +2048,40 @@ function restoreUnitInteractivity() {
 	}
 }
 
+// While a hand card is selected for summoning — and through the async summon
+// sequence that follows — every creature already on the board is dimmed to 50%
+// and made non-interactive (hover + click dropped), the same focus move and
+// combat apply. None of the placed units is the one being acted on here (the
+// summoned creature isn't on the board yet), so they all dim.
+function enterSummonFocus() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.alpha = 0.5;
+	}
+
+	disableUnitInteractivity();
+}
+
+// Restore every creature's opacity and interactivity once the summon ends.
+function exitSummonFocus() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.alpha = 1;
+	}
+
+	restoreUnitInteractivity();
+}
+
+// Drive the summon focus off the selection + summon lifecycle: dim and lock the
+// board the moment a card is selected (the tray's "Select" button) and hold it
+// through the summon animation, then restore once nothing is selected and the
+// summon has finished. Reactive so it tracks every path that sets or clears the
+// selection (Select, the committed tile, switching to Unfold) without threading a
+// call into each. Move and combat manage their own focus imperatively and never
+// change these two signals, so this effect leaves those sequences untouched.
+$effect(() => {
+	if (selectedMonster || summoning) enterSummonFocus();
+	else exitSummonFocus();
+});
+
 // Enter move mode for the inspected unit: highlight every reachable painted tile
 // and lock the panel to this unit until the move completes or is canceled.
 function startMove() {
@@ -1064,36 +2098,55 @@ function startMove() {
 	movingUnit = unit;
 	moveHighlight = moveTargetsFor(unit);
 
+	// Lay a translucent green diamond over each candidate cell rather than
+	// repainting the floor tile itself, so the highlight is purely additive: when
+	// move mode ends the overlays are dropped and the floor is left untouched.
 	for (const key of moveHighlight) {
-		const tile = tiles.get(key);
-		if (!tile) continue;
+		const [x, y] = key.split(',').map(Number);
+		const { x: isoX, y: isoY } = isoPosOf(x, y);
 
-		tile.tint = MOVE_TARGET_COLOR;
-		tile.alpha = 0.7;
+		const overlay = drawCellDiamond(new Graphics()).fill({
+			color: MOVE_TARGET_COLOR,
+			alpha: 0.8
+		});
+		overlay.position.set(isoX, isoY);
+		moveOverlay.addChild(overlay);
 	}
 
-	// Let clicks fall through the creature sprites so the highlighted destination
-	// cells beneath them are actually clickable.
-	disableUnitInteractivity();
+	// Fade every other creature to 50% (only the unit being moved stays fully
+	// opaque) and let clicks fall through the creature sprites so the highlighted
+	// destination cells beneath them are actually clickable.
+	enterMoveFocus();
 
 	moving = true;
 }
 
-// Repaint the highlighted destination tiles back to their real state.
-function restoreMoveHighlight() {
-	for (const key of moveHighlight) {
-		const tile = tiles.get(key);
-		if (!tile) continue;
-
-		const color = occupied.get(key);
-		if (color !== undefined) {
-			tile.tint = color;
-			tile.alpha = 1;
-		} else {
-			tile.tint = 0xffffff;
-			tile.alpha = 0;
-		}
+// While choosing a move destination, halve the opacity of every creature except
+// the one being moved, and let clicks fall through the sprites to the tiles
+// beneath so a highlighted destination cell can actually be picked (a sprite
+// otherwise sits above its tile and swallows the tap).
+function enterMoveFocus() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.alpha = unit === movingUnit ? 1 : 0.5;
 	}
+
+	// Drop all sprite click handlers so taps fall through to the destination cells.
+	disableUnitInteractivity();
+}
+
+// Restore every creature's opacity and interactivity once move mode ends.
+function exitMoveFocus() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.alpha = 1;
+	}
+
+	restoreUnitInteractivity();
+}
+
+// Drop the green move-target overlays, leaving the floor tiles beneath exactly as
+// they were (they were never repainted — the highlight was a separate layer).
+function restoreMoveHighlight() {
+	for (const child of moveOverlay.removeChildren()) child.destroy();
 
 	moveHighlight = [];
 }
@@ -1101,24 +2154,26 @@ function restoreMoveHighlight() {
 // Leave move mode without moving.
 function cancelMove() {
 	restoreMoveHighlight();
-	restoreUnitInteractivity();
+	exitMoveFocus();
 	moving = false;
 	movingUnit = null;
 }
 
 // Relocate a unit's sprite (and HP bar) to a new grid cell.
 function relocateUnit(unit: PlacedUnit, x: number, y: number) {
-	const isoX = (x - y) * (TILE_WIDTH / 2);
-	const isoY = (x + y) * (TILE_HEIGHT / 2);
-	unit.sprite.position.set(isoX, isoY);
+	// Cell center plus the card's authored x/y offset, so the unit keeps its
+	// preview positioning after moving (mirrors placeMonster).
+	const pos = spritePosOf(unit.creature, x, y);
+	unit.sprite.position.set(pos.x, pos.y);
 	// Refresh row-based depth so the unit re-sorts against others at its new tile.
 	unit.sprite.zIndex = depthFor(x, y);
 
 	unit.x = x;
 	unit.y = y;
 
-	// Keep the shadow and HP bar aligned with the sprite's new tile.
+	// Keep the shadow, cell square and HP bar aligned with the sprite's new tile.
 	positionShadow(unit);
+	positionCellSquare(unit);
 	positionHealthBar(unit);
 }
 
@@ -1129,7 +2184,7 @@ function completeMove(x: number, y: number) {
 	if (!unit) return;
 
 	restoreMoveHighlight();
-	restoreUnitInteractivity();
+	exitMoveFocus();
 
 	relocateUnit(unit, x, y);
 
@@ -1213,23 +2268,21 @@ function startCombat() {
 	}
 
 	enterCombatFocus();
+	showCombatTargetIcons();
 
 	combating = true;
 }
 
-// While choosing a combat target, halve the opacity of every creature that
-// isn't the attacker or a valid target, and let clicks fall through the sprites
-// to the tiles beneath so any highlighted target cell can actually be picked
-// (a sprite otherwise sits above its tile and swallows the tap).
+// While choosing a combat target, halve the opacity of every creature except the
+// attacker (only it stays fully opaque — the targets fade too, marked instead by
+// their full-opacity sword icon), and let clicks fall through the sprites so the
+// sword handles beneath them are the ones that get tapped.
 function enterCombatFocus() {
-	const targetKeys = new Set(combatHighlight);
-
 	for (const unit of placedUnits.values()) {
-		const focused = unit === attackingUnit || targetKeys.has(tileKey(unit.x, unit.y));
-		unit.sprite.alpha = focused ? 1 : 0.5;
+		unit.sprite.alpha = unit === attackingUnit ? 1 : 0.5;
 	}
 
-	// Drop all sprite click handlers so taps fall through to the target cells.
+	// Drop all sprite click handlers so taps fall through to the sword icons.
 	disableUnitInteractivity();
 }
 
@@ -1242,7 +2295,68 @@ function exitCombatFocus() {
 	restoreUnitInteractivity();
 }
 
-// Repaint the highlighted target tiles back to their real state.
+// The size a target's sword icon is scaled to: it fits inside the unit's purple
+// cell square (CELL_WIDTH), with a little padding so the blade sits within it.
+const COMBAT_ICON_FIT = CELL_WIDTH * 0.9;
+
+// Float the sword icon (the cards' ATK glyph) over each combat target at full
+// opacity, fitted to and centered on the target's purple cell square, as the
+// clickable handle for striking that target. Tapping the icon resolves the
+// attack on its cell — the cell itself is no longer the click target. No-op when
+// the sword texture hasn't loaded (the tile click path then remains the fallback).
+function showCombatTargetIcons() {
+	if (!swordTexture) return;
+
+	for (const key of combatHighlight) {
+		const [x, y] = key.split(',').map(Number);
+		combatTargetIcons.push(createCombatTargetIcon(x, y));
+	}
+}
+
+// Build one full-opacity sword icon centered on the purple cell square of the
+// target at (x, y): the square spans CELL_WIDTH and rises from the cell center,
+// so the icon is centered half a square above it. A dark drop shadow sits behind
+// the white blade (mirroring the card's drop-shadow) so it stays legible over any
+// billboard. The whole icon is the click target for striking this cell.
+function createCombatTargetIcon(x: number, y: number): Container {
+	const container = new Container();
+	const { x: isoX, y: isoY } = isoPosOf(x, y);
+	container.position.set(isoX, isoY - CELL_WIDTH / 2);
+
+	const fit = COMBAT_ICON_FIT / Math.max(swordTexture!.width, swordTexture!.height);
+
+	const shadow = new Sprite(swordTexture!);
+	shadow.anchor.set(0.5);
+	shadow.scale.set(fit);
+	shadow.tint = 0x000000;
+	shadow.alpha = 0.6;
+	shadow.position.set(1.5, 1.5);
+	container.addChild(shadow);
+
+	const blade = new Sprite(swordTexture!);
+	blade.anchor.set(0.5);
+	blade.scale.set(fit);
+	container.addChild(blade);
+
+	container.eventMode = 'static';
+	container.cursor = 'pointer';
+	container.on('pointertap', () => {
+		if (combating && combatHighlight.includes(tileKey(x, y))) resolveCombat(x, y);
+	});
+
+	overlays.addChild(container);
+
+	return container;
+}
+
+// Tear down the floating sword icons once combat targeting ends.
+function clearCombatTargetIcons() {
+	for (const icon of combatTargetIcons) icon.destroy({ children: true });
+	combatTargetIcons = [];
+}
+
+// Repaint the highlighted target tiles back to their real state and drop the
+// sword icons floating over them.
 function restoreCombatHighlight() {
 	for (const key of combatHighlight) {
 		const tile = tiles.get(key);
@@ -1258,6 +2372,8 @@ function restoreCombatHighlight() {
 		}
 	}
 
+	clearCombatTargetIcons();
+
 	combatHighlight = [];
 }
 
@@ -1269,9 +2385,11 @@ function cancelCombat() {
 	attackingUnit = null;
 }
 
-// Rebuild an origin cell's heart stack to match its current life points.
+// Rebuild an origin cell's heart counter to match its current life points,
+// preserving its layout (vertical stack, or the spread offsets for the blue
+// corner origin).
 function updateOriginLP(origin: OriginCell) {
-	fillHearts(origin.hearts, origin.lp);
+	fillHearts(origin.hearts, origin.lp, origin.heartOffsets, origin.heartAnchorY ?? HEART_TIP_Y);
 }
 
 // End the match the moment an origin runs out of life. The side whose rival's
@@ -1304,6 +2422,7 @@ function applyDamageToUnit(unit: PlacedUnit, hits: number) {
 function removeUnit(unit: PlacedUnit) {
 	unit.sprite.destroy();
 	unit.shadow.destroy();
+	unit.cellSquare.destroy();
 	unit.healthBar.destroy();
 	placedUnits.delete(unit.unitId);
 
@@ -1349,7 +2468,7 @@ function rollAttackDice(count: number): number[] {
 // watched tumbling; the hits are marked white afterwards (see resolveCombat).
 // Falls back to a plain RNG if the box isn't ready yet.
 async function rollCombatDice(count: number): Promise<number[]> {
-	if (diceRoller) return diceRoller.rollPool(count, COMBAT_DICE_COLOR);
+	if (anchorDice) return rollAnchor(count, COMBAT_DICE_COLOR);
 	return rollAttackDice(count);
 }
 
@@ -1634,22 +2753,16 @@ async function runCpuTurn() {
 	if (rivalThinking || gameOver) return;
 	rivalThinking = true;
 
-	// The rival's dice are about to take over the shared box; drop any lingering
-	// player combat marks so they don't sit over the rival's rolls.
+	// Drop any lingering player combat marks before the rival acts.
 	combatBoxHits = null;
 
 	// Start-of-turn draw: refill the rival's hand from its deck up to HAND_SIZE.
 	drawCpuHand();
 
 	try {
-		// Same 3d6 energy roll the player gets each turn, rolled in the shared 3D
-		// dice box tinted blue so it reads as the rival's. Falls back to a plain
-		// RNG if the box isn't ready. The faces are mirrored in the panel too.
-		const rivalRoll = diceRoller
-			? await diceRoller.rollPool(3, RIVAL_DICE_COLOR)
-			: [rollDie(6), rollDie(6), rollDie(6)];
-		rivalFaces = rivalRoll;
-		cpuEnergy = rivalRoll.reduce((sum, face) => sum + face, 0);
+		// The rival rolls its own energy now, at the start of its turn, above its blue
+		// origin hearts — then spends that pool below.
+		await rollRivalEnergy();
 
 		for (let step = 0; step < 12; step++) {
 			// Stop the moment the match is decided (e.g. the rival just destroyed the
@@ -1669,6 +2782,8 @@ async function runCpuTurn() {
 				await placeMonster(move.creature, move.x, move.y, 'cpu', CELL_BLUE, move.offsets!);
 				// The summoned card leaves the rival's hand (it's now on the board).
 				cpuHand = cpuHand.filter((c) => c.id !== move.creature.id);
+				// Record it so it shows in the rival's blue plaque (see renderPlaque).
+				cpuPlayedCards = [...cpuPlayedCards, move.creature];
 			} else if (move.type === 'combat' && move.unit) {
 				// The CPU rolls its attack silently (no 3D box) during its turn.
 				const rolls = rollAttackDice(move.unit.creature.atk);
@@ -1774,19 +2889,25 @@ async function showPreview(
 
 	if (!previewSprite) {
 		previewSprite = new Sprite(texture);
-		// Match the placed sprite: bottom edge anchored to the cell center.
-		previewSprite.anchor.set(0.5, 1);
 		previewSprite.alpha = 0.5;
 		units.addChild(previewSprite);
 	} else {
 		previewSprite.texture = texture;
 	}
 
-	previewSprite.scale.set(TILE_WIDTH / texture.width);
+	// Match the placed sprite exactly so the ghost previews where the creature will
+	// land: the opaque-centered anchor, plus the selected card's size factor and x/y
+	// offset (default 1 / 0). Anchor is re-set each call since the texture can change
+	// when the shared ghost sprite is reused for a different card.
+	const ob = opaqueBounds(texture);
+	const anchorX = (ob.x + ob.width / 2) / texture.width;
+	previewSprite.anchor.set(anchorX, 1);
 
-	const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
-	const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
-	previewSprite.position.set(isoX, isoY);
+	previewSprite.scale.set((CELL_WIDTH / texture.width) * (selectedMonster ? sizeOf(selectedMonster) : 1));
+
+	const off = selectedMonster ? offsetOf(selectedMonster) : { x: 0, y: 0 };
+	const { x: isoX, y: isoY } = isoPosOf(gridX, gridY);
+	previewSprite.position.set(isoX + off.x, isoY + off.y);
 	// Sort the ghost by its hover row too, so it previews at the correct depth.
 	previewSprite.zIndex = depthFor(gridX, gridY);
 	previewSprite.visible = true;
@@ -1827,11 +2948,20 @@ function clearPreview() {
 		let lastX = 0;
 		let lastY = 0;
 
+		// Watches the host's CSS box so the renderer's drawing buffer tracks it (see the
+		// resize wiring in init); disconnected on teardown.
+		let resizeObserver: ResizeObserver | undefined;
+
 		async function init() {
 			await app.init({
-				// Follow the square host element (side = viewport height) so the canvas
-				// stays a perfect square and re-fits when the window resizes.
+				// Follow the flex host element so the canvas re-fits whenever the host's
+				// box changes (window resize or the right column reflowing).
 				resizeTo: host,
+				// Keep the canvas's CSS size matched to its drawing buffer so it fills the
+				// host exactly instead of overflowing on high-DPR (retina) displays, which
+				// is what made it spill behind the right column.
+				autoDensity: true,
+				resolution: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
 				background: '#1b1b1b',
 				antialias: true
 			});
@@ -1844,7 +2974,6 @@ grid = new Container();
 // Render every grid-line outline above every floor tile (see zIndex assignments
 // in buildGrid), so painted floor never covers a neighboring cell's lines.
 grid.sortableChildren = true;
-labels = new Container();
 shadows = new Container();
 units = new Container();
 // Depth-sort creature sprites by their screen row: a unit lower on the board
@@ -1852,53 +2981,147 @@ units = new Container();
 // creatures correctly overlap farther ones (see depthFor / placeMonster).
 units.sortableChildren = true;
 overlays = new Container();
+// Above every other board layer, so the move-target overlays read as a wash laid
+// on top of the floor. No creature ever stands on a candidate cell (see
+// moveTargetsFor), so nothing meaningful is hidden by drawing it on top.
+moveOverlay = new Container();
+moveOverlay.eventMode = 'none';
 
 camera.addChild(grid);
-camera.addChild(labels);
 camera.addChild(shadows);
 camera.addChild(units);
 camera.addChild(overlays);
+camera.addChild(moveOverlay);
+
+// The two card plaques, laid flat on the ground plane by their board matrices and
+// added above the board layers so their cards read on top of the floor: the player's
+// red one at the bottom-right (PLAYER_BOARD_MATRIX), the rival's blue mirror at the
+// top-left (RIVAL_BOARD_MATRIX). Both live inside `camera`, so they pan and zoom with
+// the board; their contents are drawn by renderPlaque (reactive to each side's
+// played-cards list).
+playerPlaque.container = new Container();
+playerPlaque.container.setFromMatrix(PLAYER_BOARD_MATRIX);
+playerPlaque.container.eventMode = 'none';
+camera.addChild(playerPlaque.container);
+
+rivalPlaque.container = new Container();
+rivalPlaque.container.setFromMatrix(RIVAL_BOARD_MATRIX);
+rivalPlaque.container.eventMode = 'none';
+camera.addChild(rivalPlaque.container);
+
+// World-space row for the player's hand (upright card PNGs just outside the grid's
+// bottom-left edge). Inside `camera` like the two plaques, so it pans and zooms with
+// the board; added above them so its cards read on top. Painted by renderHand
+// (reactive to `hand`).
+handLayer = new Container();
+handLayer.eventMode = 'none';
+camera.addChild(handLayer);
 
 app.stage.addChild(camera);
 
-			frameBoard();
+// Screen-space layer above the (zoomable) camera for the fixed combat dice, so
+// they stay a constant size at the bottom-center of the viewport regardless of zoom.
+const diceLayer = new Container();
+app.stage.addChild(diceLayer);
 
+// World-space layer inside the camera for the board-bound dice (turn-start energy at
+// the origin hearts, HP above a summoned creature), added last so they render on top
+// of the board content. Being in the camera, they pan and zoom with the board.
+const worldDice = new Container();
+camera.addChild(worldDice);
+
+const pixi = { Container, Graphics, Text, Matrix };
+anchorDice = new Dice3D({ app, layer: diceLayer, pixi, boxSize: DICE_BOX_SIZE });
+playerEnergyDice = new Dice3D({ app, layer: worldDice, pixi, boxSize: DICE_WORLD_SIZE });
+rivalEnergyDice = new Dice3D({ app, layer: worldDice, pixi, boxSize: DICE_WORLD_SIZE });
+hpDice = new Dice3D({
+	app,
+	layer: worldDice,
+	pixi,
+	boxSize: HP_DICE_WORLD_SIZE,
+	baseColor: 0xff3344
+});
+
+			frameBoard();
 
 			buildGrid();
 
-			buildLabels();
+			// Paint both (empty) plaques now that their containers exist; the $effects on
+			// each side's played-cards list repaint them as cards are summoned.
+			renderPlaque(playerPlaque, playedCards);
+			renderPlaque(rivalPlaque, cpuPlayedCards);
 
-			// Permanently record the pre-painted cells (last column = x GRID_WIDTH - 1):
-			// red origin at (row 1 = y 0), blue origin at the opposite corner.
-			paintCell(GRID_WIDTH - 1, 0, CELL_RED);
-			paintCell(0, GRID_HEIGHT - 1, CELL_BLUE);
+			// Paint the (initially empty) hand row; its $effect repaints it as cards are
+			// drawn, summoned, and as the energy pool changes.
+			renderHand();
+
+			// Permanently record the pre-painted cells at opposite corners: the red
+			// origin at the far corner (cell L12 = last column, last row) and the blue
+			// origin at the near corner (cell A1 = first column, first row).
+			paintCell(GRID_WIDTH - 1, GRID_HEIGHT - 1, CELL_RED);
+			paintCell(0, 0, CELL_BLUE);
 
 			// Load the hearts icon (same one the card renderer uses for HP) so each
 			// origin's LP can be drawn as a vertical stack of hearts.
 			heartTexture = await Assets.load('/assets/icons/skoll/hearts.svg');
 
+			// Load the broadsword icon (the cards' ATK stat glyph) so it can be floated
+			// over each combat target as its clickable attack handle.
+			swordTexture = await Assets.load('/assets/icons/lorc/broadsword.svg');
+
 			// Each origin cell starts with 3 life points, shown as a stack of hearts.
 			// Kept as destroyable OriginCells so combat can whittle their life down.
 			redOrigin = {
 				x: GRID_WIDTH - 1,
-				y: 0,
+				y: GRID_HEIGHT - 1,
 				side: 'player',
 				color: CELL_RED,
 				lp: ORIGIN_LP,
-				hearts: drawOriginHearts(GRID_WIDTH - 1, 0, ORIGIN_LP)
+				// Spread the red origin's hearts onto the three cells framing the bottom
+				// of its corner (13l, 13m, 12m) and hang them downward — the full
+				// vertical mirror of the blue origin's upward top-framing hearts.
+				heartOffsets: BOTTOM_FRAME_HEART_OFFSETS,
+				heartAnchorY: HEART_TOP_Y,
+				hearts: drawOriginHearts(
+					GRID_WIDTH - 1,
+					GRID_HEIGHT - 1,
+					ORIGIN_LP,
+					BOTTOM_FRAME_HEART_OFFSETS,
+					HEART_TOP_Y
+				)
 			};
 			blueOrigin = {
 				x: 0,
-				y: GRID_HEIGHT - 1,
+				y: 0,
 				side: 'cpu',
 				color: CELL_BLUE,
 				lp: ORIGIN_LP,
-				hearts: drawOriginHearts(0, GRID_HEIGHT - 1, ORIGIN_LP)
+				// Spread the blue origin's hearts onto the three cells framing the top
+				// of its corner (top-left, top, top-right) instead of stacking them.
+				heartOffsets: TOP_FRAME_HEART_OFFSETS,
+				hearts: drawOriginHearts(0, 0, ORIGIN_LP, TOP_FRAME_HEART_OFFSETS)
 			};
 
 			setupControls();
 
-			app.renderer.on('resize', () => {});
+			// Match the renderer's drawing buffer to the host's CSS box, then re-fit the
+			// board. `resizeTo: host` only re-measures on a window resize — never when the
+			// host's own box changes (its right inset now reserves the right column via
+			// --right-col-w) — and its single measurement at init can race layout, leaving
+			// the buffer full-window so the board renders behind the column. Observing the
+			// host directly resizes the buffer to its real width the moment it settles and
+			// on any later box change; the renderer's own 'resize' event re-fits the grid.
+			app.renderer.on('resize', () => frameBoard());
+
+			resizeObserver = new ResizeObserver(() => {
+				app.renderer.resize(host.clientWidth, host.clientHeight);
+			});
+			resizeObserver.observe(host);
+
+			// Open the match by rolling the player's energy below their red origin
+			// hearts — the same auto-roll that begins each of their later turns. The
+			// rival rolls on its own turn (see runCpuTurn), not now.
+			rollPlayerEnergy();
 		}
 
 		function buildGrid() {
@@ -1907,26 +3130,26 @@ app.stage.addChild(camera);
 					const isoX = (x - y) * (TILE_WIDTH / 2);
 					const isoY = (x + y) * (TILE_HEIGHT / 2);
 
-					const drawDiamond = (g: Graphics) =>
-						g
-							.moveTo(0, -TILE_HEIGHT / 2)
-							.lineTo(TILE_WIDTH / 2, 0)
-							.lineTo(0, TILE_HEIGHT / 2)
-							.lineTo(-TILE_WIDTH / 2, 0)
-							.closePath();
+					// Half-extents of the drawn diamond, shrunk by CELL_GAP so tiles are
+					// separated by a visible gap. Cell centers stay on the full-size
+					// isometric lattice (isoX/isoY), so only the rendered shape shrinks.
+					// Shared with paintCell via CELL_HALF_W/H + drawCellDiamond.
 
-					// Always-visible cell outline (no fill) keeps the grid legible. Its
-					// higher zIndex keeps the grid lines above every floor tile.
+					// Always-visible cell outline (no fill) keeps the grid legible. Empty
+					// cells show it faintly (50% white); paintCell switches a claimed cell's
+					// border to its network color at full opacity. Its higher zIndex keeps the
+					// grid lines above every floor tile.
 					const outline = new Graphics();
-					drawDiamond(outline).stroke({ width: 1, color: 0xffffff, alpha: 1 });
+					strokeOutline(outline, EMPTY_BORDER_COLOR, EMPTY_BORDER_ALPHA);
 					outline.position.set(isoX, isoY);
 					outline.zIndex = 1;
 					grid.addChild(outline);
+					outlines.set(tileKey(x, y), outline);
 
 					// Interactive fill, empty (transparent) by default; revealed by
 					// raising alpha + tinting on hover, preview and placement.
 					const tile = new Graphics();
-					drawDiamond(tile).fill(0xffffff);
+					drawCellDiamond(tile).fill(0xffffff);
 					tile.position.set(isoX, isoY);
 					tile.alpha = 0;
 					tile.zIndex = 0;
@@ -1941,9 +3164,12 @@ app.stage.addChild(camera);
 		return;
 	}
 
-	// Combat mode: clicking a highlighted target resolves the attack.
+	// Combat mode: targets are struck by clicking their floating sword icon
+	// (see createCombatTargetIcon), not the cell — so a tile tap is swallowed.
+	// Only when the sword texture failed to load (no icons) does the cell click
+	// stay as a fallback.
 	if (combating) {
-		if (combatHighlight.includes(tileKey(x, y))) resolveCombat(x, y);
+		if (!swordTexture && combatHighlight.includes(tileKey(x, y))) resolveCombat(x, y);
 		return;
 	}
 
@@ -2003,6 +3229,10 @@ app.stage.addChild(camera);
 	// is clicked, rather than lingering through the fade-in and HP dice roll.
 	hand = hand.filter((c) => c.id !== monster.id);
 
+	// Record the played card so it shows in the red "player board" plaque drawn on
+	// the canvas (renderPlaque), rendered as its pre-generated PNG.
+	playedCards = [...playedCards, monster];
+
 	// Lock the right-side column for the whole summon sequence so no other card
 	// can be summoned until this one is on the board with its rolled HP. Cleared
 	// in finally so a failed texture/HP roll can't leave the tray stuck disabled.
@@ -2036,18 +3266,23 @@ app.stage.addChild(camera);
 	// Remember the hovered cell so a wheel-rotation can redraw the preview.
 	hoverTile = { x, y };
 
+	// Paint the cell's coordinate on it while hovered (replaces the edge headers).
+	showCoordLabel(x, y);
+
 	if (selectedMonster?.billboard) {
 		showPreview(selectedMonster.billboard, x, y);
 	} else if (unfolding) {
 		showNetPreview(x, y);
 	} else if (!occupied.has(tileKey(x, y))) {
-		tile.tint = 0xffcc66;
-		tile.alpha = 1;
+		tile.tint = 0xffffff;
+		tile.alpha = 0.5;
 	}
 });
 
 tile.on('pointerout', () => {
 	if (hoverTile?.x === x && hoverTile?.y === y) hoverTile = null;
+
+	hideCoordLabel();
 
 	if (selectedMonster?.billboard || unfolding) {
 		clearPreview();
@@ -2060,45 +3295,6 @@ tile.on('pointerout', () => {
 					tiles.set(tileKey(x, y), tile);
 					grid.addChild(tile);
 				}
-			}
-		}
-
-		// Draw chess-style coordinate labels just outside the diamond grid:
-		// letters for columns (x) along the top-right edge, numbers for rows
-		// (y) along the top-left edge. Labels live in the camera so they pan
-		// and zoom together with the board.
-		function buildLabels() {
-			const labelStyle = {
-				fill: 0xffffff,
-				fontSize: 14,
-				fontWeight: '700' as const
-			};
-
-			const isoPos = (gx: number, gy: number) => ({
-				x: (gx - gy) * (TILE_WIDTH / 2),
-				y: (gx + gy) * (TILE_HEIGHT / 2)
-			});
-
-			// Column letters, one tile north-west of the y = 0 edge.
-			for (let x = 0; x < GRID_WIDTH; x++) {
-				const text = new Text({ text: columnLabel(x), style: labelStyle });
-				text.anchor.set(0.5);
-
-				const { x: isoX, y: isoY } = isoPos(x, -1);
-				text.position.set(isoX, isoY);
-
-				labels.addChild(text);
-			}
-
-			// Row numbers, one tile north-east of the x = 0 edge.
-			for (let y = 0; y < GRID_HEIGHT; y++) {
-				const text = new Text({ text: String(y + 1), style: labelStyle });
-				text.anchor.set(0.5);
-
-				const { x: isoX, y: isoY } = isoPos(-1, y);
-				text.position.set(isoX, isoY);
-
-				labels.addChild(text);
 			}
 		}
 
@@ -2198,6 +3394,7 @@ tile.on('pointerout', () => {
 		init();
 
 		return () => {
+			resizeObserver?.disconnect();
 			app.destroy(true, {
 				children: true
 			});
@@ -2209,30 +3406,42 @@ tile.on('pointerout', () => {
 	<title>Isometric Grid</title>
 </svelte:head>
 
-<!-- Full-viewport game canvas. -->
-<div bind:this={host} class="viewport"></div>
+<!-- The board fills the space below the navbar as a flex row: the game canvas on
+     the left shrinks to fit, and the right column (hand + detail) is a real,
+     space-occupying DOM column beside it — never overlapping the canvas. -->
+<div class="board-layout">
+	<!-- Game canvas: flexes to fill the space left of the right column. Its own
+	     overlays (left dice panel, combat markers, board plaque) are absolutely
+	     positioned within it, so they track the canvas, not the whole window. -->
+	<div bind:this={host} class="viewport">
+	<!-- The player and rival "board" plaques are now drawn on the canvas itself (Pixi
+	     objects laid flat on the isometric ground; see playerPlaque / rivalPlaque /
+	     renderPlaque), rendering each summoned card as its pre-generated PNG. -->
 
-<!-- Left column: the turn / dice panel, laid over the top-left of the canvas. -->
-<aside
-	bind:this={leftPanel}
-	class="fixed top-[var(--navbar-h)] left-0 z-10 flex max-h-[calc(100vh-var(--navbar-h))] flex-col gap-2 overflow-auto p-2"
->
-	<div class="rounded bg-base-100 shadow-lg">
-		<DiceRoller
-			bind:this={diceRoller}
-			{energyPoints}
-			{rivalFaces}
-			rivalEnergy={cpuEnergy}
-			{rivalThinking}
-			{turnNumber}
-			{unfolding}
-			combatHits={combatBoxHits}
-			onRoll={(total) => (energyPoints += total)}
-			onUnfold={startUnfold}
-			onEndTurn={runCpuTurn}
-		/>
-	</div>
+	<!-- Combat hit markers: one white result square (black number) per die that scored
+	     a hit, stamped over the black combat dice in the on-board anchor box. The box
+	     rolls at the canvas's bottom-center (app.screen.width / 2); this overlay lives
+	     inside the canvas host, so centering on the host's midline lines up with it. -->
+	{#if combatBoxHits && combatBoxHits.length}
+		<div
+			class="pointer-events-none absolute bottom-6 left-1/2 z-20 flex h-[200px] w-[200px] -translate-x-1/2 flex-wrap content-center items-center justify-center gap-1.5 p-3"
+		>
+			{#each combatBoxHits as value, i (i)}
+				<span
+					class="flex h-9 w-9 items-center justify-center rounded-sm border border-base-300 bg-white text-base font-bold text-black shadow-md"
+				>
+					{value}
+				</span>
+			{/each}
+		</div>
+	{/if}
 
+	<!-- Left dice panel: floats over the top-left of the canvas (an absolute overlay
+	     inside the canvas host, not a column that reserves space). -->
+	<aside
+		bind:this={leftPanel}
+		class="absolute top-0 left-0 z-10 flex max-h-full flex-col gap-2 overflow-auto p-2"
+	>
 	<!-- Combat panel: shown while a recent attack is resolving. Reads the attacker,
 	     an arrow, and the defender in a row — with the attacker's ATK, the
 	     defender's DEF, and the HP inflicted by the roll. -->
@@ -2287,61 +3496,126 @@ tile.on('pointerout', () => {
 		</div>
 	{/if}
 </aside>
+</div>
 
-<!-- Right column: the on-board detail card + the summonable cards grid, laid over
-     the top-right of the canvas. -->
+<!-- Right column: the on-board detail card + the drawn hand grid. Its own
+     space-occupying DOM column beside the canvas (not an overlay): a fixed-width
+     flex child the canvas shrinks to make room for, scrolling vertically when its
+     content overflows. -->
 <aside
-	bind:this={rightPanel}
-	class="fixed top-[var(--navbar-h)] right-0 z-10 flex max-h-[calc(100vh-var(--navbar-h))] w-[400px] flex-col gap-2 overflow-y-auto p-2"
+	class="right-col flex w-[var(--right-col-w)] shrink-0 flex-col gap-2 overflow-y-auto p-2"
 >
-	<!-- On-board detail: the last-clicked creature's card and its actions. Always
-	     visible — shows a placeholder prompt when no creature is selected. -->
+	<!-- Turn + energy read-out: the shared turn number and both sides' energy pools,
+	     shown at the top of the column above the detail card. -->
+	<div class="rounded bg-base-100 shadow-sm">
+		<DiceRoller {energyPoints} rivalEnergy={cpuEnergy} {turnNumber} {rolling} />
+	</div>
+
+	<!-- On-board detail: the last-clicked creature's card and its actions, in a
+	     two-column grid above the hand. Always visible: the card slot shows the
+	     inspected creature or an empty square placeholder, and the actions sit
+	     beside it (disabled until a player unit is inspected). -->
 	<div class="grid grid-cols-2 items-start gap-2">
+		<!-- Card slot: the inspected creature, or an empty square placeholder holding
+		     the layout so the grid never collapses to a full-width prompt. -->
 		{#if inspectedCreature}
 			<div class="pointer-events-none">
 				<GameCard card={inspectedCreature} />
 			</div>
-
-			<div class="flex flex-col gap-2">
-				{#if inspectedIsPlayer && moving}
-					<button class="btn btn-sm btn-error" onclick={cancelMove}>Cancel Move</button>
-				{:else if inspectedIsPlayer && combating}
-					<button class="btn btn-sm btn-error" onclick={cancelCombat}>Cancel Combat</button>
-				{:else}
-					<!-- Rival creatures (and the rival's own turn) show the same buttons, all disabled. -->
-					<!-- Also disabled while a summon is landing, so no action fires mid-summon. -->
-					{@const controlsDisabled = !inspectedIsPlayer || rivalThinking || summoning}
-					<button
-						class="btn btn-sm btn-primary justify-between"
-						disabled={controlsDisabled || energyPoints < inspectedCreature.cost}
-						onclick={startMove}
-					>
-						<span>Move</span>
-						<span class="text-xs opacity-80">
-							Cost {inspectedCreature.cost} · SPD {inspectedCreature.speed}
-						</span>
-					</button>
-					<button
-						class="btn btn-sm btn-primary justify-between"
-						disabled={controlsDisabled ||
-							energyPoints < inspectedCreature.cost ||
-							!inspectedCanCombat}
-						onclick={startCombat}
-					>
-						<span>Combat</span>
-						<span class="text-xs opacity-80">
-							Cost {inspectedCreature.cost} · ATK {inspectedCreature.atk}d6
-						</span>
-					</button>
-				{/if}
-			</div>
 		{:else}
 			<div
-				class="flex aspect-square w-full items-center justify-center rounded border border-dashed border-base-300 bg-base-100/60 p-4 text-center text-sm text-base-content/60"
+				class="flex aspect-square w-full items-center justify-center rounded border border-dashed border-base-300 bg-base-100/60 p-3 text-center text-xs text-base-content/50"
 			>
-				Click a creature on the board to inspect it.
+				Click a creature to inspect it.
 			</div>
 		{/if}
+
+		<!-- Actions: the inspected unit's Move/Combat (or their in-progress Cancel),
+		     with the turn actions pinned beneath them. Full-height so those turn
+		     actions align with the foot of the card slot beside it. With nothing
+		     inspected the unit actions render disabled so the grid keeps its shape. -->
+		<div class="flex h-full flex-col gap-2">
+			{#if inspectedCreature && inspectedIsPlayer && moving}
+				<button class="btn btn-sm btn-error" onclick={cancelMove}>Cancel Move</button>
+			{:else if inspectedCreature && inspectedIsPlayer && combating}
+				<button class="btn btn-sm btn-error" onclick={cancelCombat}>Cancel Combat</button>
+			{:else}
+				<!-- Rival creatures (and the rival's own turn) show the same buttons, all disabled.
+				     Also disabled while a summon is landing, or with nothing inspected. -->
+				{@const controlsDisabled =
+					!inspectedCreature || !inspectedIsPlayer || rivalThinking || summoning}
+				<button
+					class="btn btn-sm btn-primary justify-between"
+					disabled={controlsDisabled ||
+						!inspectedCreature ||
+						energyPoints < inspectedCreature.cost}
+					onclick={startMove}
+				>
+					<span>Move</span>
+					<span class="text-xs opacity-80">
+						{#if inspectedCreature}
+							Cost {inspectedCreature.cost} · SPD {inspectedCreature.speed}
+						{:else}
+							—
+						{/if}
+					</span>
+				</button>
+				<button
+					class="btn btn-sm btn-primary justify-between"
+					disabled={controlsDisabled ||
+						!inspectedCreature ||
+						energyPoints < inspectedCreature.cost ||
+						!inspectedCanCombat}
+					onclick={startCombat}
+				>
+					<span>Combat</span>
+					<span class="text-xs opacity-80">
+						{#if inspectedCreature}
+							Cost {inspectedCreature.cost} · ATK {inspectedCreature.atk}d6
+						{:else}
+							—
+						{/if}
+					</span>
+				</button>
+			{/if}
+
+			<!-- Turn actions: pinned to the bottom of the column, under the unit
+			     actions and separated by a rule. Unfold extends the network for a
+			     fixed cost; End Turn hands control to the rival. -->
+			<div class="mt-auto flex flex-col gap-2 border-t border-base-300 pt-2">
+				<button
+					class={classNames(
+						'btn btn-sm w-full gap-1',
+						unfolding ? 'btn-secondary' : 'btn-outline'
+					)}
+					onclick={startUnfold}
+					disabled={rivalThinking || rolling || (!unfolding && energyPoints < UNFOLD_COST)}
+				>
+					{#if unfolding}
+						Cancel Unfold
+					{:else}
+						Unfold ({UNFOLD_COST}
+						<span
+							class="block h-4 w-4 bg-current [mask-image:url(/assets/icons/sbed/battery-pack.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+							aria-label="Energy"
+							title="Energy"
+						></span>)
+					{/if}
+				</button>
+				<button
+					class="btn btn-outline btn-sm w-full"
+					onclick={endTurn}
+					disabled={!energyRolled || rolling || rivalThinking}
+				>
+					{#if rolling}
+						<span class="loading loading-spinner loading-xs"></span>
+						Rolling…
+					{:else}
+						End Turn
+					{/if}
+				</button>
+			</div>
+		</div>
 	</div>
 
 	<div class="divider my-0"></div>
@@ -2349,7 +3623,7 @@ tile.on('pointerout', () => {
 	<!-- Hand header: the drawn hand's count and the remaining draw pile. The deck is
 	     shown as a count only — its cards are drawn into the hand at each turn start,
 	     not listed here. -->
-	<div class="mb-1 flex items-center justify-between px-1">
+	<div class="flex items-center justify-between px-1">
 		<span class="text-xs font-semibold tracking-wide uppercase opacity-60">
 			Hand ({hand.length}/{HAND_SIZE})
 		</span>
@@ -2358,7 +3632,7 @@ tile.on('pointerout', () => {
 
 	<!-- Sort controls: one cell per creature attribute. The active sort column is
 	     highlighted; clicking cycles asc → desc → off (see toggleSort). -->
-	<div class="mb-1 grid grid-cols-5 gap-1">
+	<div class="grid grid-cols-5 gap-1">
 		{#each sortColumns as col (col.key)}
 			<button
 				class={classNames('btn btn-xs gap-0.5', {
@@ -2380,10 +3654,10 @@ tile.on('pointerout', () => {
 			<!-- Cards too costly to summon right now (over the energy pool or this
 			     turn's cost cap) are shown dimmed and desaturated, with their Select
 			     disabled, rather than hidden from the hand. -->
-			<!-- Clicking anywhere on the card loads it into the top-right detail panel
+			<!-- Clicking anywhere on the card loads it into the detail panel above
 			     (inspect-only for hand cards); the Select overlay still summons it. -->
 			<div
-				class={classNames('relative cursor-pointer transition', {
+				class={classNames('group relative cursor-pointer transition', {
 					'opacity-50 grayscale': !canSummon(card)
 				})}
 				role="button"
@@ -2396,29 +3670,37 @@ tile.on('pointerout', () => {
 					}
 				}}
 			>
-				<GameCard {card}>
-					{#snippet overlay()}
-						<button
-							class="btn btn-sm btn-primary"
-							disabled={summoning || !canSummon(card)}
-							onclick={() => (selectedMonster = card)}
-						>
-							{selectedMonster?.id === card.id ? 'Selected' : 'Select'}
-						</button>
-					{/snippet}
-				</GameCard>
+				<GeneratedCardImage id={card.id} name={card.name} />
+				<!-- Darkening layer + Select button covering the whole card, hidden until
+				     the card is hovered, then fading in together (the same overlay GameCard
+				     used to provide). -->
+				<div
+					class="absolute inset-0 z-20 bg-black/30 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+				></div>
+				<div
+					class="absolute inset-0 z-20 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+				>
+					<button
+						class="btn btn-sm btn-primary"
+						disabled={summoning || moving || combating || !canSummon(card)}
+						onclick={() => (selectedMonster = card)}
+					>
+						{selectedMonster?.id === card.id ? 'Selected' : 'Select'}
+					</button>
+				</div>
 			</div>
 		{/each}
 
 		{#if !handCards.length}
 			<div
-				class="col-span-2 rounded border border-dashed border-base-300 bg-base-100/60 p-4 text-center text-sm text-base-content/60"
+				class="col-span-2 flex items-center justify-center rounded border border-dashed border-base-300 bg-base-100/60 p-4 text-center text-sm text-base-content/60"
 			>
 				{deck.length ? 'Cards will be drawn at the start of your turn.' : 'Your deck is empty.'}
 			</div>
 		{/if}
 	</div>
 </aside>
+</div>
 
 {#if rivalThinking}
 	<div class="fixed top-[calc(var(--navbar-h)+0.5rem)] left-1/2 z-20 -translate-x-1/2">
@@ -2516,9 +3798,12 @@ tile.on('pointerout', () => {
 
 <style>
 	:global(:root) {
-		/* Height of the app navbar (DaisyUI .navbar default). Everything on the board
-		   is offset by this so the canvas and overlays sit below it, not under it. */
+		/* Height of the app navbar (DaisyUI .navbar default). The board row is offset
+		   by this so the canvas and the right column sit below it, not under it. */
 		--navbar-h: 4rem;
+		/* Width of the right column (hand + detail). It's a real flex column of this
+		   width; the canvas takes whatever horizontal space is left. */
+		--right-col-w: 400px;
 	}
 
 	:global(html),
@@ -2529,10 +3814,42 @@ tile.on('pointerout', () => {
 		background: #1b1b1b;
 	}
 
-	/* The game canvas fills the viewport below the app navbar; the side columns are
-	   laid over it, offset by the same navbar height so nothing hides under it. */
-	.viewport {
+	/* The board is a flex row filling the space below the navbar: the canvas on the
+	   left and the right column beside it. Being a real flex row, the two never
+	   overlap — the column occupies its own horizontal space and the canvas gets the
+	   remainder. */
+	.board-layout {
 		position: fixed;
 		inset: var(--navbar-h) 0 0 0;
+		display: flex;
+		align-items: stretch;
+	}
+
+	/* The game canvas host: flexes to fill the space left of the right column and
+	   shrinks with it. min-width:0 lets the flex item shrink below the canvas's
+	   intrinsic size (so the canvas follows the box instead of forcing it wide);
+	   overflow:hidden clips any transient over-paint so nothing bleeds past the edge.
+	   The left dice panel floats over it as an absolute overlay. */
+	.viewport {
+		position: relative;
+		flex: 1 1 auto;
+		min-width: 0;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	/* The canvas Pixi appends fills its host exactly (autoDensity keeps the CSS box
+	   matched to the drawing buffer, so it never overflows on high-DPR displays). */
+	.viewport :global(canvas) {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+
+	/* The right column: its own fixed-width, full-height flex child beside the
+	   canvas. */
+	.right-col {
+		flex: 0 0 var(--right-col-w);
+		height: 100%;
 	}
 </style>

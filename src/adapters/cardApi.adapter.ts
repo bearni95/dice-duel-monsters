@@ -12,7 +12,11 @@ let catalogPromise: Promise<CatalogCard[]> | null = null;
 
 function loadCatalogData(): Promise<CatalogCard[]> {
 	if (!catalogPromise) {
-		catalogPromise = fetch('/cards/catalog.json')
+		// Cache-bust so a rebuilt catalog (e.g. after saving card positioning/effects
+		// on /admin/cards) is picked up on the next page load rather than a stale
+		// browser-cached copy. The catalog is memoised per tab below, so this is one
+		// fetch per session, not per query.
+		catalogPromise = fetch(`/cards/catalog.json?t=${Date.now()}`, { cache: 'no-store' })
 			.then((res) => {
 				if (!res.ok) throw new Error(`Could not load card catalog (${res.status})`);
 				return res.json();
@@ -25,6 +29,15 @@ function loadCatalogData(): Promise<CatalogCard[]> {
 			});
 	}
 	return catalogPromise;
+}
+
+// Drop the memoised catalog so the next loadCatalogData() re-fetches from disk.
+// Called after the catalog is rebuilt on the server (e.g. saving card positioning
+// or effect assignments on /admin/cards): without this the tab keeps serving the
+// snapshot taken on first load, so a client-side navigation to the board renders
+// from pre-save data and the customizations appear to have no effect.
+export function invalidateCatalog(): void {
+	catalogPromise = null;
 }
 
 export class CardApiAdapter extends AdapterClass {
@@ -159,13 +172,15 @@ export class CardApiAdapter extends AdapterClass {
 
     // Load the complete record for a single card, with every field available in
     // the source data. Used only by the /admin card detail modal (dev-only
-    // tooling, stripped from the production build), so it still reads the full
-    // cardinfo.json rather than the trimmed catalog.
+    // tooling, stripped from the production build), so it reads the full record
+    // from the /database/cards/[id] endpoint — which serves data/cards/cardinfo.json
+    // off disk — rather than the trimmed catalog. The source file lives outside
+    // static/, so it is never fetchable as a plain asset.
     async loadDetail(id: number): Promise<CardDetail> {
-        const res = await fetch(`/cards/cardinfo.json`);
+        const res = await fetch(`/database/cards/${id}`);
         if (!res.ok) throw new Error(`Could not load card ${id} (${res.status})`);
         const data = await res.json();
-        const card = (data?.data as CardDetail[] | undefined)?.find((c) => c.id === id);
+        const card = data?.card as CardDetail | undefined;
         if (!card) throw new Error(`Card ${id} not found`);
         return card;
     }

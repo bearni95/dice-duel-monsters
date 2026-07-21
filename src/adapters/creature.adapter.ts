@@ -10,6 +10,14 @@ export interface IGameCreature{
 		cardImages: { image_url_cropped: string }[];
 		billboard?: string;
 
+		// Per-card board positioning authored in the /admin/cards board-preview modal
+		// and baked into the catalog. `size` scales the billboard (1 = default), while
+		// `x`/`y` offset it (in world px) from its cell center. Absent means default
+		// (size 1, no offset — the red and purple borders matching, centered).
+		size?: number;
+		x?: number;
+		y?: number;
+
 
     atk: number
     // Pool of d6 rolled for the creature's HP total when it enters the board.
@@ -51,6 +59,9 @@ export class CreatureAdapter extends AdapterClass {
             attribute: card.attribute,
             cardImages: card.cardImages,
             billboard: card.billboard,
+            size: card.size,
+            x: card.x,
+            y: card.y,
             atk: 0,
             hp: 0,
             def: 0,
@@ -76,6 +87,9 @@ export class CreatureAdapter extends AdapterClass {
             attribute: card.attribute,
             cardImages: card.cardImages,
             billboard: card.billboard,
+            size: card.size,
+            x: card.x,
+            y: card.y,
             // Yugioh 0-atk / 0-def monsters are treated as 100 for the stat
             // conversion, so a 0 defense doesn't collapse a creature to 0 HP.
             // `hp` is a pool of d6 that gets rolled into an actual HP total once

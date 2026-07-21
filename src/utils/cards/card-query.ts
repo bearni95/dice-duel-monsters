@@ -19,6 +19,13 @@ export interface CatalogCard {
 	lvl?: number;
 	desc?: string;
 	playable: boolean;
+	/** Board size factor for the billboard (1 = default, borders matching).
+	 * Only present when adjusted away from the default in the board-preview modal. */
+	size?: number;
+	/** X/Y pixel offset of the billboard (its red square) relative to its cell (the
+	 * purple square). Only present when nudged away from 0 in the board-preview modal. */
+	x?: number;
+	y?: number;
 }
 
 export interface CardQuery {

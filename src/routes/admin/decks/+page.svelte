@@ -12,6 +12,7 @@
 	import { ygoProDeckAdapter, type ImportableDeck } from '$adapters/ygoprodeck-deck.adapter';
 	import type { YgoProDeckApiDeck } from '$types/ygoprodeck.type';
 	import DeckEditorModal from '$components/cards/DeckEditorModal.svelte';
+	import AdminCardPreview from '$components/cards/AdminCardPreview.svelte';
 
 	const creatureAdapter = new CreatureAdapter();
 	const cardApiAdapter = new CardApiAdapter();
@@ -40,6 +41,7 @@
 		decks = v;
 		if (editingDeck) editingDeck = v.find((d) => d.id === editingDeck!.id) ?? editingDeck;
 		refreshEnabledCounts(v);
+		refreshDeckCards(v);
 	});
 
 	// Resolve each deck's enabled card count through the same endpoint the playable
@@ -58,6 +60,47 @@
 			})
 		);
 		enabledCounts = counts;
+	}
+
+	// Per-deck cache of the resolved card assets shown in each deck's card grid, keyed
+	// by deck id. Populated alongside the enabled counts (same resolution), so every
+	// deck's grid renders as soon as its cards are known; `undefined` means still
+	// loading.
+	let deckCards = $state<Record<string, CardAsset[]>>({});
+
+	// Resolve every deck's card grid through the same enabled-card resolution the
+	// "Enabled" count uses, so the grid mirrors the playable-and-enabled set.
+	async function refreshDeckCards(list: Deck[]) {
+		const map: Record<string, CardAsset[]> = {};
+		await Promise.all(
+			list.map(async (deck) => {
+				try {
+					const ids = enabledCardIds(deck, [...deck.main, ...deck.extra, ...deck.side]);
+					map[deck.id] = await cardApiAdapter.loadCardAssetsByIds(ids, forcedCardIds(deck));
+				} catch {
+					map[deck.id] = [];
+				}
+			})
+		);
+		deckCards = map;
+	}
+
+	// Collapse a resolved deck's cards into ordered { card, count } entries so a card
+	// with multiple copies renders a single PNG badged with its copy count rather than
+	// rasterizing the same art several times.
+	function groupCards(cards: CardAsset[]): Array<{ card: CardAsset; count: number }> {
+		const order: number[] = [];
+		const byId = new Map<number, { card: CardAsset; count: number }>();
+		for (const card of cards) {
+			const existing = byId.get(card.id);
+			if (existing) {
+				existing.count += 1;
+			} else {
+				byId.set(card.id, { card, count: 1 });
+				order.push(card.id);
+			}
+		}
+		return order.map((id) => byId.get(id)!);
 	}
 
 	// Collapse a section's id list into ordered { id, count } entries.
@@ -294,6 +337,36 @@
 											Delete
 										</button>
 									</div>
+								</td>
+							</tr>
+							<tr>
+								<td colspan="4" class="bg-base-200/40 p-3">
+									{#if deckCards[d.id] === undefined}
+										<div class="flex justify-center py-6">
+											<span class="loading loading-spinner loading-md" aria-label="Rendering cards"></span>
+										</div>
+									{:else if deckCards[d.id].length}
+										<div class="grid grid-cols-[repeat(10,minmax(0,1fr))] gap-2">
+											{#each groupCards(deckCards[d.id]) as entry (entry.card.id)}
+												<div class="relative">
+													<!-- The card's baked PNG via GET /admin/print?id=…, a
+													     plain file read — no per-card SPA/catalog/canvas.
+													     Cards not yet baked are generated on demand, once and
+													     throttled, then loaded in (see GeneratedCardImage). -->
+													<AdminCardPreview card={entry.card} name={entry.card.name} />
+													{#if entry.count > 1}
+														<span class="badge badge-neutral badge-xs absolute top-1 right-1">
+															x{entry.count}
+														</span>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<p class="text-base-content/50 py-4 text-center text-sm">
+											None of this deck's cards could be rendered.
+										</p>
+									{/if}
 								</td>
 							</tr>
 						{/each}

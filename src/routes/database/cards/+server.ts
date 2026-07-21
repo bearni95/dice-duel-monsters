@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-const SOURCE = '/database/cards from static/cards/cardinfo.json';
+const SOURCE = '/database/cards from data/cards/cardinfo.json';
 
 type CardItem = {
 	id: number;
@@ -102,13 +102,13 @@ export const GET: RequestHandler = async ({ url }) => {
 	const forceParam = url.searchParams.get('force');
 	const idsParam = url.searchParams.get('ids');
 
-	const filePath = join(process.cwd(), 'static/cards/cardinfo.json');
+	const filePath = join(process.cwd(), 'data/cards/cardinfo.json');
 	const raw: { data: unknown } | null = existsSync(filePath)
 		? JSON.parse(readFileSync(filePath, 'utf8'))
 		: null;
 
 	if (!raw || !raw.data || !Array.isArray(raw.data))
-		throw error(503, 'Cards data not found — check static/cards/cardinfo.json');
+		throw error(503, 'Cards data not found — check data/cards/cardinfo.json');
 	const allCards = raw.data as CardItem[];
 	let filtered = allCards;
 

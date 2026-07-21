@@ -4,6 +4,7 @@
 	import type { IGameCreature } from "$adapters/creature.adapter";
 	import { textureForType } from "$utils/card/typeTexture";
 	import { attributeIcon } from "$utils/card/attributeIcon";
+	import { typeIcon } from "$utils/card/typeIcon";
 	import { effectsService } from "$services/effect.service";
 	import { effectAdapter } from "$adapters/effect.adapter";
 	import { cardEffects, ensureCardEffects } from "$services/card-effects.service";
@@ -21,6 +22,13 @@
 		atk?: number
 		def?: number
 		lvl?: number
+		// Board size factor for the billboard (1 = default, red and purple borders
+		// matching), plus the x/y pixel offset of the image (its red square) relative
+		// to its cell (the purple square). Only set when adjusted in the board-preview
+		// modal.
+		size?: number
+		x?: number
+		y?: number
 	};
 
 
@@ -81,10 +89,50 @@
 	// traps), in which case the icon is simply omitted.
 	const attributeIconUrl = $derived(attributeIcon(card.attribute));
 
+	// The card's monster-type icon (Master Duel type icon for Dragon, Warrior, …),
+	// shown in place of the race text at the bottom edge. Null when the race isn't a
+	// known monster type (spells, traps, character cards), in which case the plain
+	// race text is rendered instead.
+	const typeIconUrl = $derived(typeIcon(card.race));
+
+	// The type name split into the lines the type badge renders. Hyphenated types
+	// break at the dash (e.g. "Beast-Warrior" → "Beast" / "Warrior"), "Winged Beast"
+	// breaks at the space ("Winged" / "Beast"), and Spellcaster is split as
+	// "Spell" / "caster"; everything else stays a single line.
+	const typeLines = $derived.by(() => {
+		const race = card.race ?? '';
+		if (race.toLowerCase() === 'spellcaster') return ['Spell', 'caster'];
+		if (race.toLowerCase() === 'winged beast') return ['Winged', 'Beast'];
+		return race.split('-');
+	});
+
 	// Load the linked-effects map once (guarded by the service's own flag) so the
 	// overlay works wherever a card renders, without the parent wiring it up.
 	onMount(ensureCardEffects);
 </script>
+
+<!-- One stat laid out horizontally — icon on the left, value on the right — for the
+     4-column row under the card art. Same masked-icon / white drop-shadow treatment. -->
+{#snippet statRow(label: string, maskClass: string, value: string | number)}
+	<div
+		class="flex items-center justify-center gap-1 rounded bg-white/50 px-1 py-[2px] text-white"
+		title={label}
+		aria-label={label}
+	>
+		<!-- The drop-shadow lives on this unmasked wrapper, not on the masked icon span
+			 below: a filter on the same element as a mask gets clipped away by that mask
+			 (mask is applied after the filter), so the shadow only shows when cast from an
+			 unmasked ancestor. -->
+		<span class="block shrink-0 [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]">
+			<span
+				class={`block h-[18px] w-[18px] bg-white [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] ${maskClass}`}
+			></span>
+		</span>
+		<span
+			class="text-center text-[15px] leading-none font-bold [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+		>{value}</span>
+	</div>
+{/snippet}
 
 <article class="group card relative overflow-hidden border-[5px] border-black/50 bg-base-100">
 	<!-- Type-matched background texture (Normal, Effect, Ritual, Synchro, Xyz,
@@ -96,96 +144,104 @@
 		class="pointer-events-none absolute inset-0 h-full max-h-none w-full max-w-none object-cover object-center"
 	/>
 
-	<div class="card-body relative flex-1 gap-2 p-2 text-sm text-black">
-		{#if showStats}
-		{#if card.race}
-			<!-- Monster type (Spellcaster, Warrior, Dragon, …), shown as a text header
-			     above the stat row. -->
-			<div class="text-center text-xs font-semibold tracking-wide text-black uppercase">
-				{card.race}
-			</div>
-		{/if}
-
-		<!-- Top row: Cost (left) and HP (right), laid out in normal flow above the
-		     card art rather than overlaid on it. -->
+	<!-- The card art with a stat bar above and below it. Each bar is a 4-column grid
+	     of stat cells; the art fills the space between them. On non-monster cards
+	     (showStats = false) the bars are dropped and the art fills the whole frame. -->
+	<div class="relative z-10 flex w-full flex-col gap-1 p-1">
+		<!-- Name row: the cost badge on the left end and the HP badge on the right end,
+		     with the card's name centered between them. Each badge is the same icon-with-
+		     value-overlaid treatment used on the art, sized 24px with a 14px black value. -->
 		<div
-			class="flex items-start justify-between text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+			class="flex items-center gap-1 rounded bg-white/50 px-1 py-[2px] text-white"
 		>
-			<div class="flex flex-col items-center text-center" title="Cost" aria-label="Cost">
-				<span
-					class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/sbed/battery-pack.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-				></span>
-				<span>{card.cost}</span>
-			</div>
-
-			{#if attributeIconUrl}
-				<div
-					class="flex flex-col items-center justify-center text-center"
-					title={card.attribute}
-					aria-label={card.attribute}
-				>
-					<img src={attributeIconUrl} alt={card.attribute} class="h-6 w-6 object-contain [filter:none]" />
+			{#if showStats}
+				<!-- Cost badge: the empty-battery icon with the cost value overlaid inside it. -->
+				<div class="relative h-6 w-6 shrink-0 [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]" title="Cost" aria-label="Cost">
+					<span
+						class="relative z-0 block h-full w-full bg-current [mask-image:url(/assets/icons/sbed/battery-pack.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+					<span
+						class="absolute inset-0 z-10 flex items-center justify-center text-[14px] leading-none font-bold text-black [filter:none]"
+					>
+						{card.cost}
+					</span>
 				</div>
 			{/if}
-
-			<div class="flex flex-col items-center text-center" title="HP" aria-label="HP">
-				<span
-					class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/skoll/hearts.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-				></span>
-				<span>{card.hp}d6</span>
-			</div>
+			<span class="min-w-0 flex-1 line-clamp-2 text-center text-[11px] leading-tight font-bold [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]">
+				{card.name}
+			</span>
+			{#if showStats}
+				<!-- HP badge: the hearts icon with the HP dice count overlaid inside it. -->
+				<div class="relative h-6 w-6 shrink-0 [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]" title="HP" aria-label="HP">
+					<span
+						class="relative z-0 block h-full w-full bg-current [mask-image:url(/assets/icons/skoll/hearts.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+					></span>
+					<span
+						class="absolute inset-0 z-10 flex items-center justify-center text-[14px] leading-none font-bold text-black [filter:none]"
+					>
+						{card.hp}
+					</span>
+				</div>
+			{/if}
 		</div>
-		{/if}
 
-		<figure class="group relative">
-			<img
-				class="w-full rounded object-cover"
-				src={card.cardImages?.[0]?.image_url_cropped}
-				alt={`${card.name}`}
-				loading="lazy"
-			/>
-		</figure>
+		<!-- The card art in its blue-bordered frame: a full-width square. object-contain
+		     shows the whole image without cropping. -->
+		<div class="flex items-stretch gap-1 rounded border border-black">
+			<figure class="relative aspect-square min-w-0 flex-1 overflow-hidden rounded">
+				<img
+					class="h-full w-full object-contain"
+					src={card.cardImages?.[0]?.image_url_cropped}
+					alt={`${card.name}`}
+					loading="lazy"
+				/>
+				{#if showStats}
+					<!-- Attribute badge: its text above the attribute icon, pinned to the
+						 bottom-left of the art. -->
+					<div
+						class="absolute bottom-1 left-1 z-20 flex flex-col items-start gap-0.5 text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+						title="Attribute"
+						aria-label="Attribute"
+					>
+						<span class="text-center text-[10px] leading-tight font-semibold tracking-wide uppercase">
+							{card.attribute}
+						</span>
+						{#if attributeIconUrl}
+							<img src={attributeIconUrl} alt="" aria-hidden="true" class="h-[18px] w-[18px] object-contain" />
+						{/if}
+					</div>
+					<!-- Type badge: its text above the type icon, pinned to the bottom-right of
+						 the art. -->
+					<div
+						class="absolute right-1 bottom-1 z-20 flex flex-col items-end gap-0.5 text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+						title="Type"
+						aria-label="Type"
+					>
+						<span class="text-right text-[10px] leading-tight font-semibold tracking-wide uppercase">
+							{#each typeLines as line, i (i)}
+								<span class="block text-right">{line}</span>
+							{/each}
+						</span>
+						{#if typeIconUrl}
+							<img src={typeIconUrl} alt="" aria-hidden="true" class="h-[18px] w-[18px] object-contain" />
+						{/if}
+					</div>
+				{/if}
+			</figure>
+		</div>
 
+		<!-- Atk / reach / def / SPD row: a 4-column grid under the card art, each cell
+		     showing its icon on the left and value on the right (see statRow). Dropped
+		     on non-monster cards. -->
 		{#if showStats}
-		<!-- Bottom row: Atk / Def / Speed / Reach, laid out in normal flow below the
-		     card art rather than overlaid on it. -->
-		<div
-			class="grid grid-cols-4 gap-2 text-center text-sm text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
-		>
-			<div>
-				<div class="flex justify-center font-bold" title="Atk" aria-label="Atk">
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/broadsword.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-				</div>
-				<div>{card.atk}d6</div>
+			<div class="grid grid-cols-4 gap-1">
+				{@render statRow('Atk', '[mask-image:url(/assets/icons/lorc/broadsword.svg)]', card.atk)}
+				{@render statRow('Reach', '[mask-image:url(/assets/icons/lorc/arrowhead.svg)]', card.reach)}
+				{@render statRow('Def', '[mask-image:url(/assets/icons/lorc/edged-shield.svg)]', card.def)}
+				{@render statRow('SPD', '[mask-image:url(/assets/icons/lorc/walking-boot.svg)]', card.speed)}
 			</div>
-			<div>
-				<div class="flex justify-center font-bold" title="Def" aria-label="Def">
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/edged-shield.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-				</div>
-				<div>{card.def}+</div>
-			</div>
-			<div>
-				<div class="flex justify-center font-bold" title="SPD" aria-label="SPD">
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/walking-boot.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-				</div>
-				<div>{card.speed}</div>
-			</div>
-			<div>
-				<div class="flex justify-center font-bold" title="Reach" aria-label="Reach">
-					<span
-						class="block h-6 w-6 bg-current [mask-image:url(/assets/icons/lorc/arrowhead.svg)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-					></span>
-				</div>
-				<div>{card.reach}</div>
-			</div>
-		</div>
 		{/if}
+
 	</div>
 
 	{#if overlay}

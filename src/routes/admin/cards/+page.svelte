@@ -4,9 +4,11 @@
 	import CardTile from '$components/cards/CardTile.svelte';
 	import CardDetailModal from '$components/cards/CardDetailModal.svelte';
 	import CardEffectsModal from '$components/cards/CardEffectsModal.svelte';
+	import BoardPreviewModal from '$components/cards/BoardPreviewModal.svelte';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import type { CardDetail } from '$types/card.type';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
+	import { CreatureAdapter, type IGameCreature } from '$adapters/creature.adapter';
 	import type { CardEffectImplementation } from '$types/card-effect.type';
 	import { cardEffects, ensureCardEffects } from '$services/card-effects.service';
 
@@ -43,6 +45,16 @@
 
 	// The card whose effect-implementation editor is open, or null when closed.
 	let effectsCard = $state<CardAsset | null>(null);
+
+	// The creature whose board preview modal is open, or null when closed. Built
+	// from the clicked monster card so the modal can render it on the isometric grid
+	// exactly as the board summons it.
+	const creatureAdapter = new CreatureAdapter();
+	let previewCreature = $state<IGameCreature | null>(null);
+
+	function openBoardPreview(card: CardAsset) {
+		previewCreature = creatureAdapter.getDisplayAttributes(card);
+	}
 
 	// How many effect templates each card implements, keyed by (stringified) card
 	// id, so tiles can badge their count. Recomputes whenever implementations
@@ -197,8 +209,10 @@
 			{#each cards as card (card.id)}
 				<CardTile
 					{card}
+					png
 					onSelect={openDetail}
 					onEffects={(c) => (effectsCard = c)}
+					onBoardPreview={openBoardPreview}
 					effectCount={effectCounts.get(String(card.id)) ?? 0}
 				/>
 			{/each}
@@ -224,5 +238,9 @@
 
 	{#if effectsCard}
 		<CardEffectsModal card={effectsCard} onClose={() => (effectsCard = null)} />
+	{/if}
+
+	{#if previewCreature}
+		<BoardPreviewModal creature={previewCreature} onClose={() => (previewCreature = null)} />
 	{/if}
 </main>
