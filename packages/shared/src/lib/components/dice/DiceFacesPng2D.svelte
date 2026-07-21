@@ -12,7 +12,7 @@
 		baseColor = 0xd7382f,
 		cols = 3,
 		gap = 4,
-		width = 1024,
+		width = 2048,
 		classes = ''
 	}: {
 		faceIcons: string[];
