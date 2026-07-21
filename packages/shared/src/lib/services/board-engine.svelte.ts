@@ -1731,23 +1731,26 @@ function diceBlockAxes(matrix: Matrix): {
 // grid's bottom-left border (the edge from the L12 bottom corner to the A12 left corner),
 // where the hand used to be, the two having swapped sides. These are the block's in-plane
 // axes for matchDieCenter, the direct analogue of what diceBlockAxes derives from a plaque:
-// uHat runs along that border and vHat marches outward past it, with mid the border midpoint
-// the dice rows grow out from. The dice stay flat isometric cubes — only the edge changed.
+// uHat runs along that border and vHat marches outward past it. The dice stay flat isometric
+// cubes — only the edge changed.
 //
 // Crucially both axes are the grid's OWN isometric floor axes, not a screen-space
 // perpendicular to the border: the two iso diagonals aren't perpendicular on screen, so
 // rotating uHat by 90° would skew the cube rows across the grid lines. uHat is the +x step
 // (down-right, along the y = GRID_HEIGHT-1 border) and vHat is the +y step (down-left,
 // pointing outward past that boundary, away from the interior).
+//
+// mid is placed so the block's first column lines up with the grid's left corner (the top
+// of this border) rather than centring on the border's midpoint: the dice hug the grid's
+// topmost row and cascade down-right toward the bottom corner. matchDieCenter still centres
+// each row on mid, so mid is pushed down-right from the corner by half the block's along-
+// span (plus a half-die inset) to land the leftmost column's edge on the corner. The pool
+// always renders against the full slot count, so every row is full and top-anchors alike.
 function playerDiceAxes(): {
 	uHat: { x: number; y: number };
 	vHat: { x: number; y: number };
 	mid: { x: number; y: number };
 } {
-	const bottom = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
-	bottom.y += TILE_HEIGHT / 2;
-	const left = isoPosOf(0, GRID_HEIGHT - 1);
-	left.x -= TILE_WIDTH / 2;
 	// The isometric floor's unit axes, read straight off isoPosOf so they stay the true
 	// 2:1 diagonals: uHat = one +x cell step, vHat = one +y cell step.
 	const origin = isoPosOf(0, 0);
@@ -1757,7 +1760,13 @@ function playerDiceAxes(): {
 	const vLen = Math.hypot(yStep.x - origin.x, yStep.y - origin.y) || 1;
 	const uHat = { x: (xStep.x - origin.x) / uLen, y: (xStep.y - origin.y) / uLen };
 	const vHat = { x: (yStep.x - origin.x) / vLen, y: (yStep.y - origin.y) / vLen };
-	return { uHat, vHat, mid: { x: (bottom.x + left.x) / 2, y: (bottom.y + left.y) / 2 } };
+
+	// The grid's left corner: the outer point of the A12 cell, the top of this border.
+	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
+	leftCorner.x -= TILE_WIDTH / 2;
+	const halfSpan = ((MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE / 2;
+	const mid = { x: leftCorner.x + uHat.x * halfSpan, y: leftCorner.y + uHat.y * halfSpan };
+	return { uHat, vHat, mid };
 }
 
 // World centre of die `k` (of `n`) in a side's grid: laid out in rows of MATCH_DIE_COLS
