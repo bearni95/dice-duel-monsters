@@ -3,6 +3,7 @@
 	import DiceCanvas3D from '$components/dice/DiceCanvas3D.svelte';
 	import IconDiceCanvas3D from '$components/dice/IconDiceCanvas3D.svelte';
 	import DiceFaceViewer from '$components/dice/DiceFaceViewer.svelte';
+	import DiceFacesCanvas2D from '$components/dice/DiceFacesCanvas2D.svelte';
 	import Button from '$components/core/Button.svelte';
 	import { ThemeColors, ThemeSizes } from '$types/core.type';
 	import { diceAdapter } from '$adapters/dice.adapter';
@@ -169,20 +170,13 @@
 									></span>
 								</div>
 
-								<!-- Lightweight DOM preview of the six faces (no WebGL). -->
-								<div class="mt-2 grid grid-cols-3 gap-1">
-									{#each die.faces as face, i (i)}
-										<div
-											class="relative flex aspect-square items-center justify-center rounded bg-base-200"
-										>
-											{#if face.icon}
-												<img src={face.icon} alt="" class="h-4 w-4 object-contain" />
-											{/if}
-											<span class="absolute bottom-0 right-0.5 text-[9px] font-bold leading-none text-base-content">
-												{face.value}
-											</span>
-										</div>
-									{/each}
+								<!-- 2D PixiJS preview of the six faces, styled like the 3D dice faces. -->
+								<div class="mt-2">
+									<DiceFacesCanvas2D
+										faceIcons={diceAdapter.faceIcons(die)}
+										faceLabels={diceAdapter.faceLabels(die)}
+										baseColor={diceAdapter.colorNumber(die) ?? 0xd7382f}
+									/>
 								</div>
 							</button>
 						{/each}
