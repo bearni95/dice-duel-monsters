@@ -1731,9 +1731,14 @@ function diceBlockAxes(matrix: Matrix): {
 // grid's bottom-left border (the edge from the L12 bottom corner to the A12 left corner),
 // where the hand used to be, the two having swapped sides. These are the block's in-plane
 // axes for matchDieCenter, the direct analogue of what diceBlockAxes derives from a plaque:
-// uHat runs along that border, vHat is its outward normal (down-left, away from the grid),
-// and mid is the border midpoint the dice rows grow out from. The dice stay flat isometric
-// cubes — only the edge they hang off changed.
+// uHat runs along that border and vHat marches outward past it, with mid the border midpoint
+// the dice rows grow out from. The dice stay flat isometric cubes — only the edge changed.
+//
+// Crucially both axes are the grid's OWN isometric floor axes, not a screen-space
+// perpendicular to the border: the two iso diagonals aren't perpendicular on screen, so
+// rotating uHat by 90° would skew the cube rows across the grid lines. uHat is the +x step
+// (down-right, along the y = GRID_HEIGHT-1 border) and vHat is the +y step (down-left,
+// pointing outward past that boundary, away from the interior).
 function playerDiceAxes(): {
 	uHat: { x: number; y: number };
 	vHat: { x: number; y: number };
@@ -1743,10 +1748,15 @@ function playerDiceAxes(): {
 	bottom.y += TILE_HEIGHT / 2;
 	const left = isoPosOf(0, GRID_HEIGHT - 1);
 	left.x -= TILE_WIDTH / 2;
-	const len = Math.hypot(bottom.x - left.x, bottom.y - left.y) || 1;
-	const uHat = { x: (bottom.x - left.x) / len, y: (bottom.y - left.y) / len };
-	// Outward normal (uHat rotated 90°): points down-left, away from the grid interior.
-	const vHat = { x: -uHat.y, y: uHat.x };
+	// The isometric floor's unit axes, read straight off isoPosOf so they stay the true
+	// 2:1 diagonals: uHat = one +x cell step, vHat = one +y cell step.
+	const origin = isoPosOf(0, 0);
+	const xStep = isoPosOf(1, 0);
+	const yStep = isoPosOf(0, 1);
+	const uLen = Math.hypot(xStep.x - origin.x, xStep.y - origin.y) || 1;
+	const vLen = Math.hypot(yStep.x - origin.x, yStep.y - origin.y) || 1;
+	const uHat = { x: (xStep.x - origin.x) / uLen, y: (xStep.y - origin.y) / uLen };
+	const vHat = { x: (yStep.x - origin.x) / vLen, y: (yStep.y - origin.y) / vLen };
 	return { uHat, vHat, mid: { x: (bottom.x + left.x) / 2, y: (bottom.y + left.y) / 2 } };
 }
 
