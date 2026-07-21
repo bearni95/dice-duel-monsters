@@ -74,15 +74,20 @@
 		pickingIndex = index;
 	}
 
-	function selectCard(card: CardAsset) {
+	// Assigning (or clearing) a card is persisted immediately so the association
+	// survives a page refresh without needing the manual Save — text edits still
+	// batch under Save changes, but the card link writes straight through.
+	async function selectCard(card: CardAsset) {
 		if (pickingIndex === null) return;
 		draft[pickingIndex] = { ...draft[pickingIndex], card: { id: card.id, name: card.name } };
 		assetsById = { ...assetsById, [card.id]: card };
 		pickingIndex = null;
+		await save();
 	}
 
-	function removeCard(index: number) {
+	async function removeCard(index: number) {
 		draft[index] = { ...draft[index], card: null };
+		await save();
 	}
 
 	async function save() {
@@ -146,7 +151,7 @@
 				<article class="card border-base-300 bg-base-100 border shadow-sm">
 					<div class="card-body gap-4 sm:flex-row">
 						<!-- Associated card preview -->
-						<div class="w-40 shrink-0 space-y-2">
+						<div class="w-[300px] shrink-0 space-y-2">
 							{#if spell.card}
 								{#if asset}
 									<AdminCardPreview card={asset} />
