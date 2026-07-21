@@ -3568,22 +3568,38 @@ function buildNetPanel() {
 	bg.eventMode = 'none';
 	panel.addChild(bg);
 
-	// x of the hypotenuse at a given y (the right boundary of the usable area; the left
-	// boundary is the vertical left leg).
-	const hypX = (y: number) => left.x + ((y - left.y) * (bottom.x - left.x)) / (bottom.y - left.y);
-	const band =
-		(bottom.y - left.y - NET_PANEL_MARGIN - NET_PANEL_MARGIN_BOTTOM) / NET_PANEL_ROWS.length;
+	// A thumbnail is a square, so keeping its whole box inside the triangle — not just
+	// its center — is what stops it poking past the diagonal. The binding corner is the
+	// top-right one (largest x, smallest y): the hypotenuse is furthest left there, so
+	// the right bound is measured at the thumbnail's top edge, inset by a half-size.
+	const half = NET_THUMB_SIZE / 2;
+	const slope = (bottom.x - left.x) / (bottom.y - left.y);
+	const hypX = (y: number) => left.x + (y - left.y) * slope;
+
+	// The left edge of every row: hard against the vertical leg (plus its margin).
+	const rowLeftCenter = corner.x + NET_PANEL_MARGIN_LEFT + half;
+	// The rightmost a thumbnail's center may sit at a given row height and still keep its
+	// top-right corner off the hypotenuse.
+	const rowRightCenter = (cy: number) => hypX(cy - half) - NET_PANEL_MARGIN - half;
+
+	// Row heights. The top row must drop low enough that even a single thumbnail clears
+	// the narrow apex (where rowRightCenter first reaches rowLeftCenter); the bottom row's
+	// lower edge must clear the bottom leg. Rows are then spread evenly between the two.
+	const cyBottom = bottom.y - NET_PANEL_MARGIN_BOTTOM - half;
+	const cyTop = left.y + half + (rowLeftCenter - left.x + NET_PANEL_MARGIN + half) / slope;
+	const rowStep = NET_PANEL_ROWS.length > 1 ? (cyBottom - cyTop) / (NET_PANEL_ROWS.length - 1) : 0;
 
 	netThumbs = [];
 	let index = 0;
 	NET_PANEL_ROWS.forEach((count, row) => {
-		const cy = left.y + NET_PANEL_MARGIN + band * (row + 0.5);
-		const rowLeft = corner.x + NET_PANEL_MARGIN_LEFT;
-		const rowRight = hypX(cy) - NET_PANEL_MARGIN;
-		const slot = (rowRight - rowLeft) / count;
+		const cy = cyTop + rowStep * row;
+		const rightCenter = rowRightCenter(cy);
+		// Spread the row's thumbnails from the left leg to that right bound, so the first
+		// hugs the vertical leg and the last sits just inside the hypotenuse.
+		const step = count > 1 ? (rightCenter - rowLeftCenter) / (count - 1) : 0;
 
 		for (let k = 0; k < count && index < DICE_NETS.length; k++, index++) {
-			const thumb = buildNetThumb(index, rowLeft + slot * (k + 0.5), cy);
+			const thumb = buildNetThumb(index, rowLeftCenter + step * k, cy);
 			netThumbs.push(thumb);
 			panel.addChild(thumb.container);
 		}
