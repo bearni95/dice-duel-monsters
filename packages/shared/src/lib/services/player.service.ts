@@ -2,9 +2,9 @@ import { get, writable, type Writable } from 'svelte/store';
 import { authService } from '$services/auth.service';
 import { getSupabaseClient } from '$utils/supabase/client';
 import { playerAdapter } from '$adapters/player.adapter';
-import type { PlayerState, ProfileRow, PlayerDieRow } from '$types/player.type';
+import type { PlayerState, ProfileRow, PlayerDieRow, PlayerCardRow } from '$types/player.type';
 
-const EMPTY: PlayerState = { profile: null, dice: [], loading: false, saving: false };
+const EMPTY: PlayerState = { profile: null, dice: [], cards: [], loading: false, saving: false };
 
 /**
  * Owns the signed-in player's profile and dice, backed by Supabase (the
@@ -44,9 +44,10 @@ class PlayerService {
 
 		this.store.set({ ...EMPTY, loading: true });
 
-		const [profileRes, diceRes] = await Promise.all([
+		const [profileRes, diceRes, cardsRes] = await Promise.all([
 			client.from('profiles').select('id,name,avatar').eq('id', userId).maybeSingle(),
-			client.from('player_dice').select('die_id,quantity').eq('player_id', userId).gt('quantity', 0)
+			client.from('player_dice').select('die_id,quantity').eq('player_id', userId).gt('quantity', 0),
+			client.from('player_cards').select('card_id,quantity').eq('player_id', userId).gt('quantity', 0)
 		]);
 
 		// A newer auth change won the race; drop this stale result.
@@ -54,6 +55,7 @@ class PlayerService {
 
 		if (profileRes.error) throw profileRes.error;
 		if (diceRes.error) throw diceRes.error;
+		if (cardsRes.error) throw cardsRes.error;
 
 		const profileRow = profileRes.data as ProfileRow | null;
 		this.store.set({
@@ -61,6 +63,7 @@ class PlayerService {
 				? playerAdapter.fromProfileRow(profileRow)
 				: { id: userId, name: '', avatar: null },
 			dice: playerAdapter.diceFromRows((diceRes.data ?? []) as PlayerDieRow[]),
+			cards: playerAdapter.cardsFromRows((cardsRes.data ?? []) as PlayerCardRow[]),
 			loading: false,
 			saving: false
 		});
@@ -121,6 +124,43 @@ class PlayerService {
 		this.store.update((s) => ({
 			...s,
 			dice: playerAdapter.diceFromRows((data ?? []) as PlayerDieRow[]),
+			saving: false
+		}));
+	}
+
+	/**
+	 * Grant the given card ids to the player (duplicates allowed), then refresh the
+	 * owned cards from the server so the store reflects the new totals. Mirrors
+	 * `grantDice` against the `player_cards` table / `grant_cards` RPC.
+	 */
+	async grantCards(cardIds: number[]): Promise<void> {
+		const userId = this.currentUserId;
+		const client = getSupabaseClient();
+		if (!userId || !client || cardIds.length === 0) return;
+
+		this.store.update((s) => ({ ...s, saving: true }));
+
+		const { error } = await client.rpc('grant_cards', { card_ids: cardIds });
+		if (error) {
+			this.store.update((s) => ({ ...s, saving: false }));
+			throw error;
+		}
+
+		const { data, error: readError } = await client
+			.from('player_cards')
+			.select('card_id,quantity')
+			.eq('player_id', userId)
+			.gt('quantity', 0);
+
+		if (readError) {
+			this.store.update((s) => ({ ...s, saving: false }));
+			throw readError;
+		}
+
+		if (this.currentUserId !== userId) return;
+		this.store.update((s) => ({
+			...s,
+			cards: playerAdapter.cardsFromRows((data ?? []) as PlayerCardRow[]),
 			saving: false
 		}));
 	}

@@ -27,6 +27,13 @@ export interface PlayerState {
 	 * UI keep working on a plain `string[]`.
 	 */
 	dice: string[];
+	/**
+	 * The cards the player owns, each referenced by its numeric card id (the
+	 * Yu-Gi-Oh! passcode). Stored in the `player_cards` table as a quantity per id
+	 * and expanded here into a flat list (one entry per copy) so the collection UI
+	 * can tally copies the same way the dice list does.
+	 */
+	cards: number[];
 	/** `true` while the profile + dice are being loaded from Supabase. */
 	loading: boolean;
 	/** `true` while a profile save or dice grant is in flight. */
@@ -43,5 +50,11 @@ export interface ProfileRow {
 /** A row of the `player_dice` table, as returned by the Supabase client. */
 export interface PlayerDieRow {
 	die_id: string;
+	quantity: number;
+}
+
+/** A row of the `player_cards` table, as returned by the Supabase client. */
+export interface PlayerCardRow {
+	card_id: number;
 	quantity: number;
 }
