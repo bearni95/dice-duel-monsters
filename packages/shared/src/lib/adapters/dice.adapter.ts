@@ -6,6 +6,7 @@ import {
 	type DiceFace,
 	type DiceTemplate,
 	type DiceTemplateConfig,
+	type DistinctFace,
 	type OwnedDiceGrid,
 	type SpawnedDie
 } from '$types/dice.type';
@@ -27,6 +28,20 @@ export class DiceAdapter extends AdapterClass {
 	// The per-face corner-badge values, in the same order.
 	faceLabels(die: DiceDefinition): string[] {
 		return die.faces.map((f) => f.value);
+	}
+
+	// The die's distinct faces: its six faces deduped by icon+value, each keeping the
+	// 1-based index of its first occurrence (so its baked PNG can be located) and how
+	// many of the six faces carry it. A face with a count above 1 is a duplicate.
+	distinctFaces(die: DiceDefinition): DistinctFace[] {
+		const groups = new Map<string, DistinctFace>();
+		die.faces.forEach((f, i) => {
+			const key = `${f.icon}|${f.value}`;
+			const existing = groups.get(key);
+			if (existing) existing.count++;
+			else groups.set(key, { face: i + 1, icon: f.icon, value: f.value, count: 1 });
+		});
+		return [...groups.values()];
 	}
 
 	// The die's hex tint as the numeric colour the canvases use, or undefined when
@@ -154,8 +169,8 @@ export class DiceAdapter extends AdapterClass {
 	}
 
 	// Tally a player's owned die ids into a rarity-by-type grid (rows = rarity 1..6,
-	// columns = templates) for the inventory table. Counts come straight from the
-	// ids, which encode `${templateId}-r${rarity}`, so no spawning is needed.
+	// columns = templates) for the inventory table. Each cell spawns its concrete die
+	// so it can carry the owned count and the die's distinct faces alongside it.
 	ownedGrid(config: DiceTemplateConfig, ownedIds: string[]): OwnedDiceGrid {
 		const counts = ownedIds.reduce<Record<string, number>>((acc, id) => {
 			acc[id] = (acc[id] ?? 0) + 1;
@@ -165,7 +180,14 @@ export class DiceAdapter extends AdapterClass {
 		const rarities = [...DICE_RARITY_LEVELS];
 		const rows = rarities.map((rarity) => ({
 			rarity,
-			cells: templates.map((template) => counts[`${template.id}-r${rarity}`] ?? 0)
+			cells: templates.map((template) => {
+				const die = this.spawn(config, template, rarity);
+				return {
+					dieId: die.id,
+					count: counts[die.id] ?? 0,
+					faces: this.distinctFaces(die)
+				};
+			})
 		}));
 		return { templates, rarities, rows };
 	}

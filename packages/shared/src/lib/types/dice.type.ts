@@ -76,11 +76,31 @@ export interface SpawnedDie extends Omit<DiceDefinition, 'id'> {
 	rarity: number;
 }
 
+// One of a die's distinct faces (its six faces deduped by icon+value): the 1-based
+// index of the face's first occurrence — so its baked PNG `<id>-<face>.png` can be
+// shown — the icon/value it carries, and how many of the six faces share it. A
+// `count` above 1 marks a duplicated face.
+export interface DistinctFace {
+	face: number;
+	icon: string;
+	value: string;
+	count: number;
+}
+
+// One cell of the inventory grid: a concrete die (type × rarity), how many copies
+// the player owns, and the distinct faces that die rolls.
+export interface OwnedDiceCell {
+	dieId: string;
+	count: number;
+	faces: DistinctFace[];
+}
+
 // A player's owned dice tallied into a rarity-by-type grid for the inventory
 // table: `templates` are the columns, `rarities` the rows, and `rows[i].cells[j]`
-// is how many of `templates[j]` at `rarities[i]` the player owns.
+// is the die (with its owned count and distinct faces) for `templates[j]` at
+// `rarities[i]`.
 export interface OwnedDiceGrid {
 	templates: DiceTemplate[];
 	rarities: number[];
-	rows: { rarity: number; cells: number[] }[];
+	rows: { rarity: number; cells: OwnedDiceCell[] }[];
 }
