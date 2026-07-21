@@ -801,6 +801,19 @@ const HAND_PLAQUE_GAP = 24;
 let handLayer: Container | undefined;
 let handToken = 0;
 
+// The world-space column of turn/unit action buttons (Move/Combat/Unfold/End Turn),
+// built in init and added to `camera` so it pans and zooms with the board. It sits
+// just under the player's red energy-dice row (see renderActionButtons).
+let actionLayer: Container | undefined;
+
+// Layout of the on-canvas action-button column: each button's width and height, the
+// vertical gap between stacked buttons, and the gap between the red dice row above and
+// the top of the column.
+const ACTION_BTN_W = 150;
+const ACTION_BTN_H = 30;
+const ACTION_BTN_GAP = 8;
+const ACTION_DICE_GAP = 28;
+
 // A pill-shaped "Summon" button centered on a hand card, mirroring the DOM hand
 // tray's Select overlay button. Enabled buttons paint primary-blue; disabled ones
 // (unaffordable card, or a summon/move/combat already in flight) paint gray and take
@@ -1010,6 +1023,145 @@ $effect(() => {
 	void moving;
 	void combating;
 	renderHand();
+});
+
+// The theme colors for a canvas action button: DaisyUI's primary (blue), error (red)
+// and a neutral outline gray, matching the DOM buttons these replace.
+const ACTION_VARIANTS = {
+	primary: 0x2563eb,
+	error: 0xdc2626,
+	neutral: 0x4b5563
+} as const;
+
+// One button in the on-canvas action column: a filled rounded rect of the fixed column
+// width with a centered label. Enabled buttons take the variant color and fire onClick;
+// disabled ones are dimmed and inert. Positioned by the caller (top-left at y).
+function buildActionButton(
+	label: string,
+	variant: keyof typeof ACTION_VARIANTS,
+	enabled: boolean,
+	onClick: () => void
+): Container {
+	const btn = new Container();
+	btn.alpha = enabled ? 1 : 0.45;
+
+	const bg = new Graphics()
+		.roundRect(0, 0, ACTION_BTN_W, ACTION_BTN_H, 6)
+		.fill({ color: ACTION_VARIANTS[variant] });
+	btn.addChild(bg);
+
+	const text = new Text({
+		text: label,
+		style: { fill: 0xffffff, fontSize: 13, fontWeight: 'bold' },
+		resolution: LABEL_RESOLUTION
+	});
+	text.anchor.set(0.5);
+	// Shrink an over-long label to fit inside the button width.
+	const maxTextW = ACTION_BTN_W - 16;
+	if (text.width > maxTextW) text.scale.set(maxTextW / text.width);
+	text.position.set(ACTION_BTN_W / 2, ACTION_BTN_H / 2);
+	btn.addChild(text);
+
+	if (enabled) {
+		btn.eventMode = 'static';
+		btn.cursor = 'pointer';
+		btn.on('pointertap', onClick);
+	}
+
+	return btn;
+}
+
+// (Re)draw the column of action buttons under the player's red energy-dice row. The
+// buttons mirror the ones the DOM inspect panel used to hold: Move/Combat for the
+// inspected player unit (collapsing to a single Cancel while a move or combat is in
+// flight), then the turn actions Unfold and End Turn. A no-op until the layer and the
+// red origin exist. Reactive via the $effect below, so labels and enabled states track
+// the game as it changes.
+function renderActionButtons() {
+	if (!actionLayer) return;
+	for (const child of actionLayer.removeChildren()) child.destroy();
+
+	// The buttons hang under the player's red energy dice; without that anchor there's
+	// nowhere to put them.
+	const diceCenter = turnDiceCenterFor(redOrigin, false);
+	if (!diceCenter) return;
+
+	// Shared with the DOM's disabled logic: the unit actions are inert unless a player
+	// unit is inspected and nothing is mid-resolution.
+	const controlsDisabled =
+		!inspectedCreature || !inspectedIsPlayer || rivalThinking || summoning;
+	const cost = inspectedCreature?.cost ?? 0;
+
+	// The Move/Combat pair, collapsing to a single Cancel button during a move/combat —
+	// exactly as the DOM panel did.
+	const rows: Container[] = [];
+	if (inspectedCreature && inspectedIsPlayer && moving) {
+		rows.push(buildActionButton('Cancel Move', 'error', true, cancelMove));
+	} else if (inspectedCreature && inspectedIsPlayer && combating) {
+		rows.push(buildActionButton('Cancel Combat', 'error', true, cancelCombat));
+	} else {
+		rows.push(
+			buildActionButton(
+				'Move',
+				'primary',
+				!controlsDisabled && !!inspectedCreature && energyPoints >= cost,
+				startMove
+			)
+		);
+		rows.push(
+			buildActionButton(
+				'Combat',
+				'primary',
+				!controlsDisabled && !!inspectedCreature && energyPoints >= cost && inspectedCanCombat,
+				startCombat
+			)
+		);
+	}
+
+	rows.push(
+		buildActionButton(
+			unfolding ? 'Cancel Unfold' : `Unfold (${UNFOLD_COST})`,
+			unfolding ? 'neutral' : 'primary',
+			!rivalThinking && !rolling && (unfolding || energyPoints >= UNFOLD_COST),
+			startUnfold
+		)
+	);
+	rows.push(
+		buildActionButton(
+			rolling ? 'Rolling…' : 'End Turn',
+			'neutral',
+			energyRolled && !rolling && !rivalThinking,
+			endTurn
+		)
+	);
+
+	// Stack the buttons in a centered column just below the dice row.
+	const diceHalf = playerEnergyDice?.diceHalfExtent(3) ?? 0;
+	const leftX = diceCenter.x - ACTION_BTN_W / 2;
+	let y = diceCenter.y + diceHalf + ACTION_DICE_GAP;
+	for (const row of rows) {
+		row.position.set(leftX, y);
+		actionLayer.addChild(row);
+		y += ACTION_BTN_H + ACTION_BTN_GAP;
+	}
+}
+
+// Repaint the action column whenever any state feeding a button's label or enabled flag
+// changes: the inspected unit and whether it's a player unit that can fight, the energy
+// pool and whether it's been rolled, and the move/combat/unfold/roll/rival flags.
+$effect(() => {
+	void inspectedCreature;
+	void inspectedIsPlayer;
+	void inspectedCanCombat;
+	void energyPoints;
+	void energyRolled;
+	void moving;
+	void combating;
+	void unfolding;
+	void rolling;
+	void rivalThinking;
+	void summoning;
+	renderActionButtons();
 });
 
 // Frame the whole isometric grid into the horizontal gap the two fixed side
@@ -2967,6 +3119,13 @@ handLayer = new Container();
 handLayer.eventMode = 'passive';
 camera.addChild(handLayer);
 
+// The world-space action-button column (Move/Combat/Unfold/End Turn), under the
+// player's red dice row. 'passive' like the hand layer so its interactive button
+// children still receive clicks. Painted by renderActionButtons (reactive).
+actionLayer = new Container();
+actionLayer.eventMode = 'passive';
+camera.addChild(actionLayer);
+
 app.stage.addChild(camera);
 
 // Screen-space layer above the (zoomable) camera for the fixed combat dice, so
@@ -3051,6 +3210,10 @@ hpDice = new Dice3D({
 				heartOffsets: TOP_FRAME_HEART_OFFSETS,
 				hearts: drawOriginHearts(0, 0, ORIGIN_LP, TOP_FRAME_HEART_OFFSETS)
 			};
+
+			// Paint the action-button column now that the red origin (its anchor) exists;
+			// its $effect repaints it as the inspected unit, energy and turn flags change.
+			renderActionButtons();
 
 			setupControls();
 
