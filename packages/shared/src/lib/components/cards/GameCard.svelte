@@ -183,7 +183,7 @@
 				</div>
 			{/if}
 			<span class="min-w-0 flex-1 line-clamp-2 text-center text-[11px] leading-tight font-bold [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]">
-				{card.name}
+				{spellForCard?.name ?? card.name}
 			</span>
 			{#if showStats}
 				<!-- HP badge: the hearts icon with the HP dice count overlaid inside it. -->
