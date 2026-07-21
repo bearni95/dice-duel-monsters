@@ -2,8 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { createRequire } from 'module';
 
-const SOURCE = '/database/cards from data/cards/cardinfo.json';
+const SOURCE = '/database/cards from card-data/data/cards/cardinfo.json';
+
+// Full YGOPRODeck records live in the card-data package now.
+const CARDINFO = createRequire(import.meta.url).resolve('card-data/data/cards/cardinfo.json');
 
 type CardItem = {
 	id: number;
@@ -102,13 +106,12 @@ export const GET: RequestHandler = async ({ url }) => {
 	const forceParam = url.searchParams.get('force');
 	const idsParam = url.searchParams.get('ids');
 
-	const filePath = join(process.cwd(), 'data/cards/cardinfo.json');
-	const raw: { data: unknown } | null = existsSync(filePath)
-		? JSON.parse(readFileSync(filePath, 'utf8'))
+	const raw: { data: unknown } | null = existsSync(CARDINFO)
+		? JSON.parse(readFileSync(CARDINFO, 'utf8'))
 		: null;
 
 	if (!raw || !raw.data || !Array.isArray(raw.data))
-		throw error(503, 'Cards data not found — check data/cards/cardinfo.json');
+		throw error(503, 'Cards data not found — check card-data/data/cards/cardinfo.json');
 	const allCards = raw.data as CardItem[];
 	let filtered = allCards;
 

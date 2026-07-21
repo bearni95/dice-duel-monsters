@@ -13,7 +13,10 @@
 
 set -euo pipefail
 
-DIR="${1:-static/cards/monster-billboards}"
+# Default to the frontend package's served billboards, resolved from this
+# script's location so the tool works regardless of the caller's cwd.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="${1:-$SCRIPT_DIR/../../frontend/static/cards/monster-billboards}"
 
 if [[ ! -d "$DIR" ]]; then
 	echo "Directory not found: $DIR" >&2

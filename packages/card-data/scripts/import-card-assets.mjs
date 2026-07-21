@@ -1,12 +1,20 @@
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const sourceRoot = path.resolve('ref/DL Assets 29-April-18 v2.6 by Skylex77');
+// Resolve everything from this script's location, not the cwd: the raw source
+// (ref/) and the card index (data/cards/) live in this package, while the
+// billboard/full-art PNGs are copied into the frontend package's served static
+// tree.
+const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const frontendRoot = path.resolve(pkgRoot, '../frontend');
+
+const sourceRoot = path.join(pkgRoot, 'ref/DL Assets 29-April-18 v2.6 by Skylex77');
 const billboardSource = path.join(sourceRoot, 'duel/monsterbillboard/en-us');
 const fullCardSource = path.join(sourceRoot, 'card/en-us/m');
-const staticRoot = path.resolve('static/cards');
-const dataRoot = path.resolve('data/cards');
+const staticRoot = path.join(frontendRoot, 'static/cards');
+const dataRoot = path.join(pkgRoot, 'data/cards');
 const billboardDestination = path.join(staticRoot, 'monster-billboards');
 const fullCardDestination = path.join(staticRoot, 'full');
 const partialDestination = path.join(dataRoot, '.partials');

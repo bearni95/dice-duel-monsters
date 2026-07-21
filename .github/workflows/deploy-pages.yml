@@ -40,10 +40,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # `pnpm build` runs the card export (needs the committed app.db + the
-      # sqlite3 CLI, preinstalled on ubuntu runners) then `vite build`, which
-      # emits the static SPA to packages/frontend/dist with an index.html
-      # fallback. The root script delegates to the frontend workspace package.
+      # `pnpm build` delegates to the frontend package, which regenerates the
+      # card catalog from the card-data workspace package (pure JS over its
+      # committed cardinfo.json — no sqlite needed) then runs `vite build`,
+      # emitting the static SPA to packages/frontend/dist with an index.html
+      # fallback.
       - name: Build static SPA
         run: pnpm build
 

@@ -10,11 +10,15 @@
 // Usage:  node scripts/import-type-icons.mjs
 
 import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const API = 'https://yugipedia.com/api.php';
 const CATEGORY = 'Category:Yu-Gi-Oh!_Master_Duel_Type_icons';
-const destination = path.resolve('static/assets/types');
+// The icons are served by the frontend, so write them into its static tree
+// (resolved from this script's location, not the cwd).
+const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend');
+const destination = path.join(frontendRoot, 'static/assets/types');
 
 // Yugipedia asks automated clients to identify themselves with a descriptive
 // User-Agent; requests without one are rejected.

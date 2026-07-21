@@ -1,0 +1,18 @@
+{
+	"name": "card-data",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"build-card-catalog": "scripts/build-card-catalog.mjs",
+		"export-cards-from-db": "scripts/export-cards-from-db.mjs"
+	},
+	"scripts": {
+		"build": "node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs",
+		"build:catalog": "node scripts/build-card-catalog.mjs",
+		"export-cards": "node scripts/export-cards-from-db.mjs",
+		"import-assets": "node scripts/import-card-assets.mjs",
+		"import-type-icons": "node scripts/import-type-icons.mjs",
+		"square-billboards": "bash scripts/square-billboards.sh"
+	}
+}

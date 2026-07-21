@@ -4,11 +4,12 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs && vite dev",
-		"dev:public": "ADMIN_ENABLED=false node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs && ADMIN_ENABLED=false vite dev",
+		"gen:catalog": "CARD_CATALOG_ASSIGNMENTS=static/card-effects/assignments.json CARD_CATALOG_POSITIONS=data/cards/positions.json CARD_CATALOG_OUT=static/cards/catalog.json build-card-catalog",
+		"dev": "pnpm gen:catalog && vite dev",
+		"dev:public": "pnpm gen:catalog && ADMIN_ENABLED=false vite dev",
 		"dev:qq": "node scripts/generate-qq-locale.js",
-		"build": "pnpm export-cards && node scripts/build-card-catalog.mjs && vite build",
-		"build-catalog": "node scripts/build-card-catalog.mjs",
+		"build": "pnpm gen:catalog && vite build",
+		"build-catalog": "pnpm gen:catalog",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -18,10 +19,10 @@
 		"test": "vitest run",
 		"test:ui": "vitest --ui",
 		"test:coverage": "vitest run --coverage",
-		"clean": "rm -rf dist .svelte-kit",
-		"export-cards": "node scripts/export-cards-from-db.mjs"
+		"clean": "rm -rf dist .svelte-kit"
 	},
 	"dependencies": {
+		"card-data": "workspace:*",
 		"@supabase/supabase-js": "^2.110.7",
 		"@sveltejs/adapter-static": "^3.0.9",
 		"classnames": "^2.5.1",

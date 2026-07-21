@@ -3,6 +3,11 @@ import type { RequestHandler } from './$types';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join, dirname } from 'path';
+import { createRequire } from 'module';
+
+// The catalog generator lives in the card-data package; resolve its script from
+// there rather than the frontend's own tree.
+const require = createRequire(import.meta.url);
 
 // Per-card board positioning (a billboard size factor plus an x/y pixel offset of
 // the image — its red square — relative to its cell — the purple square),
@@ -86,9 +91,19 @@ export const POST: RequestHandler = async ({ request }) => {
 
 function rebuildCatalog() {
 	try {
-		execFileSync(process.execPath, [join(process.cwd(), 'scripts/build-card-catalog.mjs')], {
+		// Run the card-data generator, pointing its inputs (this package's
+		// admin-authored assignments/positions) and output (the served static
+		// catalog) back at the frontend tree via the CARD_CATALOG_* env vars.
+		const script = require.resolve('card-data/scripts/build-card-catalog.mjs');
+		execFileSync(process.execPath, [script], {
 			cwd: process.cwd(),
-			stdio: 'ignore'
+			stdio: 'ignore',
+			env: {
+				...process.env,
+				CARD_CATALOG_ASSIGNMENTS: join(process.cwd(), 'static/card-effects/assignments.json'),
+				CARD_CATALOG_POSITIONS: join(process.cwd(), 'data/cards/positions.json'),
+				CARD_CATALOG_OUT: join(process.cwd(), 'static/cards/catalog.json')
+			}
 		});
 	} catch (e) {
 		console.error('[positions] catalog rebuild failed:', e);
