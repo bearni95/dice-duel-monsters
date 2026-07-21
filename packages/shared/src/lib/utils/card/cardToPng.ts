@@ -15,6 +15,17 @@ import { rasterizeElement } from '$utils/dom/rasterize';
 // up to the requested output width — that scales art, text and icons together.
 const SOURCE_WIDTH = 200;
 
+// Every baked PNG is forced to this height (at ENFORCED_HEIGHT_BASE_WIDTH wide) so a
+// row or grid of cards lines up flush regardless of each card's own content. It is
+// the tallest height the current card layout produces — a monster card whose name
+// wraps to two lines. Shorter cards (one-line names, non-monster cards without stat
+// bars) grow their frame to match: the extra space is filled by the type texture
+// that already spans the whole card, and the art — a fixed square — is untouched.
+// The name is clamped to two lines, so no card can exceed this height; it is applied
+// as a min-height and nothing is ever cropped.
+const ENFORCED_HEIGHT = 1415;
+const ENFORCED_HEIGHT_BASE_WIDTH = 1080;
+
 export interface CardPng {
 	// A `data:image/png;base64,…` URL, usable directly as an <img> src or download.
 	dataUrl: string;
@@ -89,6 +100,11 @@ export async function renderCardToPng(
 	const outputWidth = options.width ?? 1080;
 	const scale = outputWidth / SOURCE_WIDTH;
 
+	// The uniform output height (scaled if a non-default width is requested) and the
+	// same expressed in source pixels, applied to the card as a min-height below.
+	const enforcedHeight = Math.round((ENFORCED_HEIGHT * outputWidth) / ENFORCED_HEIGHT_BASE_WIDTH);
+	const enforcedSourceHeight = enforcedHeight / scale;
+
 	// Off-screen host: laid out (so it can be measured and its images load) but far
 	// outside the viewport and invisible.
 	const host = document.createElement('div');
@@ -112,18 +128,38 @@ export async function renderCardToPng(
 		const cardEl = (host.firstElementChild as HTMLElement | null) ?? host;
 		await waitForImages(cardEl);
 
+		// Grow the card frame to the enforced height before snapshotting, so every PNG
+		// comes out the same size. The type texture spans the whole card, so the added
+		// space fills with it; a min-height (never a max) means a taller card would be
+		// shown in full rather than cropped.
+		cardEl.style.minHeight = `${enforcedSourceHeight}px`;
+		await nextFrame();
+
 		const { image, failedAssets } = await rasterizeElement(cardEl, {
 			scale,
 			rewriteUrl: rewriteAssetUrl
 		});
 
 		const canvas = document.createElement('canvas');
-		canvas.width = image.naturalWidth || Math.round(cardEl.getBoundingClientRect().width * scale);
-		canvas.height = image.naturalHeight || Math.round(cardEl.getBoundingClientRect().height * scale);
+		canvas.width = outputWidth;
+		canvas.height = enforcedHeight;
 
 		const ctx = canvas.getContext('2d');
 		if (!ctx) throw new Error('Could not get a 2D canvas context');
-		ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+		// The rasterized card is the same width and, thanks to the min-height, within a
+		// rounding pixel of the same height as the canvas — so this is effectively a
+		// straight blit onto the uniformly-sized output rather than a stretch.
+		ctx.drawImage(
+			image,
+			0,
+			0,
+			image.naturalWidth,
+			image.naturalHeight,
+			0,
+			0,
+			canvas.width,
+			canvas.height
+		);
 
 		return {
 			dataUrl: canvas.toDataURL('image/png'),
