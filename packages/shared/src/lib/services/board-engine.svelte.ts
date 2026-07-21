@@ -792,6 +792,9 @@ async function addPlaqueCard(
 		// tracks the plaque through the board's pan/zoom.
 		sprite.eventMode = 'static';
 		sprite.cursor = 'pointer';
+		// Tag the sprite with its card so a hovered on-board creature can find and anchor
+		// the viewer to its plaque card (see plaqueCardSpriteFor).
+		sprite.label = `plaque-card-${card.id}`;
 		sprite.on('pointerenter', () => showCardPreview(texture, sprite));
 		sprite.on('pointerleave', () => showCardPreview(null));
 		plaque.container.addChild(sprite);
@@ -1108,6 +1111,17 @@ function positionCardPreview() {
 	if (y < PREVIEW_MARGIN) y = card.y + card.height + PREVIEW_GAP;
 
 	previewLayer.position.set(x, y);
+}
+
+// Find the plaque card sprite for a given card on a given side (the played-card
+// thumbnail that addPlaqueCard tagged), or undefined if none is showing. Used to anchor
+// the viewer to a hovered creature's out-of-grid card rather than its grid sprite. When
+// a card was summoned more than once the first matching thumbnail is used.
+function plaqueCardSpriteFor(side: Side, cardId: IGameCreature['id']): Sprite | undefined {
+	const container = (side === 'player' ? playerPlaque : rivalPlaque).container;
+	if (!container) return undefined;
+	const label = `plaque-card-${cardId}`;
+	return container.children.find((child) => child.label === label) as Sprite | undefined;
 }
 
 // (Re)paint the card viewer with a card texture at the fixed 300px width, floated over
@@ -2366,6 +2380,16 @@ async function placeMonster(
 		// button can reflect it (inspectedUnit isn't reactive on its own).
 		inspectedCanCombat = unit.side === 'player' && combatTargetsFor(unit).length > 0;
 	});
+
+	// Hovering an on-board creature floats the card viewer over that creature's own
+	// out-of-grid plaque card (not over the grid sprite), reusing that thumbnail's
+	// texture. If the card isn't showing in the plaque there's nothing to anchor to, so
+	// the viewer stays hidden.
+	sprite.on('pointerenter', () => {
+		const target = plaqueCardSpriteFor(side, creature.id);
+		if (target?.texture) showCardPreview(target.texture, target);
+	});
+	sprite.on('pointerleave', () => showCardPreview(null));
 
 	placedUnits.set(unit.unitId, unit);
 
