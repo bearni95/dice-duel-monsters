@@ -9,6 +9,7 @@
 	import DiceCollectionCanvas3D, {
 		type DieSpec
 	} from '$components/dice/DiceCollectionCanvas3D.svelte';
+	import DiceDistinctFaces from '$components/dice/DiceDistinctFaces.svelte';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
 	// signed-in account (`authService.configured` must be true and a user present).
@@ -234,8 +235,9 @@
 				</div>
 
 				{#if diceGrid}
-					<!-- Inventory breakdown: rows are rarity levels, columns are die types,
-					     each cell the number of that die the player owns. -->
+					<!-- Inventory breakdown: rows are rarity levels, columns are die types.
+					     Each cell shows how many of that die the player owns and the four
+					     distinct faces it rolls, badging the faces that appear twice. -->
 					<div class="overflow-x-auto">
 						<table class="table table-sm">
 							<thead>
@@ -250,9 +252,12 @@
 								{#each diceGrid.rows as row (row.rarity)}
 									<tr>
 										<th>Rarity {row.rarity}</th>
-										{#each row.cells as count, i (diceGrid.templates[i].id)}
-											<td class={classNames('text-center', { 'opacity-30': count === 0 })}>
-												{count}
+										{#each row.cells as cell (cell.dieId)}
+											<td class={classNames('align-top', { 'opacity-40': cell.count === 0 })}>
+												<div class="text-base-content/70 mb-1 text-center text-xs font-medium">
+													×{cell.count} owned
+												</div>
+												<DiceDistinctFaces dieId={cell.dieId} faces={cell.faces} classes="mx-auto" />
 											</td>
 										{/each}
 									</tr>
