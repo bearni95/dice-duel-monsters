@@ -1,6 +1,8 @@
 import type { CardAsset } from "$components/cards/GameCard.svelte";
 import type { CardDetail } from "$types/card.type";
 import { queryCatalog, type CatalogCard, type CardQuery } from "$utils/cards/card-query";
+import { ensureDecks } from "$services/deck.service";
+import { enabledCardIds } from "$utils/deck/enabledCardIds";
 import { AdapterClass } from "./classes/adapter.class";
 import { CreatureAdapter, type IGameCreature } from "./creature.adapter";
 
@@ -184,6 +186,74 @@ export class CardApiAdapter extends AdapterClass {
             spellTypes: data.spellTypes,
             trapTypes: data.trapTypes
         };
+    }
+
+    // The pool of cards "available in the game": exactly the set the admin /cards
+    // browser shows — every monster contained in a saved deck (union of each deck's
+    // enabled card ids) that has a billboard cutout prepared for the board. Spell
+    // and Trap cards are excluded, mirroring loadDeckCatalog. This is the pool a
+    // player can be granted cards from.
+    async loadAvailableCards(): Promise<CardAsset[]> {
+        const deckList = await ensureDecks();
+        const ids = new Set<number>();
+        for (const deck of deckList) {
+            for (const id of enabledCardIds(deck, [...deck.main, ...deck.extra, ...deck.side])) {
+                ids.add(id);
+            }
+        }
+        if (!ids.size) return [];
+
+        const catalog = await loadCatalogData();
+        // Restrict to the deck-derived cards, drop spells/traps, then keep only the
+        // monsters that have a billboard cutout (monsterCutout) — bypassing
+        // pagination by resolving the exact id set.
+        const restricted = queryCatalog(catalog, { ids: [...ids] }).cards.filter(
+            (card) => card.type !== 'Spell Card' && card.type !== 'Trap Card'
+        );
+        const data = queryCatalog(restricted, {
+            ids: restricted.map((c) => c.id),
+            monsterCutout: true
+        });
+        return data.cards as CardAsset[];
+    }
+
+    // Distinct owned cards with their copy counts, resolved from the catalog by id.
+    // Duplicates in `ownedIds` are tallied; ids missing from the catalog are
+    // dropped. Ordered by first appearance in `ownedIds`. Used by the home page's
+    // owned-cards grid to badge each card with how many copies the player holds.
+    async ownedUnique(ownedIds: number[]): Promise<{ card: CardAsset; count: number }[]> {
+        if (!ownedIds.length) return [];
+
+        const counts = new Map<number, number>();
+        const order: number[] = [];
+        for (const id of ownedIds) {
+            if (!counts.has(id)) order.push(id);
+            counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+
+        const catalog = await loadCatalogData();
+        const byId = new Map<number, CardAsset>();
+        for (const c of queryCatalog(catalog, { ids: [...counts.keys()] }).cards as CardAsset[]) {
+            byId.set(c.id, c);
+        }
+
+        const out: { card: CardAsset; count: number }[] = [];
+        for (const id of order) {
+            const card = byId.get(id);
+            if (card) out.push({ card, count: counts.get(id) ?? 0 });
+        }
+        return out;
+    }
+
+    // Pick `count` random cards from an available pool, returning their ids (repeats
+    // allowed) so they can be appended to the player's collection. Mirrors the dice
+    // adapter's randomDiceIds.
+    randomCardIds(available: CardAsset[], count: number): number[] {
+        if (!available.length) return [];
+        return Array.from(
+            { length: count },
+            () => available[Math.floor(Math.random() * available.length)].id
+        );
     }
 
     // Resolve a list of card ids into their raw card assets, preserving the order
