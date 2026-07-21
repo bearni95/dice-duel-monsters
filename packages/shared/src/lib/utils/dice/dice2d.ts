@@ -26,6 +26,11 @@ const NUMBER_SPAN = 0.75; // centred face-value glyph half-height, in face half-
 const NUMBER_FONT = 72;
 const NUMBER_STROKE = 10;
 
+// SVG icons are rasterized from their vector source at this pixel size, so the icon
+// (and its outline) is always downscaled — never upscaled — onto a face, staying
+// crisp at export sizes instead of staircasing like the default 512px raster.
+const ICON_RASTER_SIZE = 2048;
+
 function shade(color: number, f: number): number {
 	const r = Math.min(255, Math.round(((color >> 16) & 0xff) * f));
 	const g = Math.min(255, Math.round(((color >> 8) & 0xff) * f));
@@ -79,6 +84,30 @@ async function getApp(): Promise<Application> {
 	return appPromise;
 }
 
+// Rasterize an SVG from its vector source into a canvas of the given size, fitting
+// the drawing to a square while preserving aspect. Re-rasterizing from the vector
+// (rather than upscaling Pixi's default 512px texture) is what keeps the icon crisp:
+// at any face size the result is a downscale, which antialiases cleanly.
+async function rasterizeSvg(url: string, size: number): Promise<HTMLCanvasElement | null> {
+	const res = await fetch(url);
+	const image = new Image();
+	image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(await res.text())}`;
+	await image.decode();
+
+	const w = image.width || size;
+	const h = image.height || size;
+	const scale = size / Math.max(w, h);
+	const canvas = document.createElement('canvas');
+	canvas.width = Math.max(1, Math.round(w * scale));
+	canvas.height = Math.max(1, Math.round(h * scale));
+	const ctx = canvas.getContext('2d');
+	if (!ctx) return null;
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+	ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+	return canvas;
+}
+
 // Face textures are cached by URL so repeated icons (opposite faces often share one)
 // and repeated dice reuse a single upload.
 const textureCache = new Map<string, Promise<Texture | null>>();
@@ -89,7 +118,12 @@ async function loadTexture(url: string): Promise<Texture | null> {
 	if (!entry) {
 		entry = (async () => {
 			try {
-				const { Assets } = await getPixi();
+				const { Assets, Texture } = await getPixi();
+				// SVGs get our high-resolution raster; anything else uses the loader as-is.
+				if (/\.svg(?:[?#]|$)/i.test(url)) {
+					const canvas = await rasterizeSvg(url, ICON_RASTER_SIZE);
+					if (canvas) return Texture.from(canvas);
+				}
 				return await Assets.load<Texture>(url);
 			} catch {
 				return null;
@@ -149,7 +183,7 @@ function drawFace(
 	if (tex) {
 		const scale = (2 * ICON_SPAN * H) / tex.height;
 		const border = ICON_BORDER * H;
-		const steps = 16;
+		const steps = 24;
 		for (let s = 0; s < steps; s++) {
 			const a = (s / steps) * Math.PI * 2;
 			const outline = new Sprite(tex);
