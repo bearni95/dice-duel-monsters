@@ -31,6 +31,7 @@ import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
 import { textureForType } from '$utils/card/typeTexture';
 import rollDie from '$utils/dice/rollDie';
 import { Dice3D, type EnergyDieSpec } from '$utils/dice/dice3d';
+import { buildStaticDie, orderedDieFaces, FACE_SRC_BASE } from '$utils/dice/staticDie';
 import { shuffle } from '$utils/board/shuffle';
 import { cellLabel } from '$utils/board/coords';
 import { DICE_NETS, NEIGHBOR_OFFSETS, offsetsForRotation } from '$utils/board/diceNet';
@@ -206,6 +207,13 @@ export function createBoardEngine() {
 	// player to choose (up to) three of their owned dice to roll for energy; the DOM
 	// picker overlay reads `dicePool` / `dicePickCount` and calls `confirmDicePick`.
 	let pickingDice = $state(false);
+
+	// The ids of the player's dice currently selected in the on-canvas turn-start
+	// picker (the little 3D dice laid past the red plaque). Seeded when the pick phase
+	// opens (see beginPlayerDicePhase) and cleared once the roll consumes them. Each
+	// spawned die id is unique in the pool, so a plain id list is enough to track the
+	// chosen dice. `$state` so the display re-highlights as the player toggles them.
+	let dicePick = $state<string[]>([]);
 
 	// True while a player summon is playing out: from the moment the tile is
 	// clicked through the floor paint, sprite fade-in, HP dice roll and health-bar
@@ -427,10 +435,35 @@ export function createBoardEngine() {
 		}
 
 		if (playerDice.length > dicePickCount()) {
+			// Open the on-canvas picker with the full grid and nothing chosen yet: each die
+			// the player clicks leaves the grid for the roller until pickCount are picked.
+			dicePick = [];
 			pickingDice = true;
 			return;
 		}
 		await rollPickedDice(playerDice);
+	}
+
+	// Toggle one of the player's dice in the on-canvas turn-start pick: deselect it if
+	// already chosen, otherwise select it while the pick still has room (up to the roll's
+	// pickCount). Inert outside the pick phase or once a throw is under way.
+	function toggleDicePick(id: string) {
+		if (!pickingDice || rolling) return;
+		if (dicePick.includes(id)) {
+			dicePick = dicePick.filter((d) => d !== id);
+		} else if (dicePick.length < dicePickCount()) {
+			dicePick = [...dicePick, id];
+		}
+	}
+
+	// Roll the dice the player selected on the canvas. Resolves the chosen ids back to
+	// their dice (in pool order) and hands them to the shared pick roller. Requires a
+	// full selection (exactly pickCount), matching the Roll button's enabled state.
+	async function rollDicePick() {
+		if (!pickingDice || rolling) return;
+		if (dicePick.length !== dicePickCount()) return;
+		const chosen = playerDice.filter((d) => dicePick.includes(d.id));
+		await rollPickedDice(chosen);
 	}
 
 	// Roll the dice the player chose (or the whole pool when there was no choice),
@@ -439,6 +472,7 @@ export function createBoardEngine() {
 	async function rollPickedDice(dice: SpawnedDie[]) {
 		if (rolling) return;
 		pickingDice = false;
+		dicePick = [];
 		const picked = dice.slice(0, 3);
 		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
 		await rollEnergyDice(playerEnergyDice, picked, center, energy);
@@ -1077,6 +1111,14 @@ let actionLayer: Container | undefined;
 // side's turn-start dice row. Built in init inside `camera` so the read-outs pan and
 // zoom with the board (see renderEnergyLabels).
 let energyLabelLayer: Container | undefined;
+
+// The world-space layer holding each side's remaining match dice, drawn as a grid of
+// little static isometric dice laid past that side's card plaque (see renderDiceDisplay).
+// Built in init inside `camera` so the dice pan and zoom with the board; the player's are
+// clickable during the turn-start pick (the on-canvas replacement for the old dice modal).
+let diceDisplayLayer: Container | undefined;
+let diceDisplayToken = 0;
+
 // The battery-pack icon (the same /assets/icons/sbed/battery-pack.svg the sidebar's
 // on-board read-out masks) loaded once in init and tinted per side for that read-out.
 // $state so renderEnergyLabels' $effect re-runs and paints the icons once it lands.
@@ -1292,7 +1334,10 @@ async function renderHand() {
 	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
 	const rowWidth = ordered.length * HAND_CARD_W + (ordered.length - 1) * HAND_CARD_GAP;
 	const leftX = plaqueCenterX - rowWidth / 2;
-	const rowY = plaqueBottomY + HAND_PLAQUE_GAP;
+	// Drop the hand below whichever reaches lower: the plaque itself or the player's
+	// match-dice block laid past it (reserved at full size so the row never jumps as
+	// dice are consumed), so the dice and the hand never overlap.
+	const rowY = Math.max(plaqueBottomY, playerDiceBlockBottomY()) + HAND_PLAQUE_GAP;
 
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
 	let x = leftX;
@@ -1617,51 +1662,210 @@ $effect(() => {
 	renderEnergyLabels();
 });
 
-// Frame the whole isometric grid into the horizontal gap the two fixed side
-// panels leave free, centered in that gap (and vertically in the canvas). Called
-// once the board is built so the match opens looking at the play area rather than
-// the top-center default. The grid's diamonds span GRID*TILE on each axis and its
-// isoX is symmetric about 0, so its world center sits at x=0, y=((H-1)*TILE)/2.
-function frameBoard() {
-	const worldWidth = GRID_WIDTH * TILE_WIDTH;
-	const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
-	const worldCenterY = ((GRID_HEIGHT - 1) * TILE_HEIGHT) / 2;
+// --- On-board match-dice display -------------------------------------------------
+//
+// Each side's remaining match dice (playerDice / rivalDice) are drawn as a grid of
+// little static isometric dice laid on the ground just past that side's card plaque,
+// each die turned so its highest-value face crowns the cube. This is both a live view
+// of the pool — it shrinks as dice are rolled and consumed — and, for the player, the
+// turn-start picker: while the pick phase is open the player's dice are click-to-select
+// (up to the roll's pickCount) with a Roll button past the block, replacing the old DOM
+// dice modal.
 
-	// The canvas already ends at the right column's left edge (the viewport reserves
-	// --right-col-w on the right), so only the left dice panel — which floats over the
-	// canvas at top-left — is subtracted here. Its offsetWidth includes padding; falls
-	// back to the full canvas before it's measured.
-	const leftW = leftPanel?.offsetWidth ?? 0;
-	const availableW = Math.max(1, app.screen.width - leftW);
+// Approximate drawn size of one displayed die and the grid it lays out in: dice per
+// row across the plaque's length, the step between dice along that length and between
+// rows marching outward, and the gap from the plaque's outer edge to the first row —
+// all in world (pre-camera) px, along the plaque's own two in-plane axes.
+const MATCH_DIE_SIZE = 42;
+const MATCH_DIE_COLS = 6;
+const MATCH_DIE_COL_STEP = 50;
+const MATCH_DIE_ROW_STEP = 40;
+const MATCH_DIE_OUT_GAP = 30;
 
-	// Fit the grid into the free gap by width, but never let it spill past the top
-	// or bottom of the canvas — take whichever axis is the tighter constraint.
-	// A small margin keeps the edge tiles off the panels.
-	const MARGIN = 0.92;
-	const scale = Math.max(
-		MIN_ZOOM,
-		Math.min(
-			MAX_ZOOM,
-			(availableW / worldWidth) * MARGIN,
-			(app.screen.height / worldHeight) * MARGIN
-		)
-	);
-	camera.scale.set(scale);
+// The number of rows a fully stocked dice block spans (MATCH_DIE_COLS × this = the full
+// pool). Used to reserve the block's footprint so the hand and the board frame leave room
+// for the whole pool even before any die is consumed.
+const MATCH_DICE_MAX_ROWS = 3;
 
-	// Place the grid's world center at the center of the free gap horizontally and
-	// at the canvas midline vertically (worldCenterX is 0, so it drops out of x).
-	camera.x = leftW + availableW / 2;
-	camera.y = app.screen.height / 2 - worldCenterY * scale;
+// The three face indices (1-based) an isometric cube shows for a die — highest value
+// turned up, the next two on the left and right sides — so each face's baked art can be
+// located (`<id>-<face>.png`) and mapped onto the cube.
+function dieCubeFaces(die: SpawnedDie): { top: number; left: number; right: number } {
+	return orderedDieFaces(die.faces.map((f) => parseInt(f.value, 10)));
 }
 
-// A yellow reference outline framing the whole play area: the isometric grid plus
-// the red (player) and blue (rival) card plaques that flank it at opposite corners.
-// Lives inside `camera`, so it pans and zooms with the board. Purely a visual guide.
-let boardFrame: Graphics | undefined;
-function drawBoardFrame() {
-	if (!camera) return;
+// A plaque's two in-plane unit axes (uHat along its length, vHat along its outward
+// thickness) and the world midpoint of its outer edge — the anchor the dice grid grows
+// out from. Derived from the plaque's ground matrix so the grid lies in the same
+// isometric plane as the plaque and marches away from the board.
+function diceBlockAxes(matrix: Matrix): {
+	uHat: { x: number; y: number };
+	vHat: { x: number; y: number };
+	mid: { x: number; y: number };
+} {
+	const uLen = Math.hypot(matrix.a, matrix.b) || 1;
+	const vLen = Math.hypot(matrix.c, matrix.d) || 1;
+	const mid = matrix.apply({ x: TAG_WIDTH / 2, y: TAG_HEIGHT });
+	return {
+		uHat: { x: matrix.a / uLen, y: matrix.b / uLen },
+		vHat: { x: matrix.c / vLen, y: matrix.d / vLen },
+		mid: { x: mid.x, y: mid.y }
+	};
+}
 
-	// Every point the frame must enclose, in world (camera-local) space.
+// World centre of die `k` (of `n`) in a side's grid: laid out in rows of MATCH_DIE_COLS
+// along the plaque's length (uHat), each row centred on the outer-edge midpoint, with
+// successive rows stepped outward along the thickness axis (vHat).
+function matchDieCenter(
+	k: number,
+	n: number,
+	mid: { x: number; y: number },
+	uHat: { x: number; y: number },
+	vHat: { x: number; y: number }
+): { cx: number; cy: number } {
+	const row = Math.floor(k / MATCH_DIE_COLS);
+	const col = k % MATCH_DIE_COLS;
+	const rowCount = Math.min(MATCH_DIE_COLS, n - row * MATCH_DIE_COLS);
+	const along = (col - (rowCount - 1) / 2) * MATCH_DIE_COL_STEP;
+	const out = MATCH_DIE_OUT_GAP + row * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
+	return {
+		cx: mid.x + uHat.x * along + vHat.x * out,
+		cy: mid.y + uHat.y * along + vHat.y * out
+	};
+}
+
+// The lowest screen y the player's fully stocked dice block (plus its Roll button)
+// reaches, so the hand can be dropped clear below it. Computed against a full pool
+// (MATCH_DICE_MAX_ROWS rows) so the reservation — and the hand row — stays put as dice
+// are consumed rather than creeping up.
+function playerDiceBlockBottomY(): number {
+	const { uHat, vHat, mid } = diceBlockAxes(PLAYER_BOARD_MATRIX);
+	const fullCount = MATCH_DIE_COLS * MATCH_DICE_MAX_ROWS;
+	let maxY = mid.y;
+	for (let k = 0; k < fullCount; k++) {
+		const { cy } = matchDieCenter(k, fullCount, mid, uHat, vHat);
+		maxY = Math.max(maxY, cy + MATCH_DIE_SIZE / 2);
+	}
+	// The Roll button hangs one row past the block.
+	const btnOut = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
+	return Math.max(maxY, mid.y + vHat.y * btnOut + ACTION_BTN_H);
+}
+
+// (Re)draw both sides' remaining match dice past their plaques. Preloads only the three
+// visible faces of every die (cached by Assets), then rebuilds the layer in one pass
+// with a token guard so a superseded render (a roll consuming dice mid-load) is dropped.
+// The player's dice are wired click-to-pick while the turn-start phase is open, with a
+// Roll button past the block; the rival's are always a passive display.
+async function renderDiceDisplay() {
+	if (!diceDisplayLayer) return;
+	const token = ++diceDisplayToken;
+	const pixi = { Container, Graphics, Sprite, Matrix };
+
+	const sides = [
+		{ dice: playerDice, matrix: PLAYER_BOARD_MATRIX, color: ENERGY_DICE_COLOR, interactive: true },
+		{ dice: rivalDice, matrix: RIVAL_BOARD_MATRIX, color: RIVAL_DICE_COLOR, interactive: false }
+	];
+
+	// Preload the three faces each cube shows (top + two sides), keyed `${id}-${face}`.
+	const needed = new Set<string>();
+	for (const side of sides)
+		for (const die of side.dice) {
+			const f = dieCubeFaces(die);
+			needed.add(`${die.id}-${f.top}`);
+			needed.add(`${die.id}-${f.left}`);
+			needed.add(`${die.id}-${f.right}`);
+		}
+
+	const texEntries = await Promise.all(
+		[...needed].map(
+			async (key) =>
+				[key, await Assets.load<Texture>(`${FACE_SRC_BASE}/${key}.png`).catch(() => null)] as const
+		)
+	);
+
+	// A newer render superseded this one while the faces loaded — drop it wholesale.
+	if (token !== diceDisplayToken || !diceDisplayLayer) return;
+	const texByKey = new Map(texEntries);
+
+	for (const child of diceDisplayLayer.removeChildren()) child.destroy();
+
+	for (const side of sides) {
+		const { uHat, vHat, mid } = diceBlockAxes(side.matrix);
+		const n = side.dice.length;
+
+		// Build each die, then add them back-to-front (smaller screen y first) so a die
+		// nearer the viewer correctly overlaps the ones behind it.
+		const built: { node: Container; cy: number }[] = [];
+		side.dice.forEach((die, k) => {
+			// A picked die has left the grid for the roller — skip drawing it, but keep
+			// deriving its position from the die's original index so the dice that remain
+			// stay put in their slots instead of reflowing to close the gap.
+			if (side.interactive && dicePick.includes(die.id)) return;
+
+			const f = dieCubeFaces(die);
+
+			const { cx, cy } = matchDieCenter(k, n, mid, uHat, vHat);
+			const wrap = new Container();
+			wrap.position.set(cx, cy);
+
+			wrap.addChild(
+				buildStaticDie(pixi, {
+					topTexture: texByKey.get(`${die.id}-${f.top}`) ?? null,
+					leftTexture: texByKey.get(`${die.id}-${f.left}`) ?? null,
+					rightTexture: texByKey.get(`${die.id}-${f.right}`) ?? null,
+					color: side.color,
+					size: MATCH_DIE_SIZE
+				})
+			);
+
+			// Only the player's dice, and only while the pick is open, take clicks.
+			if (side.interactive && pickingDice) {
+				wrap.eventMode = 'static';
+				wrap.cursor = 'pointer';
+				wrap.on('pointertap', () => toggleDicePick(die.id));
+			}
+
+			built.push({ node: wrap, cy });
+		});
+
+		built
+			.sort((a, b) => a.cy - b.cy)
+			.forEach(({ node }) => diceDisplayLayer!.addChild(node));
+
+		// The player's Roll button, one row past the block while the pick is open.
+		if (side.interactive && pickingDice) {
+			const rows = Math.max(1, Math.ceil(n / MATCH_DIE_COLS));
+			const out = MATCH_DIE_OUT_GAP + rows * MATCH_DIE_ROW_STEP + MATCH_DIE_ROW_STEP;
+			const enabled = dicePick.length === dicePickCount();
+			const btn = buildActionButton(
+				`Roll ${dicePick.length}/${dicePickCount()}`,
+				enabled ? 'primary' : 'neutral',
+				enabled,
+				rollDicePick
+			);
+			btn.position.set(mid.x + vHat.x * out - ACTION_BTN_W / 2, mid.y + vHat.y * out);
+			diceDisplayLayer.addChild(btn);
+		}
+	}
+}
+
+// Repaint the dice display whenever either pool changes (a roll consumed dice), the pick
+// phase opens or closes, or the player's selection changes (to re-draw the rings and the
+// Roll button's count). Guarded until the layer exists (init triggers the first render).
+$effect(() => {
+	void playerDice;
+	void rivalDice;
+	void pickingDice;
+	void dicePick;
+	renderDiceDisplay();
+});
+
+// Every world-space point the play area must enclose: the isometric grid, both card
+// plaques flanking it at opposite corners, and — reserved at full size — each side's
+// match-dice block laid past its plaque. Shared by frameBoard (the opening camera fit)
+// and drawBoardFrame (the yellow reference outline) so both bound the same region and
+// the dice never fall outside the framed view.
+function playAreaPoints(): { x: number; y: number }[] {
 	const pts: { x: number; y: number }[] = [];
 
 	// The grid's bounding box: half a tile out from the extreme corner cells. The
@@ -1676,7 +1880,7 @@ function drawBoardFrame() {
 	);
 
 	// Each plaque's local rectangle (0..TAG_WIDTH, 0..TAG_HEIGHT) projected onto the
-	// ground plane by its board matrix, so the frame reaches out past both corners.
+	// ground plane by its board matrix, so the bounds reach out past both corners.
 	for (const m of [PLAYER_BOARD_MATRIX, RIVAL_BOARD_MATRIX]) {
 		for (const [lx, ly] of [
 			[0, 0],
@@ -1688,6 +1892,73 @@ function drawBoardFrame() {
 		}
 	}
 
+	// Each side's dice block at full size (MATCH_DICE_MAX_ROWS rows), so the frame and
+	// the opening zoom always leave room for the whole pool even before any is consumed.
+	const fullCount = MATCH_DIE_COLS * MATCH_DICE_MAX_ROWS;
+	for (const m of [PLAYER_BOARD_MATRIX, RIVAL_BOARD_MATRIX]) {
+		const { uHat, vHat, mid } = diceBlockAxes(m);
+		for (let k = 0; k < fullCount; k++) {
+			const { cx, cy } = matchDieCenter(k, fullCount, mid, uHat, vHat);
+			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
+			pts.push({ x: cx + MATCH_DIE_SIZE, y: cy + MATCH_DIE_SIZE });
+		}
+		// The Roll button hangs one row past the block; keep its reach in bounds too.
+		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
+		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
+	}
+
+	return pts;
+}
+
+// Frame the whole play area (grid + plaques + dice blocks) into the horizontal gap the
+// left panel leaves free, centered in that gap and vertically in the canvas. Called
+// once the board is built so the match opens looking at the play area — and, because the
+// dice blocks are part of the bounds, so both sides' dice sit on-screen rather than
+// spilling past the framed corners.
+function frameBoard() {
+	const pts = playAreaPoints();
+	const xs = pts.map((p) => p.x);
+	const ys = pts.map((p) => p.y);
+	const minX = Math.min(...xs);
+	const maxX = Math.max(...xs);
+	const minY = Math.min(...ys);
+	const maxY = Math.max(...ys);
+	const boxW = Math.max(1, maxX - minX);
+	const boxH = Math.max(1, maxY - minY);
+	const centerX = (minX + maxX) / 2;
+	const centerY = (minY + maxY) / 2;
+
+	// The canvas already ends at the right column's left edge (the viewport reserves
+	// --right-col-w on the right), so only the left dice panel — which floats over the
+	// canvas at top-left — is subtracted here. Its offsetWidth includes padding; falls
+	// back to the full canvas before it's measured.
+	const leftW = leftPanel?.offsetWidth ?? 0;
+	const availableW = Math.max(1, app.screen.width - leftW);
+
+	// Fit the play area into the free gap by whichever axis is the tighter constraint,
+	// a small margin keeping its edges off the panels.
+	const MARGIN = 0.94;
+	const scale = Math.max(
+		MIN_ZOOM,
+		Math.min(MAX_ZOOM, (availableW / boxW) * MARGIN, (app.screen.height / boxH) * MARGIN)
+	);
+	camera.scale.set(scale);
+
+	// Center the play area's bounding box in the free gap horizontally and on the canvas
+	// midline vertically.
+	camera.x = leftW + availableW / 2 - centerX * scale;
+	camera.y = app.screen.height / 2 - centerY * scale;
+}
+
+// A yellow reference outline framing the whole play area: the isometric grid, the red
+// (player) and blue (rival) card plaques flanking it at opposite corners, and each
+// side's match-dice block past its plaque. Lives inside `camera`, so it pans and zooms
+// with the board. Purely a visual guide.
+let boardFrame: Graphics | undefined;
+function drawBoardFrame() {
+	if (!camera) return;
+
+	const pts = playAreaPoints();
 	const xs = pts.map((p) => p.x);
 	const ys = pts.map((p) => p.y);
 	const minX = Math.min(...xs);
@@ -4184,6 +4455,14 @@ actionLayer = new Container();
 actionLayer.eventMode = 'passive';
 camera.addChild(actionLayer);
 
+// The world-space match-dice display: each side's remaining dice as little static
+// isometric cubes laid past its card plaque. 'passive' like the hand/action layers so
+// its interactive children (the player's click-to-pick dice and the Roll button) still
+// receive clicks. Painted by renderDiceDisplay (reactive to each side's pool + the pick).
+diceDisplayLayer = new Container();
+diceDisplayLayer.eventMode = 'passive';
+camera.addChild(diceDisplayLayer);
+
 // The in-canvas dice-net picker, in the empty triangle below the grid's south-west
 // edge. Added above the board layers so its thumbnails read on top; hidden until a
 // net action starts (see the visibility $effect).
@@ -4238,6 +4517,12 @@ hpDice = new Dice3D({
 			// Paint the (initially empty) hand row; its $effect repaints it as cards are
 			// drawn, summoned, and as the energy pool changes.
 			renderHand();
+
+			// Paint each side's match-dice display past its plaque; its $effect repaints as
+			// dice are rolled and consumed and as the player's turn-start pick changes. Both
+			// pools are seeded once the template config loads (seedMatchDice), which also
+			// triggers this render via the effect.
+			renderDiceDisplay();
 
 			// Permanently record the pre-painted cells at opposite corners: the red
 			// origin at the far corner (cell L12 = last column, last row) and the blue
