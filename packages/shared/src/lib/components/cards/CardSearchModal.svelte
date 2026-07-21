@@ -196,9 +196,9 @@
 					</button>
 				</div>
 
-				<section class="flex flex-wrap gap-4" aria-label="Card list">
+				<section class="grid grid-cols-5 gap-4" aria-label="Card list">
 					{#each cards as card (card.id)}
-						<div class="flex w-40 flex-col gap-2">
+						<div class="flex flex-col gap-2">
 							<CardTile {card} png />
 							<button class="btn btn-sm btn-primary w-full" onclick={() => choose(card)}>
 								Select
