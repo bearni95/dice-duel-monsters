@@ -188,11 +188,17 @@ export class CardApiAdapter extends AdapterClass {
         };
     }
 
-    // The pool of cards "available in the game": exactly the set the admin /cards
-    // browser shows — every monster contained in a saved deck (union of each deck's
-    // enabled card ids) that has a billboard cutout prepared for the board. Spell
-    // and Trap cards are excluded, mirroring loadDeckCatalog. This is the pool a
-    // player can be granted cards from.
+    // The pool of cards "available in the game": every playable monster contained
+    // in a saved deck (union of each deck's enabled card ids) that has a billboard
+    // cutout prepared for the board. Spell and Trap cards are excluded.
+    //
+    // Note the `playable` filter — this is deliberately a subset of the admin
+    // /cards browser. That browser also shows non-playable monsters (for
+    // inspection) and renders them by baking their PNG on demand, so those cards
+    // never have a committed PNG. The static frontend can only show committed PNGs
+    // (via GeneratedCardImage), so granting a non-playable card would surface a
+    // "card not found" placeholder. The `playable` set is exactly the cards with
+    // baked art, so every drawn card renders.
     async loadAvailableCards(): Promise<CardAsset[]> {
         const deckList = await ensureDecks();
         const ids = new Set<number>();
@@ -205,14 +211,15 @@ export class CardApiAdapter extends AdapterClass {
 
         const catalog = await loadCatalogData();
         // Restrict to the deck-derived cards, drop spells/traps, then keep only the
-        // monsters that have a billboard cutout (monsterCutout) — bypassing
+        // playable monsters that have a billboard cutout (monsterCutout) — bypassing
         // pagination by resolving the exact id set.
         const restricted = queryCatalog(catalog, { ids: [...ids] }).cards.filter(
             (card) => card.type !== 'Spell Card' && card.type !== 'Trap Card'
         );
         const data = queryCatalog(restricted, {
             ids: restricted.map((c) => c.id),
-            monsterCutout: true
+            monsterCutout: true,
+            playable: true
         });
         return data.cards as CardAsset[];
     }
