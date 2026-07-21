@@ -10,21 +10,36 @@
 		type DieSpec
 	} from '$components/dice/DiceCollectionCanvas3D.svelte';
 
-	// Discord auth via Supabase, entirely browser-side. When Supabase env values
-	// are absent (`authService.configured === false`) the gate is skipped so the
-	// app still runs, e.g. for local UI work without a Supabase project.
+	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
+	// signed-in account (`authService.configured` must be true and a user present).
 	const auth = authService.store;
 
-	// The root page lets the local player set their name and avatar. Both choices
-	// live in `playerService` (localStorage-backed), so once set they persist and
-	// the page opens straight to the saved summary on the next visit.
-	const store = playerService.store;
+	// The player's profile and dice, backed by Supabase via `playerService`. It
+	// loads on sign-in and clears on sign-out, so name/avatar/dice follow the
+	// Discord account across devices rather than living in one browser.
+	const player = playerService.store;
 
-	// Draft state for the picker, seeded from whatever is already saved. Editing
-	// mutates the draft; only `save` commits it back to the service.
-	let name = $state($store.name ?? '');
-	let avatar = $state<string | null>($store.avatar ?? null);
-	let editing = $state(!($store.name && $store.avatar));
+	let profile = $derived($player.profile);
+
+	// Draft state for the picker. Seeded from the loaded profile (see the effect
+	// below); editing mutates the draft and only `save` commits it to Supabase.
+	let name = $state('');
+	let avatar = $state<string | null>(null);
+	let editing = $state(false);
+
+	// Which profile id the draft has been seeded from, so the effect seeds once per
+	// signed-in user instead of clobbering edits on every store update.
+	let seededFor = $state<string | null>(null);
+
+	$effect(() => {
+		const p = $player.profile;
+		if (p && seededFor !== p.id) {
+			name = p.name;
+			avatar = p.avatar;
+			editing = !p.name;
+			seededFor = p.id;
+		}
+	});
 
 	let selectedCharacter = $derived(characters.find((c) => c.slug === avatar) ?? null);
 	let canSave = $derived(name.trim().length > 0 && avatar !== null);
@@ -34,21 +49,21 @@
 	let diceConfig = $state<DiceTemplateConfig | null>(null);
 
 	// The raw list of owned die ids (duplicates kept), and the total copy count.
-	let ownedIds = $derived($store.dice ?? []);
+	let ownedIds = $derived($player.dice);
 
 	// One entry per distinct (type, rarity) the player owns, each with its copy
 	// count. This drives both the tumbling-dice gallery and its underneath labels.
 	let ownedDice = $derived(diceConfig ? diceAdapter.ownedUnique(diceConfig, ownedIds) : []);
 
-	function save() {
+	async function save() {
 		if (!canSave) return;
-		playerService.set({ ...$store, name: name.trim(), avatar });
+		await playerService.saveProfile(name.trim(), avatar);
 		editing = false;
 	}
 
 	function edit() {
-		name = $store.name ?? '';
-		avatar = $store.avatar ?? null;
+		name = profile?.name ?? '';
+		avatar = profile?.avatar ?? null;
 		editing = true;
 	}
 
@@ -68,11 +83,11 @@
 	let diceGrid = $derived(diceConfig ? diceAdapter.ownedGrid(diceConfig, ownedIds) : null);
 
 	// Grant three random dice (from every die the game can produce) and persist them
-	// onto the player's collection.
-	function giveRandomDice() {
+	// to the player's Supabase-backed collection.
+	async function giveRandomDice() {
 		if (!diceConfig) return;
 		const granted = diceAdapter.randomDiceIds(diceConfig, 3);
-		playerService.set({ ...$store, dice: [...($store.dice ?? []), ...granted] });
+		await playerService.grantDice(granted);
 	}
 
 	onMount(async () => {
@@ -85,11 +100,18 @@
 </svelte:head>
 
 <main class="mx-auto w-full max-w-2xl space-y-6 p-4 sm:p-6 lg:p-8">
-	{#if authService.configured && $auth.loading}
+	{#if !authService.configured}
+		<section class="space-y-2 py-8 text-center" aria-label="Sign in required">
+			<h1 class="text-2xl font-bold">Dice Guardians</h1>
+			<p class="text-base-content/60 text-sm">
+				Sign-in is required to play, but Supabase isn't configured for this build.
+			</p>
+		</section>
+	{:else if $auth.loading}
 		<section class="flex items-center justify-center py-16" aria-label="Loading">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</section>
-	{:else if authService.configured && !$auth.user}
+	{:else if !$auth.user}
 		<section class="space-y-6 py-8 text-center" aria-label="Sign in">
 			<div class="space-y-2">
 				<h1 class="text-2xl font-bold">Dice Guardians</h1>
@@ -100,23 +122,25 @@
 			</button>
 		</section>
 	{:else}
-		{#if authService.configured && $auth.user}
-			<section
-				class="flex items-center justify-between gap-3 rounded-lg bg-base-200 px-3 py-2"
-				aria-label="Signed in"
-			>
-				<div class="flex items-center gap-2 min-w-0">
-					{#if $auth.user.avatar}
-						<img src={$auth.user.avatar} alt="" class="h-8 w-8 rounded-full" />
-					{/if}
-					<span class="truncate text-sm">
-						Signed in as <span class="font-medium">{$auth.user.name}</span>
-					</span>
-				</div>
-				<button class="btn btn-ghost btn-xs" onclick={() => authService.signOut()}>Sign out</button>
+		<section
+			class="flex items-center justify-between gap-3 rounded-lg bg-base-200 px-3 py-2"
+			aria-label="Signed in"
+		>
+			<div class="flex items-center gap-2 min-w-0">
+				{#if $auth.user.avatar}
+					<img src={$auth.user.avatar} alt="" class="h-8 w-8 rounded-full" />
+				{/if}
+				<span class="truncate text-sm">
+					Signed in as <span class="font-medium">{$auth.user.name}</span>
+				</span>
+			</div>
+			<button class="btn btn-ghost btn-xs" onclick={() => authService.signOut()}>Sign out</button>
+		</section>
+		{#if $player.loading}
+			<section class="flex items-center justify-center py-16" aria-label="Loading profile">
+				<span class="loading loading-spinner loading-lg text-primary"></span>
 			</section>
-		{/if}
-		{#if editing}
+		{:else if editing}
 		<section class="space-y-5" aria-label="Player profile">
 			<h1 class="text-2xl font-bold">Who's playing?</h1>
 
@@ -156,7 +180,9 @@
 				</div>
 			</div>
 
-			<button class="btn btn-primary" disabled={!canSave} onclick={save}>Save</button>
+			<button class="btn btn-primary" disabled={!canSave || $player.saving} onclick={save}>
+				Save
+			</button>
 		</section>
 	{:else}
 		<section class="flex items-center gap-4" aria-label="Player profile">
@@ -169,7 +195,7 @@
 			{/if}
 			<div class="min-w-0 flex-1">
 				<p class="text-base-content/50 text-xs uppercase tracking-wide">Player</p>
-				<p class="truncate text-2xl font-bold">{$store.name}</p>
+				<p class="truncate text-2xl font-bold">{profile?.name}</p>
 			</div>
 			<button class="btn btn-ghost btn-sm" onclick={edit}>Edit</button>
 		</section>
@@ -183,7 +209,11 @@
 						{ownedIds.length === 1 ? 'die' : 'dice'} owned
 					</p>
 				</div>
-				<button class="btn btn-primary btn-sm" disabled={!diceConfig} onclick={giveRandomDice}>
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={!diceConfig || $player.saving}
+					onclick={giveRandomDice}
+				>
 					Give 3 random dice
 				</button>
 			</div>
