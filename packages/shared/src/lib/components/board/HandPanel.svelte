@@ -72,10 +72,16 @@
 			>
 				<button
 					class="btn btn-sm btn-primary"
-					disabled={engine.summoning || engine.moving || engine.combating || !engine.canSummon(card)}
+					disabled={engine.summoning ||
+						engine.moving ||
+						engine.combating ||
+						!!engine.specialPhase ||
+						!engine.canSummon(card)}
 					onclick={() => engine.selectMonster(card)}
 				>
-					{engine.selectedMonster?.id === card.id ? 'Selected' : 'Select'}
+					{engine.selectedMonster?.id === card.id || engine.specialSummonCard?.id === card.id
+						? 'Selected'
+						: 'Select'}
 				</button>
 			</div>
 		</div>

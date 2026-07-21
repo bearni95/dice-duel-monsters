@@ -180,6 +180,25 @@ export function createBoardEngine() {
 	// can't be summoned before the current one lands with its rolled HP.
 	let summoning = $state(false);
 
+	// Special (Fusion / Ritual) summon flow. Fusion and Ritual monsters are drawn
+	// into the hand like any card, but instead of paying energy and unfolding a
+	// dice net they are summoned by sacrificing creatures already on the board and
+	// then placed onto an existing tile of the player's color (no net, no energy).
+	//
+	// The flow runs in two phases: `materials` (the player clicks their own on-board
+	// creatures to pick the sacrifices) then `placing` (the materials are destroyed
+	// and the player clicks a red tile to drop the special monster). `specialCard`
+	// holds the card through both phases; `specialMaterials` holds the chosen
+	// sacrifices (plain array — it wraps live Pixi objects that must not be proxied).
+	let specialCard = $state<IGameCreature | null>(null);
+	let specialPhase = $state<'materials' | 'placing' | null>(null);
+	let specialMaterials: PlacedUnit[] = [];
+	// Reactive mirrors driving the buttons/prompt: whether the current selection
+	// satisfies the summon condition, and the human-readable instruction shown in
+	// the on-canvas action column.
+	let specialReady = $state(false);
+	let specialPrompt = $state('');
+
 	// Shared turn counter for the summon-cost ramp. Both players share a turn
 	// number: the player acts, then the rival acts on the same turn, then the
 	// number advances.
@@ -302,7 +321,7 @@ export function createBoardEngine() {
 	// rolls and spends its own energy on its turn), then roll the player's energy for
 	// their next turn. Driven by the panel's End Turn button.
 	async function endTurn() {
-		if (rolling || rivalThinking) return;
+		if (rolling || rivalThinking || specialPhase) return;
 
 		anchorDice?.clear();
 		energyRolled = false;
@@ -387,15 +406,80 @@ export function createBoardEngine() {
 
 	const cpuAdapter = new CardApiAdapter();
 
-	// A card can be summoned when its cost fits the current energy pool.
+	// Fusion / Ritual monsters are "special summon" cards: they aren't summoned by
+	// paying energy and unfolding a net, but by sacrificing on-board creatures.
+	// Detected from the card type (see the /admin catalog rules).
+	function isFusion(card: IGameCreature): boolean {
+		return (card.type ?? '').includes('Fusion');
+	}
+	function isRitual(card: IGameCreature): boolean {
+		return (card.type ?? '').includes('Ritual');
+	}
+	function isSpecialSummon(card: IGameCreature): boolean {
+		return isFusion(card) || isRitual(card);
+	}
+
+	// The creatures a side currently has on the board.
+	function unitsOf(side: Side): PlacedUnit[] {
+		return [...placedUnits.values()].filter((u) => u.side === side);
+	}
+
+	// Whether a placed unit can serve as a sacrifice for the given special summon.
+	// A Fusion needs one creature matching its attribute and a *different* one
+	// matching its monster type (race), so only creatures matching either count. A
+	// Ritual is paid in total cost, so any creature qualifies.
+	function eligibleMaterial(card: IGameCreature, unit: PlacedUnit): boolean {
+		if (isFusion(card)) {
+			return unit.creature.attribute === card.attribute || unit.creature.race === card.race;
+		}
+		return true;
+	}
+
+	// Whether a chosen set of sacrifices satisfies the special summon condition.
+	// Fusion: exactly two distinct creatures filling the attribute and monster-type
+	// roles. Ritual: the sacrifices' total cost meets or exceeds the ritual's cost.
+	function materialsSatisfy(card: IGameCreature, mats: PlacedUnit[]): boolean {
+		if (isFusion(card)) {
+			if (mats.length !== 2) return false;
+			const [a, b] = mats;
+			const fills =
+				(a.creature.attribute === card.attribute && b.creature.race === card.race) ||
+				(b.creature.attribute === card.attribute && a.creature.race === card.race);
+			return fills;
+		}
+		return mats.reduce((sum, u) => sum + u.creature.cost, 0) >= card.cost;
+	}
+
+	// Whether the player currently has the on-board creatures needed to special
+	// summon this card — the material-based analogue of the energy check below.
+	function canSpecialSummon(card: IGameCreature): boolean {
+		const mine = unitsOf('player');
+		if (isFusion(card)) {
+			const attrUnits = mine.filter((u) => u.creature.attribute === card.attribute);
+			const typeUnits = mine.filter((u) => u.creature.race === card.race);
+			return attrUnits.some((a) => typeUnits.some((t) => t !== a));
+		}
+		return mine.reduce((sum, u) => sum + u.creature.cost, 0) >= card.cost;
+	}
+
+	// A card can be summoned when the player can pay for it: Fusion / Ritual cards
+	// need the required sacrifices on the board; every other card needs the energy.
 	function canSummon(card: IGameCreature): boolean {
+		if (isSpecialSummon(card)) return canSpecialSummon(card);
 		return card.cost <= energyPoints;
 	}
 
 	// Flag a hand card for summoning — the player then picks a tile to place it on.
 	// Driven by both the DOM hand tiles' Select button and the on-canvas hand cards'
-	// summon button.
+	// summon button. Fusion / Ritual cards divert into the material-sacrifice flow
+	// instead of the net-placement one.
 	function selectMonster(card: IGameCreature) {
+		// A staged special summon owns the board until it resolves or cancels.
+		if (specialPhase) return;
+		if (isSpecialSummon(card)) {
+			beginSpecialSummon(card);
+			return;
+		}
 		selectedMonster = card;
 	}
 
@@ -925,8 +1009,10 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	scrim.eventMode = 'none';
 	hover.addChild(scrim);
 
-	const selected = selectedMonster?.id === card.id;
-	const canAct = affordable && !summoning && !moving && !combating;
+	const selected = selectedMonster?.id === card.id || specialCard?.id === card.id;
+	// A staged special summon locks the whole hand until it resolves (or cancels),
+	// so no second card can be selected mid-sacrifice.
+	const canAct = affordable && !summoning && !moving && !combating && !specialPhase;
 	// The button spans 80% of the card's width, centered on it.
 	const button = buildSummonButton(selected ? 'Selected' : 'Summon', canAct, HAND_CARD_W * 0.8);
 	button.position.set((HAND_CARD_W - button.width) / 2, (HAND_CARD_H - button.height) / 2);
@@ -1022,6 +1108,8 @@ $effect(() => {
 	void summoning;
 	void moving;
 	void combating;
+	void specialCard;
+	void specialPhase;
 	renderHand();
 });
 
@@ -1071,6 +1159,50 @@ function buildActionButton(
 	return btn;
 }
 
+// A non-interactive, word-wrapped instruction plaque sized to the action-column
+// width — used to caption a staged Fusion / Ritual summon above its buttons.
+function buildActionPrompt(text: string): Container {
+	const c = new Container();
+
+	const label = new Text({
+		text,
+		style: {
+			fill: 0xffffff,
+			fontSize: 12,
+			fontWeight: 'bold',
+			align: 'center',
+			wordWrap: true,
+			wordWrapWidth: ACTION_BTN_W - 12
+		},
+		resolution: LABEL_RESOLUTION
+	});
+	label.anchor.set(0.5, 0);
+
+	const h = label.height + 12;
+	const bg = new Graphics().roundRect(0, 0, ACTION_BTN_W, h, 6).fill({ color: 0x1f2937, alpha: 0.9 });
+	c.addChild(bg);
+
+	label.position.set(ACTION_BTN_W / 2, 6);
+	c.addChild(label);
+
+	return c;
+}
+
+// Stack a column of action rows just below the player's red energy-dice row, each
+// row laid out by its own height so a taller prompt plaque doesn't overlap the
+// buttons beneath it.
+function stackActionRows(rows: Container[], diceCenter: { x: number; y: number }) {
+	if (!actionLayer) return;
+	const diceHalf = playerEnergyDice?.diceHalfExtent(3) ?? 0;
+	const leftX = diceCenter.x - ACTION_BTN_W / 2;
+	let y = diceCenter.y + diceHalf + ACTION_DICE_GAP;
+	for (const row of rows) {
+		row.position.set(leftX, y);
+		actionLayer.addChild(row);
+		y += row.height + ACTION_BTN_GAP;
+	}
+}
+
 // (Re)draw the column of action buttons under the player's red energy-dice row. The
 // buttons mirror the ones the DOM inspect panel used to hold: Move/Combat for the
 // inspected player unit (collapsing to a single Cancel while a move or combat is in
@@ -1085,6 +1217,22 @@ function renderActionButtons() {
 	// nowhere to put them.
 	const diceCenter = turnDiceCenterFor(redOrigin, false);
 	if (!diceCenter) return;
+
+	// A staged Fusion / Ritual summon takes over the column: a wrapped instruction,
+	// then Confirm (once the sacrifices satisfy the condition) and Cancel while still
+	// picking them. During placement only the instruction shows — the sacrifices are
+	// already spent and the tile is clicked directly, so there's nothing to cancel.
+	if (specialPhase) {
+		const rows: Container[] = [buildActionPrompt(specialPrompt)];
+		if (specialPhase === 'materials') {
+			rows.push(
+				buildActionButton('Confirm Summon', 'primary', specialReady, confirmSpecialMaterials)
+			);
+			rows.push(buildActionButton('Cancel', 'error', true, cancelSpecialSummon));
+		}
+		stackActionRows(rows, diceCenter);
+		return;
+	}
 
 	// Shared with the DOM's disabled logic: the unit actions are inert unless a player
 	// unit is inspected and nothing is mid-resolution.
@@ -1136,14 +1284,7 @@ function renderActionButtons() {
 	);
 
 	// Stack the buttons in a centered column just below the dice row.
-	const diceHalf = playerEnergyDice?.diceHalfExtent(3) ?? 0;
-	const leftX = diceCenter.x - ACTION_BTN_W / 2;
-	let y = diceCenter.y + diceHalf + ACTION_DICE_GAP;
-	for (const row of rows) {
-		row.position.set(leftX, y);
-		actionLayer.addChild(row);
-		y += ACTION_BTN_H + ACTION_BTN_GAP;
-	}
+	stackActionRows(rows, diceCenter);
 }
 
 // Repaint the action column whenever any state feeding a button's label or enabled flag
@@ -1161,6 +1302,9 @@ $effect(() => {
 	void rolling;
 	void rivalThinking;
 	void summoning;
+	void specialPhase;
+	void specialReady;
+	void specialPrompt;
 	renderActionButtons();
 });
 
@@ -2019,6 +2163,12 @@ async function placeMonster(
 	// move/combat is in progress clicks are ignored so the panel keeps showing the
 	// unit being acted on.
 	sprite.on('pointertap', () => {
+		// While picking Fusion / Ritual sacrifices, a click toggles this creature in
+		// or out of the material selection instead of inspecting it.
+		if (specialPhase === 'materials') {
+			toggleMaterial(unit);
+			return;
+		}
 		if (moving || combating) return;
 		inspectedUnit = unit;
 		inspectedCreature = creature;
@@ -2201,6 +2351,202 @@ $effect(() => {
 	if (selectedMonster || summoning) enterSummonFocus();
 	else exitSummonFocus();
 });
+
+// --- Special (Fusion / Ritual) summon ---------------------------------------
+
+// Tint painted on a creature chosen as a sacrifice while picking materials, and
+// the fill color of the highlight laid over each legal special-summon tile.
+const SPECIAL_MATERIAL_TINT = 0x66ff66;
+const SPECIAL_PLACE_COLOR = 0xffcc33;
+
+// Begin a Fusion / Ritual summon: enter material-selection mode where the player
+// clicks their own on-board creatures to pick the sacrifices. Ignored when another
+// action is in flight, when the summon isn't currently possible, or while the
+// rival is acting.
+function beginSpecialSummon(card: IGameCreature) {
+	if (gameOver || rivalThinking || summoning || moving || combating || unfolding) return;
+	if (selectedMonster || specialPhase) return;
+	if (!canSpecialSummon(card)) return;
+
+	specialCard = card;
+	specialMaterials = [];
+	specialReady = false;
+	specialPhase = 'materials';
+
+	// A hand card can't double as a normal summon while a special one is staged.
+	selectedMonster = null;
+
+	enterMaterialFocus();
+	refreshMaterialHighlight();
+	updateSpecialPrompt();
+}
+
+// Dim the creatures that can't be sacrificed for the staged special summon (rival
+// units, and — for a Fusion — creatures matching neither its attribute nor its
+// type) and drop their interactivity, leaving the eligible player creatures bright
+// and clickable.
+function enterMaterialFocus() {
+	for (const unit of placedUnits.values()) {
+		const eligible =
+			!!specialCard && unit.side === 'player' && eligibleMaterial(specialCard, unit);
+		unit.sprite.alpha = eligible ? 1 : 0.4;
+		unit.sprite.eventMode = eligible ? 'static' : 'none';
+	}
+}
+
+// Repaint the sacrifice highlight: chosen materials tint green, everything else
+// clears back to its normal color.
+function refreshMaterialHighlight() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.tint = specialMaterials.includes(unit) ? SPECIAL_MATERIAL_TINT : 0xffffff;
+	}
+}
+
+// Update the on-canvas instruction for the staged special summon to reflect the
+// phase and how far the current selection is from satisfying the condition.
+function updateSpecialPrompt() {
+	if (!specialCard) {
+		specialPrompt = '';
+		return;
+	}
+	if (specialPhase === 'placing') {
+		specialPrompt = `Place ${specialCard.name} on one of your tiles`;
+		return;
+	}
+	if (isFusion(specialCard)) {
+		specialPrompt = `Fusion: sacrifice a ${specialCard.attribute} creature + a ${specialCard.race} creature (${specialMaterials.length}/2)`;
+	} else {
+		const have = specialMaterials.reduce((sum, u) => sum + u.creature.cost, 0);
+		specialPrompt = `Ritual: sacrifice creatures with total cost ≥ ${specialCard.cost} (have ${have})`;
+	}
+}
+
+// Toggle a clicked creature in/out of the sacrifice selection. A Fusion keeps at
+// most two picks (a third click drops the oldest), trending toward a legal pair; a
+// Ritual accumulates freely until the cost is met.
+function toggleMaterial(unit: PlacedUnit) {
+	if (!specialCard || specialPhase !== 'materials') return;
+	if (unit.side !== 'player' || !eligibleMaterial(specialCard, unit)) return;
+
+	const i = specialMaterials.indexOf(unit);
+	if (i >= 0) {
+		specialMaterials.splice(i, 1);
+	} else {
+		if (isFusion(specialCard) && specialMaterials.length >= 2) specialMaterials.shift();
+		specialMaterials.push(unit);
+	}
+
+	specialReady = materialsSatisfy(specialCard, specialMaterials);
+	refreshMaterialHighlight();
+	updateSpecialPrompt();
+}
+
+// The player's red tiles a special monster may be dropped onto: painted red cells
+// that aren't an origin and hold no creature (the freed sacrifice cells always
+// qualify, so a legal tile always exists once the materials are gone).
+function specialPlacementTiles(): string[] {
+	const keys: string[] = [];
+	for (const [key, color] of occupied) {
+		if (color !== CELL_RED) continue;
+		const [x, y] = key.split(',').map(Number);
+		if (isOriginCell(x, y)) continue;
+		if (unitAt(x, y)) continue;
+		keys.push(key);
+	}
+	return keys;
+}
+
+function isSpecialPlacementTile(x: number, y: number): boolean {
+	return occupied.get(tileKey(x, y)) === CELL_RED && !isOriginCell(x, y) && !unitAt(x, y);
+}
+
+// Commit the chosen sacrifices: destroy them as if they fell in combat, then move
+// to placement mode — dim the board, drop unit interactivity so the tiles beneath
+// are clickable, and highlight every legal destination.
+function confirmSpecialMaterials() {
+	if (!specialCard || specialPhase !== 'materials' || !specialReady) return;
+
+	const mats = [...specialMaterials];
+	specialMaterials = [];
+	for (const unit of mats) removeUnit(unit);
+
+	specialPhase = 'placing';
+
+	for (const unit of placedUnits.values()) unit.sprite.alpha = 0.5;
+	disableUnitInteractivity();
+
+	for (const child of moveOverlay.removeChildren()) child.destroy();
+	for (const key of specialPlacementTiles()) {
+		const [x, y] = key.split(',').map(Number);
+		const { x: isoX, y: isoY } = isoPosOf(x, y);
+		const overlay = drawCellDiamond(new Graphics()).fill({
+			color: SPECIAL_PLACE_COLOR,
+			alpha: 0.55
+		});
+		overlay.position.set(isoX, isoY);
+		moveOverlay.addChild(overlay);
+	}
+
+	updateSpecialPrompt();
+}
+
+// Restore every creature's opacity/interactivity and drop the placement
+// highlights once the special summon ends (placed or canceled).
+function exitSpecialFocus() {
+	for (const unit of placedUnits.values()) {
+		unit.sprite.alpha = 1;
+		unit.sprite.tint = 0xffffff;
+	}
+	restoreUnitInteractivity();
+	for (const child of moveOverlay.removeChildren()) child.destroy();
+}
+
+// Drop the special monster onto a chosen red tile. It stands on existing floor, so
+// the placement net (just the crossroads) lays no new ground — the monster doesn't
+// unfold — and no energy is paid. Otherwise it's a regular creature (rolls its HP).
+async function placeSpecial(x: number, y: number) {
+	if (!specialCard || specialPhase !== 'placing') return;
+	if (!isSpecialPlacementTile(x, y)) return;
+
+	const card = specialCard;
+
+	exitSpecialFocus();
+	specialPhase = null;
+	specialCard = null;
+	specialReady = false;
+	specialPrompt = '';
+
+	// The card leaves the hand and joins the played plaque, like a normal summon.
+	hand = hand.filter((c) => c.id !== card.id);
+	playedCards = [...playedCards, card];
+
+	summoning = true;
+	try {
+		const unit = await placeMonster(card, x, y, 'player', CELL_RED, [[0, 0]]);
+
+		// Re-point the detail panel at the freshly placed unit, as a normal summon does.
+		if (unit) {
+			inspectedUnit = unit;
+			inspectedCreature = unit.creature;
+			inspectedIsPlayer = true;
+			inspectedCanCombat = combatTargetsFor(unit).length > 0;
+		}
+	} finally {
+		summoning = false;
+	}
+}
+
+// Abandon a staged special summon. Only possible during material selection — once
+// the sacrifices are destroyed (placing phase) the summon has to be completed.
+function cancelSpecialSummon() {
+	if (specialPhase !== 'materials') return;
+	specialMaterials = [];
+	specialCard = null;
+	specialPhase = null;
+	specialReady = false;
+	specialPrompt = '';
+	exitSpecialFocus();
+}
 
 // Enter move mode for the inspected unit: highlight every reachable painted tile
 // and lock the panel to this unit until the move completes or is canceled.
@@ -2683,6 +3029,123 @@ async function resolveCombat(x: number, y: number) {
 
 // --- CPU rival turn ---
 
+// A rough board value of a creature, used to keep the rival from sacrificing more
+// than it gains on a special summon (same weighting the summon scorer uses).
+function creatureValue(c: IGameCreature): number {
+	return c.atk + c.hp + c.speed + c.reach;
+}
+
+// A planned rival special summon: the card, the sacrifices to spend, and the blue
+// tile to drop it on afterwards.
+interface CpuSpecialPlan {
+	card: IGameCreature;
+	materials: PlacedUnit[];
+	x: number;
+	y: number;
+}
+
+// The blue tiles the rival could drop a special monster on once `materials` are
+// gone: a painted blue cell that isn't an origin and is either empty or held by
+// one of the about-to-be-sacrificed materials. Nearest the player origin first, so
+// a fresh special monster lands as far forward as it can.
+function cpuSpecialPlacement(materials: PlacedUnit[]): { x: number; y: number } | null {
+	const freed = new Set(materials.map((u) => tileKey(u.x, u.y)));
+	let best: { x: number; y: number } | null = null;
+	let bestDist = Number.POSITIVE_INFINITY;
+
+	for (const [key, color] of occupied) {
+		if (color !== CELL_BLUE) continue;
+		const [x, y] = key.split(',').map(Number);
+		if (isOriginCell(x, y)) continue;
+		const occupant = unitAt(x, y);
+		if (occupant && !freed.has(key)) continue;
+
+		const dist = distanceToTargetOrigin(x, y);
+		if (dist < bestDist) {
+			bestDist = dist;
+			best = { x, y };
+		}
+	}
+
+	return best;
+}
+
+// Try to assemble the cheapest legal set of sacrifices from the rival's own units
+// for a special summon. Fusion: the lowest-value creature matching the attribute
+// plus a different lowest-value one matching the type. Ritual: the cheapest units
+// until their combined cost meets the ritual's. Null when the board can't pay it.
+function assembleCpuMaterials(card: IGameCreature): PlacedUnit[] | null {
+	const mine = unitsOf('cpu').sort((a, b) => creatureValue(a.creature) - creatureValue(b.creature));
+
+	if (isFusion(card)) {
+		const attrUnits = mine.filter((u) => u.creature.attribute === card.attribute);
+		const typeUnits = mine.filter((u) => u.creature.race === card.race);
+		for (const a of attrUnits) {
+			const t = typeUnits.find((u) => u !== a);
+			if (t) return [a, t];
+		}
+		return null;
+	}
+
+	const chosen: PlacedUnit[] = [];
+	let total = 0;
+	for (const unit of mine) {
+		chosen.push(unit);
+		total += unit.creature.cost;
+		if (total >= card.cost) return chosen;
+	}
+	return null;
+}
+
+// The rival's best available special summon this turn, or null when none is worth
+// it. A summon is only taken when the summoned creature is worth at least as much
+// as everything sacrificed for it, so the rival never trades down.
+function bestCpuSpecialSummon(): CpuSpecialPlan | null {
+	let best: CpuSpecialPlan | null = null;
+	let bestGain = 0;
+
+	for (const card of cpuHand) {
+		if (!isSpecialSummon(card)) continue;
+
+		const materials = assembleCpuMaterials(card);
+		if (!materials) continue;
+
+		const spent = materials.reduce((sum, u) => sum + creatureValue(u.creature), 0);
+		const gain = creatureValue(card) - spent;
+		if (gain < 0) continue;
+
+		const spot = cpuSpecialPlacement(materials);
+		if (!spot) continue;
+
+		if (gain >= bestGain) {
+			bestGain = gain;
+			best = { card, materials, x: spot.x, y: spot.y };
+		}
+	}
+
+	return best;
+}
+
+// Play out the rival's special (Fusion / Ritual) summons at the start of its turn:
+// repeatedly take the best worthwhile one — sacrificing its materials, then
+// dropping the monster on a blue tile with no net and no energy — until none
+// remains. Capped so it can't loop forever.
+async function runCpuSpecialSummons() {
+	for (let i = 0; i < 4; i++) {
+		if (gameOver) break;
+
+		const plan = bestCpuSpecialSummon();
+		if (!plan) break;
+
+		for (const unit of plan.materials) removeUnit(unit);
+		await placeMonster(plan.card, plan.x, plan.y, 'cpu', CELL_BLUE, [[0, 0]]);
+		cpuHand = cpuHand.filter((c) => c.id !== plan.card.id);
+		cpuPlayedCards = [...cpuPlayedCards, plan.card];
+
+		await new Promise((resolve) => setTimeout(resolve, 400));
+	}
+}
+
 // Every valid move available to the rival given its current energy: affordable,
 // unplaced creatures at any tile/rotation that extends the blue network, plus
 // relocations of its placed units onto any reachable painted tile.
@@ -2690,6 +3153,9 @@ function enumerateCpuMoves(): CpuMove[] {
 	const moves: CpuMove[] = [];
 
 	for (const creature of cpuHand) {
+		// Fusion / Ritual cards are never net-summoned; they're special-summoned by
+		// sacrificing on-board creatures in a separate step (see runCpuSpecialSummons).
+		if (isSpecialSummon(creature)) continue;
 		if (creature.cost > cpuEnergy) continue;
 
 		for (let rot = 0; rot < 4; rot++) {
@@ -2854,6 +3320,11 @@ async function runCpuTurn() {
 		// The rival rolls its own energy now, at the start of its turn, above its blue
 		// origin hearts — then spends that pool below.
 		await rollRivalEnergy();
+
+		// Before spending energy, play any worthwhile Fusion / Ritual summons: these
+		// cost no energy, only on-board sacrifices, so they develop the board first and
+		// the freshly summoned creatures can then move and attack in the loop below.
+		await runCpuSpecialSummons();
 
 		for (let step = 0; step < 12; step++) {
 			// Stop the moment the match is decided (e.g. the rival just destroyed the
@@ -3271,6 +3742,15 @@ hpDice = new Dice3D({
 	// The board is locked once the match is decided.
 	if (gameOver) return;
 
+	// Special (Fusion / Ritual) summon: while placing, clicking a highlighted red
+	// tile drops the special monster onto it. While picking sacrifices, tile taps
+	// are inert (materials are chosen by clicking creatures, not tiles).
+	if (specialPhase === 'placing') {
+		if (isSpecialPlacementTile(x, y)) placeSpecial(x, y);
+		return;
+	}
+	if (specialPhase === 'materials') return;
+
 	// Move mode: clicking a highlighted destination relocates the unit.
 	if (moving) {
 		if (moveHighlight.includes(tileKey(x, y))) completeMove(x, y);
@@ -3573,6 +4053,16 @@ tile.on('pointerout', () => {
 		},
 		get selectedMonster() {
 			return selectedMonster;
+		},
+		// The staged Fusion / Ritual card and its phase, so the hand tray can reflect
+		// which card is mid-summon and lock the rest while it resolves. The whole
+		// interaction (picking sacrifices, Confirm/Cancel, placement) plays out on the
+		// canvas; these are read-only signals for the DOM tray.
+		get specialSummonCard() {
+			return specialCard;
+		},
+		get specialPhase() {
+			return specialPhase;
 		},
 		get inspectedCreature() {
 			return inspectedCreature;
