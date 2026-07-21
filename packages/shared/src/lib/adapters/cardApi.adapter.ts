@@ -122,11 +122,11 @@ export class CardApiAdapter extends AdapterClass {
 
     // Resolve a list of card ids into their raw card assets, preserving the order
     // they appear in and keeping duplicates so deck copy counts survive. Only
-    // playable cards come back: vanilla monsters and plain Effect Monsters, plus
-    // any other card (gimmick monster, spell, or trap) that has an effect assigned
-    // — the `playable` filter drops special-summon monsters and effectless
-    // spell/traps. Used to render a deck's full contents through the shared
-    // CardTile renderer.
+    // playable cards come back: vanilla monsters, plain Effect Monsters, and
+    // Fusion/Ritual monsters, plus any other card (remaining gimmick monster,
+    // spell, or trap) that has an effect assigned — the `playable` filter drops
+    // the remaining special-summon monsters and effectless spell/traps. Used to
+    // render a deck's full contents through the shared CardTile renderer.
     async loadCardAssetsByIds(ids: number[], forcedIds: number[] = []): Promise<CardAsset[]> {
         const uniqueIds = [...new Set(ids)];
         if (!uniqueIds.length) return [];
@@ -190,8 +190,9 @@ export class CardApiAdapter extends AdapterClass {
     // creatures, preserving the order they appear in and skipping duplicates
     // and non-monster cards. Pass `playableOnly` to also apply the `playable`
     // filter, so only playable creatures (vanilla monsters, plain Effect
-    // Monsters, and gimmick monsters with an assigned effect) come back
-    // (used by the board, which only summons playable creatures).
+    // Monsters, Fusion/Ritual monsters, and remaining gimmick monsters with an
+    // assigned effect) come back (used by the board, which only summons playable
+    // creatures).
     async loadByIds(
         ids: number[],
         playableOnly = false,
