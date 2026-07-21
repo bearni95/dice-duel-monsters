@@ -3312,6 +3312,13 @@ tile.on('pointerout', () => {
 		get inspectedCreature() {
 			return inspectedCreature;
 		},
+		// The card shown in the top-right preview slot: the inspected creature when one
+		// is loaded, otherwise the first card in the player's hand so the slot always
+		// previews something. Kept separate from inspectedCreature so the unit actions
+		// stay disabled until a real creature is inspected (the hand default is view-only).
+		get previewCreature() {
+			return inspectedCreature ?? handCards[0] ?? null;
+		},
 		get inspectedIsPlayer() {
 			return inspectedIsPlayer;
 		},

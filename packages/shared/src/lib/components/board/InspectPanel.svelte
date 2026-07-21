@@ -14,11 +14,13 @@
 </script>
 
 <div class="grid grid-cols-2 items-start gap-2">
-	<!-- Card slot: the inspected creature, or an empty square placeholder holding the
-	     layout so the grid never collapses to a full-width prompt. -->
-	{#if engine.inspectedCreature}
-		<div class="pointer-events-none">
-			<GameCard card={engine.inspectedCreature} />
+	<!-- Card slot: the preview creature (the inspected unit, or the first hand card by
+	     default so the slot always shows something), or an empty square placeholder
+	     holding the layout so the grid never collapses to a full-width prompt. The card
+	     is crushed to a flat black silhouette (brightness to zero, contrast maxed). -->
+	{#if engine.previewCreature}
+		<div class="pointer-events-none brightness-0 contrast-200">
+			<GameCard card={engine.previewCreature} />
 		</div>
 	{:else}
 		<div
