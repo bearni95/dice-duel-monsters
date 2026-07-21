@@ -38,7 +38,6 @@ import { pSingleDie, pAnyDie } from '$utils/board/cpuScoring';
 import { opaqueBounds } from '$utils/board/opaqueBounds';
 import type { Side, PlacedUnit, OriginCell, CpuMove, CardPlaque, SortKey } from '$types/board.type';
 import { diceAdapter } from '$adapters/dice.adapter';
-import { playerService } from '$services/player.service';
 import {
 	emptyEnergyPools,
 	type DiceRole,
@@ -187,13 +186,21 @@ export function createBoardEngine() {
 	// rollRivalEnergy). Deep `$state` so mutating a single pool stays reactive.
 	let energy = $state<EnergyPools>(emptyEnergyPools());
 
-	// The dice template config and the player's owned dice (resolved to concrete
-	// SpawnedDie, duplicates kept), loaded on mount. Both the player's turn-start
-	// pick and the rival's auto-pick draw their three dice from these; `iconRoleMap`
-	// caches the icon→role lookup used to score each landed face.
+	// The dice template config, loaded on mount, and `iconRoleMap`, the cached
+	// icon→role lookup used to score each landed face.
 	let diceConfig = $state<DiceTemplateConfig | null>(null);
-	let ownedDice = $state<SpawnedDie[]>([]);
 	let iconRoleMap: Map<string, DiceRole> | null = null;
+
+	// Each side's remaining match dice. Both players start the match with the full
+	// dice matrix — one copy of every die the game can produce (spawnAll) — seeded the
+	// moment the template config lands (see seedMatchDice). Each turn-start roll draws
+	// (up to) three dice from the rolling side's own pool and *consumes* them, so a die
+	// can only be rolled once per match. Once a side's pool is empty it stops rolling
+	// and instead banks a flat +1 to every energy pool each turn (see the no-dice path
+	// in beginPlayerDicePhase / rollRivalEnergy). `$state` so the picker's read-out and
+	// the pick count track consumption live.
+	let playerDice = $state<SpawnedDie[]>([]);
+	let rivalDice = $state<SpawnedDie[]>([]);
 
 	// The player's turn-start dice-pick phase: while true the board waits for the
 	// player to choose (up to) three of their owned dice to roll for energy; the DOM
@@ -339,26 +346,45 @@ export function createBoardEngine() {
 		}
 	}
 
-	// Resolve the signed-in player's owned die ids into concrete dice (duplicates
-	// kept) for the turn-start rolls. A no-op until the template config has loaded;
-	// re-run whenever the config lands or the player's collection changes.
-	function syncOwnedDice() {
+	// Seed both sides' match dice pools with the full dice matrix — one copy of every
+	// die the game can produce (each template crossed with every rarity). Called once
+	// the template config lands; a no-op until then. Each side gets its own independent
+	// copy, which its turn-start rolls then draw from and consume over the match.
+	function seedMatchDice() {
 		if (!diceConfig) return;
-		ownedDice = diceAdapter.resolveOwned(diceConfig, playerService.get().dice);
+		playerDice = diceAdapter.spawnAll(diceConfig);
+		rivalDice = diceAdapter.spawnAll(diceConfig);
 	}
 
-	// The dice a side rolls this turn: its resolved owned dice, or — when it owns
-	// none — the starter trio (one rarity-1 die of each role) so energy still splits
-	// across all three pools. Both the player's pick and the rival's auto-pick draw
-	// from the player's owned collection.
+	// Remove the given dice (matched by id, one occurrence per entry) from a match
+	// pool, returning the remaining dice. Used to consume the dice a side just rolled
+	// so each die can only be rolled once per match.
+	function consumeDice(pool: SpawnedDie[], used: SpawnedDie[]): SpawnedDie[] {
+		const remaining = [...pool];
+		for (const die of used) {
+			const idx = remaining.findIndex((d) => d.id === die.id);
+			if (idx !== -1) remaining.splice(idx, 1);
+		}
+		return remaining;
+	}
+
+	// The flat energy a side banks on a turn when it has run out of dice to roll: +1
+	// to each pool (summon / move / attack), added in place so the read-out tracks it.
+	function bankNoDiceBonus(pool: EnergyPools) {
+		pool.summon += 1;
+		pool.move += 1;
+		pool.attack += 1;
+	}
+
+	// The player's remaining match dice — the pool their turn-start pick draws from and
+	// consumes. Empty once every die has been spent (then the flat +1 bonus applies).
 	function dicePool(): SpawnedDie[] {
-		if (!diceConfig) return [];
-		return ownedDice.length ? ownedDice : diceAdapter.starterDice(diceConfig);
+		return playerDice;
 	}
 
 	// How many dice a turn-start roll uses: three, or fewer when the pool is smaller.
 	function dicePickCount(): number {
-		return Math.min(3, dicePool().length);
+		return Math.min(3, playerDice.length);
 	}
 
 	// Roll the given owned dice as textured dice at `center`, then bank each landed
@@ -381,32 +407,42 @@ export function createBoardEngine() {
 	}
 
 	// Open the player's turn-start dice-pick phase (the opening roll and every later
-	// player turn). With a genuine choice — more owned dice than the roll uses — the
-	// DOM picker is shown; otherwise the whole (small) pool is rolled straight away.
-	// Guarded so it only happens once per turn.
+	// player turn). With a genuine choice — more dice left than the roll uses — the DOM
+	// picker is shown; otherwise the few remaining dice are rolled straight away. Once
+	// the player has no dice left, the flat no-dice bonus (+1 to each pool) is banked
+	// instead of a roll. Guarded so it only happens once per turn.
 	async function beginPlayerDicePhase() {
 		if (energyRolled || rolling || pickingDice) return;
 
 		// The energy roll drops any lingering combat marks.
 		combatBoxHits = null;
 
-		const pool = dicePool();
-		if (pool.length === 0) return; // config not loaded yet — retried on next tick
+		if (!diceConfig) return; // template config not loaded yet — retried on next tick
 
-		if (pool.length > dicePickCount()) {
+		// Out of dice: bank the flat +1-to-each-pool bonus instead of rolling.
+		if (playerDice.length === 0) {
+			bankNoDiceBonus(energy);
+			energyRolled = true;
+			return;
+		}
+
+		if (playerDice.length > dicePickCount()) {
 			pickingDice = true;
 			return;
 		}
-		await rollPickedDice(pool);
+		await rollPickedDice(playerDice);
 	}
 
 	// Roll the dice the player chose (or the whole pool when there was no choice),
-	// banking their energy below the player's red origin hearts. Ends the pick phase.
+	// banking their energy below the player's red origin hearts, then consuming the
+	// rolled dice from the player's match pool. Ends the pick phase.
 	async function rollPickedDice(dice: SpawnedDie[]) {
 		if (rolling) return;
 		pickingDice = false;
+		const picked = dice.slice(0, 3);
 		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
-		await rollEnergyDice(playerEnergyDice, dice.slice(0, 3), center, energy);
+		await rollEnergyDice(playerEnergyDice, picked, center, energy);
+		playerDice = consumeDice(playerDice, picked);
 		energyRolled = true;
 	}
 
@@ -417,16 +453,25 @@ export function createBoardEngine() {
 		await rollPickedDice(dice);
 	}
 
-	// Roll the rival's energy above its blue origin hearts, from three dice it picks
-	// at random out of the player's owned collection (the same pool the player picks
-	// from). The rival's pools reset each of its own turns, then fill from this roll.
+	// Roll the rival's energy above its blue origin hearts, from (up to) three dice
+	// drawn at random — without replacement — out of its own remaining match pool, then
+	// consume them. The rival's pools reset each of its own turns, then fill from this
+	// roll. Once the rival is out of dice it banks the flat +1-to-each-pool no-dice
+	// bonus instead of rolling.
 	async function rollRivalEnergy() {
 		cpuEnergy.summon = 0;
 		cpuEnergy.move = 0;
 		cpuEnergy.attack = 0;
+
+		if (rivalDice.length === 0) {
+			bankNoDiceBonus(cpuEnergy);
+			return;
+		}
+
 		const center = turnDiceCenterFor(blueOrigin, true) ?? { x: 0, y: 0 };
-		const picked = diceAdapter.randomDice(dicePool(), dicePickCount());
+		const picked = shuffle([...rivalDice]).slice(0, Math.min(3, rivalDice.length));
 		await rollEnergyDice(rivalEnergyDice, picked, center, cpuEnergy);
+		rivalDice = consumeDice(rivalDice, picked);
 	}
 
 	// End the player's turn: clear the combat dice, hand control to the rival (which
@@ -3994,16 +4039,15 @@ $effect(() => {
 		loadDeck();
 		loadCpuDeck();
 
-		// Load the dice template config, then mirror the player's owned dice so both the
-		// player's turn-start pick and the rival's auto-pick have real dice to roll. The
-		// store subscription keeps `ownedDice` live as the collection loads or changes;
-		// `diceReady` gates the opening roll so it never fires before there are dice.
+		// Load the dice template config, then seed both sides' match dice pools with the
+		// full dice matrix (one copy of every die) so each player starts the match with
+		// the same complete set to roll and consume. `diceReady` gates the opening roll so
+		// it never fires before the pools are seeded.
 		const diceReady = diceAdapter.loadTemplates().then((cfg) => {
 			diceConfig = cfg;
 			iconRoleMap = diceAdapter.roleByIcon(cfg);
-			syncOwnedDice();
+			seedMatchDice();
 		});
-		const unsubscribePlayer = playerService.store.subscribe(() => syncOwnedDice());
 
 
 		let dragging = false;
@@ -4505,7 +4549,6 @@ tile.on('pointerout', () => {
 
 		return () => {
 			resizeObserver?.disconnect();
-			unsubscribePlayer();
 			app.destroy(true, {
 				children: true
 			});
