@@ -802,9 +802,11 @@ let handToken = 0;
 // A pill-shaped "Summon" button centered on a hand card, mirroring the DOM hand
 // tray's Select overlay button. Enabled buttons paint primary-blue; disabled ones
 // (unaffordable card, or a summon/move/combat already in flight) paint gray and take
-// no clicks. Returned as a self-contained Container sized to its label; the caller
-// positions and wires it. Text laid out in local coords with the label centered.
-function buildSummonButton(text: string, enabled: boolean): Container {
+// no clicks. Sized to a fixed `width` (the hand card is narrow — ~54px — so the button
+// is pinned to a fraction of it rather than growing to its label); the label is scaled
+// down when needed so it never overflows that width. Returned as a self-contained
+// Container of exactly `width`; the caller positions and wires it.
+function buildSummonButton(text: string, enabled: boolean, width: number): Container {
 	const btn = new Container();
 
 	const label = new Text({
@@ -814,17 +816,21 @@ function buildSummonButton(text: string, enabled: boolean): Container {
 	});
 	label.anchor.set(0.5);
 
-	const padX = 12;
-	const padY = 7;
-	const w = label.width + padX * 2;
+	// Shrink the label to fit inside the button width (with a small inner margin) so a
+	// long word like "Selected" can't spill past the pill on the narrow hand card.
+	const innerPad = 6;
+	const maxLabelW = width - innerPad * 2;
+	if (label.width > maxLabelW) label.scale.set(maxLabelW / label.width);
+
+	const padY = 5;
 	const h = label.height + padY * 2;
 
 	const bg = new Graphics()
-		.roundRect(0, 0, w, h, 6)
+		.roundRect(0, 0, width, h, 6)
 		.fill({ color: enabled ? 0x2563eb : 0x4b5563 });
 	btn.addChild(bg);
 
-	label.position.set(w / 2, h / 2);
+	label.position.set(width / 2, h / 2);
 	btn.addChild(label);
 
 	return btn;
@@ -899,7 +905,8 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 
 	const selected = selectedMonster?.id === card.id;
 	const canAct = affordable && !summoning && !moving && !combating;
-	const button = buildSummonButton(selected ? 'Selected' : 'Summon', canAct);
+	// The button spans 80% of the card's width, centered on it.
+	const button = buildSummonButton(selected ? 'Selected' : 'Summon', canAct, HAND_CARD_W * 0.8);
 	button.position.set((HAND_CARD_W - button.width) / 2, (HAND_CARD_H - button.height) / 2);
 	if (canAct) {
 		button.eventMode = 'static';
