@@ -53,16 +53,17 @@ export default defineConfig(({ command, mode }) => {
 
 	return {
 		plugins: [adminGuard(adminEnabled), tailwindcss(), sveltekit()],
+		server: {
+			// The /admin card tooling bakes PNGs into static/cards/generated at runtime
+			// (see /admin/print/save). That folder is Vite's publicDir, so without this
+			// each write would trigger a full page reload — interrupting the very render
+			// queue producing the files. Ignore it so baking doesn't churn the page.
+			watch: { ignored: ['**/static/cards/generated/**'] }
+		},
 		// Surfaced to client code (e.g. the navbar) so admin links can be hidden
 		// when the tooling is not built in.
 		define: {
 			'import.meta.env.VITE_ADMIN_ENABLED': JSON.stringify(adminEnabled)
-		},
-		// @3d-dice/dice-box loads its Babylon "world" and the ammo.js physics wasm
-		// through internal dynamic imports at runtime; excluding it from Vite's dep
-		// pre-bundling keeps those relative paths resolvable.
-		optimizeDeps: {
-			exclude: ['@3d-dice/dice-box']
 		}
 	};
 });

@@ -6,9 +6,10 @@ const sourceRoot = path.resolve('ref/DL Assets 29-April-18 v2.6 by Skylex77');
 const billboardSource = path.join(sourceRoot, 'duel/monsterbillboard/en-us');
 const fullCardSource = path.join(sourceRoot, 'card/en-us/m');
 const staticRoot = path.resolve('static/cards');
+const dataRoot = path.resolve('data/cards');
 const billboardDestination = path.join(staticRoot, 'monster-billboards');
 const fullCardDestination = path.join(staticRoot, 'full');
-const partialDestination = path.join(staticRoot, '.partials');
+const partialDestination = path.join(dataRoot, '.partials');
 const titleWhitelist = 'tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -&\'.,:';
 const nameOverrides = {
 	9402: 'BARBAROID, THE ULTIMATE BATTLE MACHINE',
@@ -177,8 +178,8 @@ if (process.argv[2] === '--combine') {
 		.flat()
 		.sort((a, b) => a.id - b.id);
 	if (cards.length !== billboardFiles.length) throw new Error(`Expected ${billboardFiles.length} cards, found ${cards.length}`);
-	await writeFile(path.join(staticRoot, 'cards.json'), `${JSON.stringify({ cards }, null, '\t')}\n`);
-	console.log(`Wrote ${cards.length} cards to static/cards/cards.json`);
+	await writeFile(path.join(dataRoot, 'cards.json'), `${JSON.stringify({ cards }, null, '\t')}\n`);
+	console.log(`Wrote ${cards.length} cards to data/cards/cards.json`);
 	process.exit(0);
 }
 

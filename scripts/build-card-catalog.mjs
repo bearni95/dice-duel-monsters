@@ -9,13 +9,17 @@ import { fileURLToPath } from 'url';
 // authoritative `playable` verdict — is precomputed here so dev and prod share
 // one code path against one dataset.
 //
-// Source: the committed static/cards/cardinfo.json (full YGOPRODeck records)
-// merged with the effect assignments authored on /admin/cards.
+// Source: the committed data/cards/cardinfo.json (full YGOPRODeck records) —
+// kept outside static/ so it is never shipped — merged with the effect
+// assignments authored on /admin/cards and the per-card board positioning
+// authored in the board-preview modal. Only the trimmed catalog.json output
+// lands in static/ to be served.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const CARDINFO = join(root, 'static/cards/cardinfo.json');
+const CARDINFO = join(root, 'data/cards/cardinfo.json');
 const ASSIGNMENTS = join(root, 'static/card-effects/assignments.json');
+const POSITIONS = join(root, 'data/cards/positions.json');
 const OUT = join(root, 'static/cards/catalog.json');
 
 // --- playable classification (mirrors the old +server.ts rules) -------------
@@ -37,10 +41,31 @@ function isPlainEffectMonster(type) {
 	return type === 'Effect Monster';
 }
 
+// A monster only earns a place in the catalog once it has a billboard cutout
+// prepared for the board — there is nothing to render on the field without one.
+// Spells, traps, and everything else are always kept regardless of billboard.
+function survivesBillboardGate(card) {
+	return categoryOf(card.type) === 'monster' ? Boolean(card.billboard) : true;
+}
+
 function readEffectAssignments() {
 	if (!existsSync(ASSIGNMENTS)) return {};
 	try {
 		const data = JSON.parse(readFileSync(ASSIGNMENTS, 'utf8'));
+		return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+	} catch {
+		return {};
+	}
+}
+
+// Per-card board positioning authored on /admin/cards
+// (`cardId -> { size?, x?, y? }`): a billboard size factor plus an x/y pixel
+// offset of the image (its red square) relative to its cell (the purple square).
+// Only fields adjusted away from their default (size 1, x/y 0) are stored.
+function readPositions() {
+	if (!existsSync(POSITIONS)) return {};
+	try {
+		const data = JSON.parse(readFileSync(POSITIONS, 'utf8'));
 		return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 	} catch {
 		return {};
@@ -61,13 +86,23 @@ if (!raw || !Array.isArray(raw.data)) {
 }
 
 const effects = readEffectAssignments();
+const positions = readPositions();
 
-const cards = raw.data.map((card) => {
+const cards = raw.data.filter(survivesBillboardGate).map((card) => {
 	const impls = effects[String(card.id)];
 	const playable =
 		isVanillaMonster(card.type) ||
 		isPlainEffectMonster(card.type) ||
 		(Array.isArray(impls) && impls.length > 0);
+
+	// Board positioning: only fields adjusted away from their default carry a
+	// stored value, so a default card omits `size`/`x`/`y` entirely (the renderer
+	// treats a missing size as 1 and a missing offset as 0 — the red and purple
+	// borders matching, centered).
+	const pos = positions[String(card.id)];
+	const size = pos && Number.isFinite(pos.size) ? pos.size : undefined;
+	const x = pos && Number.isFinite(pos.x) ? pos.x : undefined;
+	const y = pos && Number.isFinite(pos.y) ? pos.y : undefined;
 
 	return {
 		id: card.id,
@@ -81,7 +116,10 @@ const cards = raw.data.map((card) => {
 		def: card.def,
 		lvl: card.level,
 		desc: card.desc,
-		playable
+		playable,
+		...(size !== undefined ? { size } : {}),
+		...(x !== undefined ? { x } : {}),
+		...(y !== undefined ? { y } : {})
 	};
 });
 
