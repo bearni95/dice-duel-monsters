@@ -6,6 +6,9 @@
 	import { characters } from '$data/characters';
 	import { diceAdapter } from '$adapters/dice.adapter';
 	import type { DiceTemplateConfig } from '$types/dice.type';
+	import { CardApiAdapter } from '$adapters/cardApi.adapter';
+	import type { CardAsset } from '$components/cards/GameCard.svelte';
+	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
 	import DiceCollectionCanvas3D, {
 		type DieSpec
 	} from '$components/dice/DiceCollectionCanvas3D.svelte';
@@ -91,8 +94,44 @@
 		await playerService.grantDice(granted);
 	}
 
+	// The pool of cards made available into the game — the same monster cards the
+	// admin /cards browser exposes — loaded once, so the "give random cards" button
+	// can draw from it and the empty state can reflect whether any exist.
+	const cardApiAdapter = new CardApiAdapter();
+	let availableCards = $state<CardAsset[]>([]);
+
+	// The player's owned cards, one id per copy (from Supabase via playerService).
+	let ownedCardIds = $derived($player.cards);
+
+	// The owned cards resolved into distinct assets with copy counts for the grid.
+	// Resolving reads the (memoised) catalog, so it runs in an effect that re-runs
+	// whenever ownership changes; a token guards against a slow resolve overwriting
+	// a newer one.
+	let ownedCards = $state<{ card: CardAsset; count: number }[]>([]);
+	let ownedToken = 0;
+	$effect(() => {
+		const ids = ownedCardIds;
+		const token = ++ownedToken;
+		if (ids.length === 0) {
+			ownedCards = [];
+			return;
+		}
+		cardApiAdapter.ownedUnique(ids).then((resolved) => {
+			if (token === ownedToken) ownedCards = resolved;
+		});
+	});
+
+	// Grant ten random cards drawn from the available pool and persist them to the
+	// player's Supabase-backed collection.
+	async function giveRandomCards() {
+		const granted = cardApiAdapter.randomCardIds(availableCards, 10);
+		if (!granted.length) return;
+		await playerService.grantCards(granted);
+	}
+
 	onMount(async () => {
 		diceConfig = await diceAdapter.loadTemplates();
+		availableCards = await cardApiAdapter.loadAvailableCards();
 	});
 </script>
 
@@ -269,6 +308,44 @@
 			{:else}
 				<div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center text-sm">
 					You don't own any dice yet. Grab some to get started.
+				</div>
+			{/if}
+		</section>
+
+		<section class="space-y-4" aria-label="Your cards">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<h2 class="text-xl font-bold">Your cards</h2>
+					<p class="text-base-content/60 text-sm">
+						{ownedCardIds.length}
+						{ownedCardIds.length === 1 ? 'card' : 'cards'} owned
+					</p>
+				</div>
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={availableCards.length === 0 || $player.saving}
+					onclick={giveRandomCards}
+				>
+					Give 10 random cards
+				</button>
+			</div>
+
+			{#if ownedCards.length > 0}
+				<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+					{#each ownedCards as { card, count } (card.id)}
+						<div class="relative">
+							<GeneratedCardImage id={card.id} name={card.name} />
+							{#if count > 1}
+								<span class="badge badge-primary badge-sm absolute right-1 top-1 font-semibold">
+									×{count}
+								</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center text-sm">
+					You don't own any cards yet. Grab some to get started.
 				</div>
 			{/if}
 		</section>
