@@ -44,37 +44,46 @@
 
 	let selected = $derived(spawned.find((d) => d.id === selectedId) ?? spawned[0] ?? null);
 
-	// Bake each of the selected die's six faces to a full-resolution PNG and POST it
-	// into the assets package (dice/generated/<id>-<face>.png), one request per face.
+	// Bake every face of every spawned die to a full-resolution PNG, then POST the
+	// whole batch in one request to be persisted in the assets package
+	// (dice/generated/<id>-<face>.png).
 	let exporting = $state(false);
 	let exportStatus = $state('');
 
 	async function exportFaces() {
-		if (!selected || exporting) return;
+		if (exporting || spawned.length === 0) return;
 		exporting = true;
-		exportStatus = '';
+		exportStatus = 'Rendering faces…';
 		try {
-			const icons = diceAdapter.faceIcons(selected);
-			const labels = diceAdapter.faceLabels(selected);
-			const baseColor = diceAdapter.colorNumber(selected) ?? 0xd7382f;
-			for (let i = 0; i < icons.length; i++) {
-				const canvas = await renderDieFace({
-					faceIcon: icons[i] ?? '',
-					faceLabel: labels[i] ?? '',
-					baseColor,
-					size: FACE_EXPORT_SIZE
-				});
-				const res = await fetch('/dice/faces', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ id: selected.id, face: i + 1, dataUrl: canvas.toDataURL('image/png') })
-				});
-				if (!res.ok) {
-					const msg = await res.text().catch(() => '');
-					throw new Error(msg || `Face ${i + 1} failed (${res.status}).`);
+			const faces: { id: string; face: number; dataUrl: string }[] = [];
+			for (const die of spawned) {
+				const icons = diceAdapter.faceIcons(die);
+				const labels = diceAdapter.faceLabels(die);
+				const baseColor = diceAdapter.colorNumber(die) ?? 0xd7382f;
+				for (let i = 0; i < icons.length; i++) {
+					const canvas = await renderDieFace({
+						faceIcon: icons[i] ?? '',
+						faceLabel: labels[i] ?? '',
+						baseColor,
+						size: FACE_EXPORT_SIZE
+					});
+					faces.push({ id: die.id, face: i + 1, dataUrl: canvas.toDataURL('image/png') });
 				}
 			}
-			exportStatus = `Exported ${icons.length} faces to the assets package.`;
+
+			exportStatus = 'Saving to the assets package…';
+			const res = await fetch('/dice/faces', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ faces })
+			});
+			if (!res.ok) {
+				const msg = await res.text().catch(() => '');
+				throw new Error(msg || `Export failed (${res.status}).`);
+			}
+
+			const { saved } = await res.json();
+			exportStatus = `Exported ${saved} faces from ${spawned.length} dice to the assets package.`;
 		} catch (e) {
 			exportStatus = e instanceof Error ? e.message : 'Export failed.';
 		} finally {
@@ -178,6 +187,20 @@
 			</p>
 		</div>
 
+		<!-- Bake every face of every die to a full-res PNG in the assets package. -->
+		<div class="flex flex-col items-start gap-1">
+			<Button
+				label={exporting ? 'Exporting…' : 'Export all faces as PNGs'}
+				color={ThemeColors.Secondary}
+				size={ThemeSizes.Medium}
+				disabled={exporting || loading || spawned.length === 0}
+				on:click={exportFaces}
+			/>
+			{#if exportStatus}
+				<span class="text-sm text-base-content opacity-70">{exportStatus}</span>
+			{/if}
+		</div>
+
 		{#if loadError}
 			<div class="alert alert-error">{loadError}</div>
 		{/if}
@@ -248,20 +271,6 @@
 							baseColor={diceAdapter.colorNumber(selected) ?? 0xd7382f}
 							classes="w-full"
 						/>
-
-						<!-- Bake each face to a full-res PNG in the assets package. -->
-						<div class="flex flex-col items-center gap-2">
-							<Button
-								label={exporting ? 'Exporting…' : 'Export faces as PNGs'}
-								color={ThemeColors.Secondary}
-								size={ThemeSizes.Medium}
-								disabled={exporting}
-								on:click={exportFaces}
-							/>
-							{#if exportStatus}
-								<span class="text-sm text-base-content opacity-70">{exportStatus}</span>
-							{/if}
-						</div>
 					</div>
 				</div>
 			{/if}
