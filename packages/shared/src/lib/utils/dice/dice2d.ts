@@ -3,7 +3,7 @@ import type { Application, Container, Texture } from 'pixi.js';
 // Renders the six faces of a die as a flat 2D grid on a PixiJS canvas, styled to
 // match a settled face of the 3D icon die (IconDiceCanvas3D): a full-colour face
 // body with a darker edge, a cream-tinted icon with a black drop-shadow, and a
-// top-right corner badge carrying the face value.
+// large face value centred on top of the icon, with its own matching drop-shadow.
 //
 // Every preview is drawn through ONE shared Pixi renderer and handed back as its
 // own extracted 2D canvas, so any number of dice can be shown without spending a
@@ -20,13 +20,12 @@ const SHADOW_ALPHA = 0.5;
 const ICON_SPAN = 0.92; // icon half-height, in face half-extents
 const SHADOW_DX = 0.055 / 0.9; // drop-shadow offset (x), in face half-extents
 const SHADOW_DY = 0.069 / 0.9; // drop-shadow offset (y), in face half-extents
-const LABEL_SPAN = 0.24; // badge glyph half-height, in face half-extents
-const LABEL_MARGIN = 0.1; // gap from the badge to the face's top and right edges
+const NUMBER_SPAN = 0.5; // centred face-value glyph half-height, in face half-extents
 
-// A base glyph size the badge text is authored at, then scaled down to fit; keeping
-// the font/stroke ratio fixed (72 / 10) reproduces the 3D badge's outline weight.
-const BADGE_FONT = 72;
-const BADGE_STROKE = 10;
+// A base glyph size the value text is authored at, then scaled down to fit; keeping
+// the font/stroke ratio fixed (72 / 10) reproduces the 3D die's outline weight.
+const NUMBER_FONT = 72;
+const NUMBER_STROKE = 10;
 
 function shade(color: number, f: number): number {
 	const r = Math.min(255, Math.round(((color >> 16) & 0xff) * f));
@@ -158,28 +157,33 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			root.addChild(icon);
 		}
 
-		// Corner badge in the face's top-right, its right/top edges LABEL_MARGIN from
-		// the face edge — matching IconDiceCanvas3D's positionLabel.
+		// Large face value, centred on top of the icon with a matching drop-shadow.
 		const str = faceLabels[i];
 		if (str) {
-			const text = new Text({
-				text: str,
-				style: {
-					fontFamily: 'Arial, sans-serif',
-					fontSize: BADGE_FONT,
-					fontWeight: '700',
-					fill: TINT,
-					stroke: { color: SHADOW, width: BADGE_STROKE, join: 'round' }
-				}
-			});
-			text.anchor.set(0.5);
-			const badgeScale = (2 * LABEL_SPAN * H) / text.height;
-			const halfW = (text.width / 2) * badgeScale;
-			const halfH = LABEL_SPAN * H;
-			text.scale.set(badgeScale);
-			// Right edge at 1 - margin; top edge at 1 - margin/2 (both in half-extents).
-			text.position.set(fcx + (1 - LABEL_MARGIN) * H - halfW, fcy - (1 - LABEL_MARGIN / 2) * H + halfH);
-			root.addChild(text);
+			const numberStyle = {
+				fontFamily: 'Arial, sans-serif',
+				fontSize: NUMBER_FONT,
+				fontWeight: '700' as const,
+				fill: TINT,
+				stroke: { color: SHADOW, width: NUMBER_STROKE, join: 'round' as const }
+			};
+
+			const number = new Text({ text: str, style: numberStyle });
+			number.anchor.set(0.5);
+			const numberScale = (2 * NUMBER_SPAN * H) / number.height;
+			number.scale.set(numberScale);
+			number.position.set(fcx, fcy);
+
+			// A solid black copy, offset like the icon shadow (tint blacks out fill+stroke).
+			const numberShadow = new Text({ text: str, style: numberStyle });
+			numberShadow.anchor.set(0.5);
+			numberShadow.scale.set(numberScale);
+			numberShadow.tint = SHADOW;
+			numberShadow.alpha = SHADOW_ALPHA;
+			numberShadow.position.set(fcx + SHADOW_DX * H, fcy + SHADOW_DY * H);
+
+			root.addChild(numberShadow);
+			root.addChild(number);
 		}
 	}
 
