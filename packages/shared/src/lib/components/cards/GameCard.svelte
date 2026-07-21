@@ -65,6 +65,13 @@
 	// associated card id. Its description is rendered as the card's bottom text.
 	const spellForCard = $derived(spellList.find((s) => s.card?.id === card.id) ?? null);
 
+	// Card frame texture: a card that represents a board spell always uses the spell
+	// frame (even when the underlying catalog card is a trap or other type); every
+	// other card uses the texture matching its own type.
+	const backgroundTexture = $derived(
+		spellForCard ? textureForType('Spell') : textureForType(card.type)
+	);
+
 	const isSpellOrTrap = $derived.by(() => {
 		const type = (card.type ?? '').toLowerCase();
 		return type.includes('spell') || type.includes('trap');
@@ -153,7 +160,7 @@
 	<!-- Type-matched background texture (Normal, Effect, Ritual, Synchro, Xyz,
 	     Link, …), tinting the whole card frame behind its content. -->
 	<img
-		src={textureForType(card.type)}
+		src={backgroundTexture}
 		alt=""
 		aria-hidden="true"
 		class="pointer-events-none absolute inset-0 h-full max-h-none w-full max-w-none object-cover object-center"
@@ -267,7 +274,7 @@
 		     drop-shadowed treatment as the rest of the card copy. -->
 		{#if spellForCard?.description}
 			<div
-				class="rounded bg-white/50 px-1.5 py-1 text-center text-[9px] leading-snug font-semibold text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+				class="rounded bg-white/50 px-1.5 py-1 text-center text-[9px] leading-snug font-semibold text-black"
 			>
 				{spellForCard.description}
 			</div>
