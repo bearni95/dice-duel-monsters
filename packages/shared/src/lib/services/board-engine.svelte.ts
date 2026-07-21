@@ -786,6 +786,14 @@ async function addPlaqueCard(
 		sprite.width = PB_CARD_W;
 		sprite.height = PB_CARD_H;
 		sprite.position.set(x, y);
+		// Hovering a played card floats the fixed card viewer over it, exactly like the
+		// hand cards — so both the player's and the rival's out-of-grid plaque cards can
+		// be read at full size. The panel is pinned to this sprite's on-screen box, so it
+		// tracks the plaque through the board's pan/zoom.
+		sprite.eventMode = 'static';
+		sprite.cursor = 'pointer';
+		sprite.on('pointerenter', () => showCardPreview(texture, sprite));
+		sprite.on('pointerleave', () => showCardPreview(null));
 		plaque.container.addChild(sprite);
 		return;
 	}
@@ -823,6 +831,10 @@ const PB_CORNER_RADIUS = 12;
 async function renderPlaque(plaque: CardPlaque, cards: IGameCreature[]) {
 	if (!plaque.container) return;
 	const token = ++plaque.token;
+
+	// A hovered plaque card's sprite is about to be destroyed, so its pointerleave never
+	// fires — drop the viewer up front so it can't strand a preview of a vanishing card.
+	showCardPreview(null);
 
 	for (const child of plaque.container.removeChildren()) child.destroy();
 	plaque.container.mask = null;
@@ -3948,12 +3960,14 @@ camera.addChild(moveOverlay);
 // played-cards list).
 playerPlaque.container = new Container();
 playerPlaque.container.setFromMatrix(PLAYER_BOARD_MATRIX);
-playerPlaque.container.eventMode = 'none';
+// 'passive' (not 'none'): the plaque itself isn't hit-tested, but its interactive card
+// sprites (added by addPlaqueCard) still emit the hover events that drive the viewer.
+playerPlaque.container.eventMode = 'passive';
 camera.addChild(playerPlaque.container);
 
 rivalPlaque.container = new Container();
 rivalPlaque.container.setFromMatrix(RIVAL_BOARD_MATRIX);
-rivalPlaque.container.eventMode = 'none';
+rivalPlaque.container.eventMode = 'passive';
 camera.addChild(rivalPlaque.container);
 
 // World-space row for the player's hand (upright card PNGs just outside the grid's
