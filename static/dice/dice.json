@@ -1,0 +1,15 @@
+[
+  {
+    "id": "icon-die",
+    "name": "Icon Die",
+    "color": "#d7382f",
+    "faces": [
+      { "icon": "/assets/icons/skoll/pentacle.svg", "value": "x2" },
+      { "icon": "/assets/icons/delapouite/plain-arrow.svg", "value": "x2" },
+      { "icon": "/assets/icons/lorc/battle-axe.svg", "value": "x2" },
+      { "icon": "/assets/icons/lorc/battle-axe.svg", "value": "x3" },
+      { "icon": "/assets/icons/delapouite/plain-arrow.svg", "value": "x3" },
+      { "icon": "/assets/icons/skoll/pentacle.svg", "value": "x3" }
+    ]
+  }
+]
