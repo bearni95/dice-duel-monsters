@@ -123,11 +123,12 @@ export class CardApiAdapter extends AdapterClass {
     // Browse only the cards that belong to the saved decks, distinct by id, with
     // the same filter/pagination UI the full catalog uses. `deckCardIds` is the
     // union of every deck's enabled card ids and `forcedIds` the union of their
-    // forced ids, so the resolved set mirrors exactly what the /decks page renders
+    // forced ids, so the resolved set is drawn from what the /decks page renders
     // (playable cards, plus forced ones). The catalog holds one entry per id, so
     // restricting to the id set is inherently deduplicated. Facets and pagination
     // are then computed over that restricted set, so the filter dropdowns only
-    // offer values present in the decks.
+    // offer values present in the decks. As on the full catalog, monsters only
+    // surface once they have a cutout (billboard) prepared for the board.
     async loadDeckCatalog(
         deckCardIds: number[],
         forcedIds: number[] = [],
@@ -160,7 +161,8 @@ export class CardApiAdapter extends AdapterClass {
             force: [...new Set(forcedIds)]
         }).cards;
 
-        // Apply the UI filters + pagination over just those cards.
+        // Apply the UI filters + pagination over just those cards. Monsters only
+        // surface once they have a cutout (billboard) prepared for the board.
         const data = queryCatalog(restricted, {
             limit: this.limit,
             offset: (p - 1) * this.limit,
@@ -168,7 +170,8 @@ export class CardApiAdapter extends AdapterClass {
             category,
             subType,
             attribute: attr,
-            race
+            race,
+            monsterCutout: true
         });
 
         return {
