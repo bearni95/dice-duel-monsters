@@ -1101,6 +1101,9 @@ $effect(() => {
 const HAND_CARD_W = CELL_WIDTH;
 const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
 const HAND_CARD_GAP = 6;
+// World-px the hand row is pushed outward (down-right) past the player's plaque, so the
+// upright cards clear the plaque's played-card section they now sit beyond.
+const HAND_OUT_GAP = 28;
 
 // The world-space hand row (built in init, added to `camera`) and a token bumped on
 // each render so a slow PNG load from a superseded render can't paint a stale card.
@@ -1305,11 +1308,12 @@ function showCardPreview(cardId: IGameCreature['id'] | null) {
 
 
 // (Re)draw the player's hand from scratch for the current `hand` (in draw order), as a
-// left-aligned two-row block of upright cards in the board's lower-left. The anchor
-// is computed in world coords from the grid's corner cells, so the block tracks the grid
-// as the camera pans/zooms, and every row shares the same left edge. Reactive to `hand`
-// and the summon energy pool (the latter drives the affordability dim); a no-op until
-// the container exists (init creates it once the board is built).
+// single row of upright cards past the player's plaque on the board's bottom-right — just
+// beyond the played-card section, where the match dice used to sit before the two swapped
+// sides. The anchor is computed in world coords from the plaque's ground matrix, so the
+// row tracks the grid as the camera pans/zooms. Reactive to `hand` and the summon energy
+// pool (the latter drives the affordability dim); a no-op until the container exists (init
+// creates it once the board is built).
 //
 // The card PNGs are preloaded in parallel before anything is drawn, then the old cards
 // are cleared and the new ones added in a single synchronous pass. A stale token check
@@ -1329,37 +1333,31 @@ async function renderHand() {
 		return;
 	}
 
-	// The hand runs along the grid's bottom-left boundary — the isometric edge from the
-	// bottom corner (cell L12) up to the left corner (cell A12) — as a diagonal row of
-	// upright cards tucked just outside it. Every card's top-right corner is pinned to
-	// that border line, so the row steps up-and-left in lockstep with the grid's 2:1 iso
-	// slope and tracks the board as the camera pans/zooms (handLayer lives in world space).
-	//
-	// The two edge vertices in world coords: the bottom vertex is the outer (lower) point
-	// of the L12 corner cell, the left vertex the outer (left) point of the A12 corner cell.
-	const bottomVertex = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
-	bottomVertex.y += TILE_HEIGHT / 2;
-	const leftVertex = isoPosOf(0, GRID_HEIGHT - 1);
-	leftVertex.x -= TILE_WIDTH / 2;
-	// Rise-over-run of that border (the constant 1:2 iso diagonal, for any grid size).
-	const edgeSlope = (leftVertex.y - bottomVertex.y) / (leftVertex.x - bottomVertex.x);
+	// The hand sits past the player's plaque on the grid's bottom-right — just beyond the
+	// played-card section, where the match dice used to be (the two swapped sides). The
+	// cards keep their upright-billboard look, laid as a diagonal row hugging the plaque's
+	// outer edge: diceBlockAxes gives that edge — mid at the plaque's outer-edge midpoint,
+	// uHat along its length, vHat pointing outward (down-right, away from the grid).
+	const { uHat, vHat, mid } = diceBlockAxes(PLAYER_BOARD_MATRIX);
+	// Rise-over-run of the plaque's outer edge (the bottom-right iso diagonal, slope -1/2).
+	const edgeSlope = uHat.y / uHat.x;
+	// The anchor line: the plaque's outer edge pushed one HAND_OUT_GAP outward so the upright
+	// cards, whose bodies hang down-right from this line, clear the plaque's card section.
+	const anchorX = mid.x + vHat.x * HAND_OUT_GAP;
+	const anchorY = mid.y + vHat.y * HAND_OUT_GAP;
 
-	// Lay the hand cheapest-first, starting at the grid's leftmost point: the first card's
-	// left margin sits on the left vertex, and the row steps down-right along the border
-	// toward the bottom corner. One card-width plus a gap per step, so neighbours never
-	// overlap; each card's top-right corner rides the border and its body hangs just
-	// below-left of the grid, clear of the play area.
+	// Lay the hand cheapest-first as a row stepped in x and centred on the plaque's length.
+	// Each card's top-left rides the anchor line (its y follows the edge slope), so the
+	// upright cards staircase up-right along the plaque while their bodies hang outward.
 	const ordered = [...hand].sort((a, b) => a.cost - b.cost);
 	const step = HAND_CARD_W + HAND_CARD_GAP;
+	const startX = anchorX - ((ordered.length - 1) * step) / 2 - HAND_CARD_W / 2;
 
 	const placements: { card: IGameCreature; x: number; y: number }[] = [];
 	ordered.forEach((card, i) => {
-		// The card's top-left origin marches down-right from the left vertex; its top-right
-		// corner (one card-width along) rides the border. The top edge stays horizontal, so
-		// only that corner touches the diagonal — the border pulls away above the rest.
-		const leftX = leftVertex.x + i * step;
-		const cornerY = bottomVertex.y + edgeSlope * (leftX + HAND_CARD_W - bottomVertex.x);
-		placements.push({ card, x: leftX, y: cornerY });
+		const x = startX + i * step;
+		const y = anchorY + edgeSlope * (x - anchorX);
+		placements.push({ card, x, y });
 	});
 
 	// Preload every card's PNG in parallel (null on a miss → placeholder).
@@ -1729,6 +1727,29 @@ function diceBlockAxes(matrix: Matrix): {
 	};
 }
 
+// The player's match-dice block no longer hangs off the plaque — it now sits past the
+// grid's bottom-left border (the edge from the L12 bottom corner to the A12 left corner),
+// where the hand used to be, the two having swapped sides. These are the block's in-plane
+// axes for matchDieCenter, the direct analogue of what diceBlockAxes derives from a plaque:
+// uHat runs along that border, vHat is its outward normal (down-left, away from the grid),
+// and mid is the border midpoint the dice rows grow out from. The dice stay flat isometric
+// cubes — only the edge they hang off changed.
+function playerDiceAxes(): {
+	uHat: { x: number; y: number };
+	vHat: { x: number; y: number };
+	mid: { x: number; y: number };
+} {
+	const bottom = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
+	bottom.y += TILE_HEIGHT / 2;
+	const left = isoPosOf(0, GRID_HEIGHT - 1);
+	left.x -= TILE_WIDTH / 2;
+	const len = Math.hypot(bottom.x - left.x, bottom.y - left.y) || 1;
+	const uHat = { x: (bottom.x - left.x) / len, y: (bottom.y - left.y) / len };
+	// Outward normal (uHat rotated 90°): points down-left, away from the grid interior.
+	const vHat = { x: -uHat.y, y: uHat.x };
+	return { uHat, vHat, mid: { x: (bottom.x + left.x) / 2, y: (bottom.y + left.y) / 2 } };
+}
+
 // World centre of die `k` (of `n`) in a side's grid: laid out in rows of MATCH_DIE_COLS
 // along the plaque's length (uHat), each row centred on the outer-edge midpoint, with
 // successive rows stepped outward along the thickness axis (vHat).
@@ -1760,9 +1781,11 @@ async function renderDiceDisplay() {
 	const token = ++diceDisplayToken;
 	const pixi = { Container, Graphics, Sprite, Matrix };
 
+	// The player's block now lays out along the grid's bottom-left border (playerDiceAxes);
+	// the rival's still hangs off its top-left plaque.
 	const sides = [
-		{ dice: playerDice, matrix: PLAYER_BOARD_MATRIX, color: STATIC_DIE_BODY_COLOR, interactive: true },
-		{ dice: rivalDice, matrix: RIVAL_BOARD_MATRIX, color: STATIC_DIE_BODY_COLOR, interactive: false }
+		{ dice: playerDice, axes: playerDiceAxes(), color: STATIC_DIE_BODY_COLOR, interactive: true },
+		{ dice: rivalDice, axes: diceBlockAxes(RIVAL_BOARD_MATRIX), color: STATIC_DIE_BODY_COLOR, interactive: false }
 	];
 
 	// Preload the three faces each cube shows (top + two sides), keyed `${id}-${face}`.
@@ -1789,7 +1812,7 @@ async function renderDiceDisplay() {
 	for (const child of diceDisplayLayer.removeChildren()) child.destroy();
 
 	for (const side of sides) {
-		const { uHat, vHat, mid } = diceBlockAxes(side.matrix);
+		const { uHat, vHat, mid } = side.axes;
 
 		// Slots (and their centring) are reckoned against a full pool so every die keeps its
 		// place for the whole match; an empty pool falls back to its own length.
@@ -1906,8 +1929,7 @@ function playAreaPoints(): { x: number; y: number }[] {
 	// Each side's dice block at full size (MATCH_DICE_MAX_ROWS rows), so the frame and
 	// the opening zoom always leave room for the whole pool even before any is consumed.
 	const fullCount = MATCH_DIE_COLS * MATCH_DICE_MAX_ROWS;
-	for (const m of [PLAYER_BOARD_MATRIX, RIVAL_BOARD_MATRIX]) {
-		const { uHat, vHat, mid } = diceBlockAxes(m);
+	for (const { uHat, vHat, mid } of [playerDiceAxes(), diceBlockAxes(RIVAL_BOARD_MATRIX)]) {
 		for (let k = 0; k < fullCount; k++) {
 			const { cx, cy } = matchDieCenter(k, fullCount, mid, uHat, vHat);
 			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
