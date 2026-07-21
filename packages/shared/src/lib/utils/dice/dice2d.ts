@@ -2,24 +2,21 @@ import type { Application, Container, Texture } from 'pixi.js';
 
 // Renders the six faces of a die as a flat 2D grid on a PixiJS canvas, styled to
 // match a settled face of the 3D icon die (IconDiceCanvas3D): a full-colour face
-// body with a darker edge, a cream-tinted icon with a black drop-shadow, and a
-// large black-outlined face value centred on top of the icon.
+// body with a darker edge, a cream icon with a black outline, and a large
+// black-outlined face value centred on top of the icon.
 //
 // Every preview is drawn through ONE shared Pixi renderer and handed back as its
 // own extracted 2D canvas, so any number of dice can be shown without spending a
 // WebGL context per die (a plain per-die Application would exhaust them fast).
 
-// Cream icon/badge tint and drop-shadow, identical to IconDiceCanvas3D.
+// Cream icon/value tint and the black outline shared by the icon and the value.
 const TINT = 0xf7f3ea;
-const SHADOW = 0x000000;
-const SHADOW_ALPHA = 0.5;
+const OUTLINE = 0x000000;
 
 // The 3D face-plane spans, re-expressed against the face half-extent H. A settled
-// 3D die relates its projection `scale` to that half-extent by H = 0.9 * scale, so
-// the icon die's scale-relative offsets are divided by 0.9 to read against H here.
+// 3D die relates its projection `scale` to that half-extent by H = 0.9 * scale.
 const ICON_SPAN = 0.92; // icon half-height, in face half-extents
-const SHADOW_DX = 0.055 / 0.9; // drop-shadow offset (x), in face half-extents
-const SHADOW_DY = 0.069 / 0.9; // drop-shadow offset (y), in face half-extents
+const ICON_BORDER = 0.07; // icon outline thickness, in face half-extents
 const NUMBER_SPAN = 0.75; // centred face-value glyph half-height, in face half-extents
 
 // A base glyph size the value text is authored at, then scaled down to fit; keeping
@@ -154,17 +151,23 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			.fill(baseColor)
 			.stroke({ width: strokeW, color: edge, join: 'round', alignment: 0.5 });
 
-		// Icon and its drop-shadow, both scaled so the icon half-height is ICON_SPAN*H.
+		// Icon scaled so its half-height is ICON_SPAN*H, wrapped in a black outline —
+		// the silhouette drawn in a ring of offset copies behind the cream icon, giving
+		// it the same black border the value carries.
 		const tex = textures[i];
 		if (tex) {
 			const scale = (2 * ICON_SPAN * H) / tex.height;
-			const shadow = new Sprite(tex);
-			shadow.anchor.set(0.5);
-			shadow.scale.set(scale);
-			shadow.tint = SHADOW;
-			shadow.alpha = SHADOW_ALPHA;
-			shadow.position.set(fcx + SHADOW_DX * H, fcy + SHADOW_DY * H);
-			root.addChild(shadow);
+			const border = ICON_BORDER * H;
+			const steps = 16;
+			for (let s = 0; s < steps; s++) {
+				const a = (s / steps) * Math.PI * 2;
+				const outline = new Sprite(tex);
+				outline.anchor.set(0.5);
+				outline.scale.set(scale);
+				outline.tint = OUTLINE;
+				outline.position.set(fcx + Math.cos(a) * border, fcy + Math.sin(a) * border);
+				root.addChild(outline);
+			}
 
 			const icon = new Sprite(tex);
 			icon.anchor.set(0.5);
@@ -174,7 +177,7 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			root.addChild(icon);
 		}
 
-		// Large face value, centred on top of the icon (black outline, no drop-shadow).
+		// Large black-outlined face value, centred on top of the icon.
 		const str = faceLabels[i];
 		if (str) {
 			const number = new Text({
@@ -184,11 +187,14 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 					fontSize: NUMBER_FONT,
 					fontWeight: '700',
 					fill: TINT,
-					stroke: { color: SHADOW, width: NUMBER_STROKE, join: 'round' }
+					stroke: { color: OUTLINE, width: NUMBER_STROKE, join: 'round' }
 				}
 			});
 			number.anchor.set(0.5);
 			const numberScale = (2 * NUMBER_SPAN * H) / number.height;
+			// The glyph is authored at NUMBER_FONT then scaled up to fit; raise its texture
+			// resolution to match, so the upscaled value stays crisp instead of blurring.
+			number.resolution = Math.min(Math.max(1, Math.ceil(numberScale)), 8);
 			// Nudge down so the digit's ink — not its padded box — is vertically centred.
 			const centreY = fcy - glyphCentreOffset(str, NUMBER_FONT, '700') * numberScale;
 			number.scale.set(numberScale);
