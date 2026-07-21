@@ -30,13 +30,22 @@ import { getDeckById, getPlayerDeck, getCpuDeck } from '$services/deck.service';
 import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
 import { textureForType } from '$utils/card/typeTexture';
 import rollDie from '$utils/dice/rollDie';
-import { Dice3D } from '$utils/dice/dice3d';
+import { Dice3D, type EnergyDieSpec } from '$utils/dice/dice3d';
 import { shuffle } from '$utils/board/shuffle';
 import { cellLabel } from '$utils/board/coords';
 import { DICE_NETS, NEIGHBOR_OFFSETS, offsetsForRotation } from '$utils/board/diceNet';
 import { pSingleDie, pAnyDie } from '$utils/board/cpuScoring';
 import { opaqueBounds } from '$utils/board/opaqueBounds';
 import type { Side, PlacedUnit, OriginCell, CpuMove, CardPlaque, SortKey } from '$types/board.type';
+import { diceAdapter } from '$adapters/dice.adapter';
+import { playerService } from '$services/player.service';
+import {
+	emptyEnergyPools,
+	type DiceRole,
+	type DiceTemplateConfig,
+	type EnergyPools,
+	type SpawnedDie
+} from '$types/dice.type';
 
 export function createBoardEngine() {
 
@@ -170,8 +179,26 @@ export function createBoardEngine() {
 		rivalLp: number;
 	} | null>(null);
 
-	// Energy points accumulated from dice rolls in the card-container header.
-	let energyPoints = $state(0);
+	// The player's energy, split into one pool per die role. Each turn-start dice
+	// roll banks each landed face's value into the pool matching that face's role;
+	// each action then spends its own pool (summoning from `summon`, moving from
+	// `move`, attacking from `attack`) rather than a shared total. The player's pools
+	// accumulate across turns (the rival's reset each of its own turns — see
+	// rollRivalEnergy). Deep `$state` so mutating a single pool stays reactive.
+	let energy = $state<EnergyPools>(emptyEnergyPools());
+
+	// The dice template config and the player's owned dice (resolved to concrete
+	// SpawnedDie, duplicates kept), loaded on mount. Both the player's turn-start
+	// pick and the rival's auto-pick draw their three dice from these; `iconRoleMap`
+	// caches the icon→role lookup used to score each landed face.
+	let diceConfig = $state<DiceTemplateConfig | null>(null);
+	let ownedDice = $state<SpawnedDie[]>([]);
+	let iconRoleMap: Map<string, DiceRole> | null = null;
+
+	// The player's turn-start dice-pick phase: while true the board waits for the
+	// player to choose (up to) three of their owned dice to roll for energy; the DOM
+	// picker overlay reads `dicePool` / `dicePickCount` and calls `confirmDicePick`.
+	let pickingDice = $state(false);
 
 	// True while a player summon is playing out: from the moment the tile is
 	// clicked through the floor paint, sprite fade-in, HP dice roll and health-bar
@@ -294,41 +321,126 @@ export function createBoardEngine() {
 		}
 	}
 
-	// Roll the player's 3d6 energy for this turn below the player's (red) origin
-	// hearts and bank the total. Guarded so it only happens once per turn.
-	async function rollPlayerEnergy() {
-		if (energyRolled || rolling) return;
+	// Roll a set of owned dice as textured dice in one of the board-bound boxes,
+	// returning their landed face indices (1..6). Flips `rolling` for the throw;
+	// falls back to a plain RNG if the box isn't ready so a roll never blocks.
+	async function rollBoardTextured(
+		instance: Dice3D | undefined,
+		specs: EnergyDieSpec[],
+		center: { x: number; y: number }
+	): Promise<number[]> {
+		if (!instance) return specs.map(() => rollDie(6));
+
+		rolling = true;
+		try {
+			return await instance.rollTextured(specs, center);
+		} finally {
+			rolling = false;
+		}
+	}
+
+	// Resolve the signed-in player's owned die ids into concrete dice (duplicates
+	// kept) for the turn-start rolls. A no-op until the template config has loaded;
+	// re-run whenever the config lands or the player's collection changes.
+	function syncOwnedDice() {
+		if (!diceConfig) return;
+		ownedDice = diceAdapter.resolveOwned(diceConfig, playerService.get().dice);
+	}
+
+	// The dice a side rolls this turn: its resolved owned dice, or — when it owns
+	// none — the starter trio (one rarity-1 die of each role) so energy still splits
+	// across all three pools. Both the player's pick and the rival's auto-pick draw
+	// from the player's owned collection.
+	function dicePool(): SpawnedDie[] {
+		if (!diceConfig) return [];
+		return ownedDice.length ? ownedDice : diceAdapter.starterDice(diceConfig);
+	}
+
+	// How many dice a turn-start roll uses: three, or fewer when the pool is smaller.
+	function dicePickCount(): number {
+		return Math.min(3, dicePool().length);
+	}
+
+	// Roll the given owned dice as textured dice at `center`, then bank each landed
+	// face's value into `pool` under the role that face carries. Mutates `pool` in
+	// place (a reactive `$state` object) so the on-board read-out tracks it live.
+	async function rollEnergyDice(
+		instance: Dice3D | undefined,
+		dice: SpawnedDie[],
+		center: { x: number; y: number },
+		pool: EnergyPools
+	): Promise<void> {
+		if (!diceConfig || dice.length === 0) return;
+		const map = (iconRoleMap ??= diceAdapter.roleByIcon(diceConfig));
+		const specs: EnergyDieSpec[] = dice.map((d) => ({ id: d.id, color: diceAdapter.colorNumber(d) }));
+		const faces = await rollBoardTextured(instance, specs, center);
+		faces.forEach((face, i) => {
+			const scored = diceAdapter.faceEnergy(diceConfig!, dice[i], face, map);
+			if (scored) pool[scored.role] += scored.value;
+		});
+	}
+
+	// Open the player's turn-start dice-pick phase (the opening roll and every later
+	// player turn). With a genuine choice — more owned dice than the roll uses — the
+	// DOM picker is shown; otherwise the whole (small) pool is rolled straight away.
+	// Guarded so it only happens once per turn.
+	async function beginPlayerDicePhase() {
+		if (energyRolled || rolling || pickingDice) return;
 
 		// The energy roll drops any lingering combat marks.
 		combatBoxHits = null;
 
+		const pool = dicePool();
+		if (pool.length === 0) return; // config not loaded yet — retried on next tick
+
+		if (pool.length > dicePickCount()) {
+			pickingDice = true;
+			return;
+		}
+		await rollPickedDice(pool);
+	}
+
+	// Roll the dice the player chose (or the whole pool when there was no choice),
+	// banking their energy below the player's red origin hearts. Ends the pick phase.
+	async function rollPickedDice(dice: SpawnedDie[]) {
+		if (rolling) return;
+		pickingDice = false;
 		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
-		const faces = await rollBoard(playerEnergyDice, 3, ENERGY_DICE_COLOR, center);
-		energyPoints += faces.reduce((sum, face) => sum + face, 0);
+		await rollEnergyDice(playerEnergyDice, dice.slice(0, 3), center, energy);
 		energyRolled = true;
 	}
 
-	// Roll the rival's 3d6 energy above the rival's (blue) origin hearts and set its
-	// pool. Called at the start of the rival's own turn (see runCpuTurn) — each side
-	// rolls on its own turn, never together.
+	// The player confirms their turn-start pick from the DOM overlay. Ignores picks
+	// outside the pick phase or once a throw is under way.
+	async function confirmDicePick(dice: SpawnedDie[]) {
+		if (!pickingDice || rolling) return;
+		await rollPickedDice(dice);
+	}
+
+	// Roll the rival's energy above its blue origin hearts, from three dice it picks
+	// at random out of the player's owned collection (the same pool the player picks
+	// from). The rival's pools reset each of its own turns, then fill from this roll.
 	async function rollRivalEnergy() {
+		cpuEnergy.summon = 0;
+		cpuEnergy.move = 0;
+		cpuEnergy.attack = 0;
 		const center = turnDiceCenterFor(blueOrigin, true) ?? { x: 0, y: 0 };
-		const faces = await rollBoard(rivalEnergyDice, 3, RIVAL_DICE_COLOR, center);
-		cpuEnergy = faces.reduce((sum, face) => sum + face, 0);
+		const picked = diceAdapter.randomDice(dicePool(), dicePickCount());
+		await rollEnergyDice(rivalEnergyDice, picked, center, cpuEnergy);
 	}
 
 	// End the player's turn: clear the combat dice, hand control to the rival (which
-	// rolls and spends its own energy on its turn), then roll the player's energy for
-	// their next turn. Driven by the panel's End Turn button.
+	// rolls and spends its own energy on its turn), then open the player's turn-start
+	// dice pick for their next turn. Driven by the panel's End Turn button.
 	async function endTurn() {
-		if (rolling || rivalThinking || specialPhase) return;
+		if (rolling || rivalThinking || specialPhase || pickingDice) return;
 
 		anchorDice?.clear();
 		energyRolled = false;
 		combatBoxHits = null;
 
 		await runCpuTurn();
-		await rollPlayerEnergy();
+		await beginPlayerDicePhase();
 	}
 
 	// World-space centre for a summoned creature's HP dice: the dice sit in a single
@@ -401,7 +513,8 @@ export function createBoardEngine() {
 	}
 	// Reactive so the rival's remaining energy stays in sync with its on-board read-out
 	// (see renderEnergyLabels) and updates live as the CPU spends it during its turn.
-	let cpuEnergy = $state(0);
+	// Split into the same three role pools as the player's; reset each rival turn.
+	let cpuEnergy = $state<EnergyPools>(emptyEnergyPools());
 	let rivalThinking = $state(false);
 
 	const cpuAdapter = new CardApiAdapter();
@@ -466,7 +579,7 @@ export function createBoardEngine() {
 	// need the required sacrifices on the board; every other card needs the energy.
 	function canSummon(card: IGameCreature): boolean {
 		if (isSpecialSummon(card)) return canSpecialSummon(card);
-		return card.cost <= energyPoints;
+		return card.cost <= energy.summon;
 	}
 
 	// Flag a hand card for summoning — the player then picks a tile to place it on.
@@ -1095,8 +1208,8 @@ function showCardPreview(cardId: IGameCreature['id'] | null) {
 // left-aligned two-row block of upright cards in the board's lower-left. The anchor
 // is computed in world coords from the grid's corner cells, so the block tracks the grid
 // as the camera pans/zooms, and every row shares the same left edge. Reactive to `hand`
-// and `energyPoints` (the latter drives the affordability dim); a no-op until the
-// container exists (init creates it once the board is built).
+// and the summon energy pool (the latter drives the affordability dim); a no-op until
+// the container exists (init creates it once the board is built).
 //
 // The card PNGs are preloaded in parallel before anything is drawn, then the old cards
 // are cleared and the new ones added in a single synchronous pass. A stale token check
@@ -1163,7 +1276,8 @@ async function renderHand() {
 // that disables it. Guarded until the container exists.
 $effect(() => {
 	void hand;
-	void energyPoints;
+	// The hand's affordability dim tracks the summon pool (canSummon spends it).
+	void energy.summon;
 	void selectedMonster;
 	void summoning;
 	void moving;
@@ -1310,7 +1424,7 @@ function renderActionButtons() {
 			buildActionButton(
 				'Move',
 				'primary',
-				!controlsDisabled && !!inspectedCreature && energyPoints >= cost,
+				!controlsDisabled && !!inspectedCreature && energy.move >= cost,
 				startMove
 			)
 		);
@@ -1318,7 +1432,7 @@ function renderActionButtons() {
 			buildActionButton(
 				'Combat',
 				'primary',
-				!controlsDisabled && !!inspectedCreature && energyPoints >= cost && inspectedCanCombat,
+				!controlsDisabled && !!inspectedCreature && energy.attack >= cost && inspectedCanCombat,
 				startCombat
 			)
 		);
@@ -1328,7 +1442,7 @@ function renderActionButtons() {
 		buildActionButton(
 			unfolding ? 'Cancel Unfold' : `Unfold (${UNFOLD_COST})`,
 			unfolding ? 'neutral' : 'primary',
-			!rivalThinking && !rolling && (unfolding || energyPoints >= UNFOLD_COST),
+			!rivalThinking && !rolling && (unfolding || energy.summon >= UNFOLD_COST),
 			startUnfold
 		)
 	);
@@ -1336,7 +1450,7 @@ function renderActionButtons() {
 		buildActionButton(
 			rolling ? 'Rolling…' : 'End Turn',
 			'neutral',
-			energyRolled && !rolling && !rivalThinking,
+			energyRolled && !rolling && !rivalThinking && !pickingDice,
 			endTurn
 		)
 	);
@@ -1352,8 +1466,11 @@ $effect(() => {
 	void inspectedCreature;
 	void inspectedIsPlayer;
 	void inspectedCanCombat;
-	void energyPoints;
+	void energy.summon;
+	void energy.move;
+	void energy.attack;
 	void energyRolled;
+	void pickingDice;
 	void moving;
 	void combating;
 	void unfolding;
@@ -1374,28 +1491,43 @@ const ENERGY_ICON_SIZE = TILE_HEIGHT;
 const ENERGY_ICON_TEXT_GAP = 6;
 const ENERGY_LABEL_GAP = 14;
 
-// Build one side's on-board energy read-out: the running total then the tinted battery
-// icon (number-then-icon, matching the sidebar's "You: 12 [icon]" order). Both are
-// vertically centered on the group origin so the caller can pin it to the dice row's
-// mid-line. Tinted to the side's dice color (red for the player, blue for the rival) so
-// each read-out reads as its own — echoing the network colors right beside it.
-function buildEnergyReadout(energy: number, tint: number): Container {
-	const c = new Container();
+// The three energy pools, in the order they read on the board, with the short label
+// shown beside each total.
+const ENERGY_ROWS: { role: DiceRole; label: string }[] = [
+	{ role: 'summon', label: 'Summon' },
+	{ role: 'move', label: 'Move' },
+	{ role: 'attack', label: 'Attack' }
+];
 
-	const label = new Text({
-		text: String(energy),
-		style: { fill: 0xffffff, fontSize: 22, fontWeight: 'bold' },
-		resolution: LABEL_RESOLUTION
-	});
-	label.anchor.set(0, 0.5);
-	c.addChild(label);
+// Vertical gap between the three pool rows in a side's read-out.
+const ENERGY_ROW_HEIGHT = 20;
+
+// Build one side's on-board energy read-out: the tinted battery icon, then the three
+// role pools stacked as "Summon N / Move N / Attack N" so each action's own budget
+// reads separately. The whole group is centered on its origin (the middle row sits on
+// it) so the caller can pin it to the dice row's mid-line. Tinted to the side's dice
+// color (red for the player, blue for the rival) so each read-out reads as its own.
+function buildEnergyReadout(pool: EnergyPools, tint: number): Container {
+	const c = new Container();
 
 	const icon = new Sprite(batteryTexture!);
 	icon.anchor.set(0, 0.5);
 	icon.scale.set(ENERGY_ICON_SIZE / batteryTexture!.height);
 	icon.tint = tint;
-	icon.position.set(label.width + ENERGY_ICON_TEXT_GAP, 0);
 	c.addChild(icon);
+
+	const textX = icon.width + ENERGY_ICON_TEXT_GAP;
+	ENERGY_ROWS.forEach(({ role, label }, i) => {
+		const row = new Text({
+			text: `${label} ${pool[role]}`,
+			style: { fill: 0xffffff, fontSize: 16, fontWeight: 'bold' },
+			resolution: LABEL_RESOLUTION
+		});
+		row.anchor.set(0, 0.5);
+		// Center the three rows on the group origin: middle row (i=1) at y=0.
+		row.position.set(textX, (i - 1) * ENERGY_ROW_HEIGHT);
+		c.addChild(row);
+	});
 
 	return c;
 }
@@ -1414,24 +1546,28 @@ function renderEnergyLabels() {
 	const dieHalf = playerEnergyDice?.diceHalfExtent(3) ?? cell * 0.4;
 	const rowRightReach = cell + dieHalf;
 
-	const sides: Array<{ center: { x: number; y: number } | null; energy: number; tint: number }> = [
-		{ center: turnDiceCenterFor(redOrigin, false), energy: energyPoints, tint: 0xff3344 },
-		{ center: turnDiceCenterFor(blueOrigin, true), energy: cpuEnergy, tint: 0x4d8cff }
+	const sides: Array<{ center: { x: number; y: number } | null; pool: EnergyPools; tint: number }> = [
+		{ center: turnDiceCenterFor(redOrigin, false), pool: energy, tint: 0xff3344 },
+		{ center: turnDiceCenterFor(blueOrigin, true), pool: cpuEnergy, tint: 0x4d8cff }
 	];
 
-	for (const { center, energy, tint } of sides) {
+	for (const { center, pool, tint } of sides) {
 		if (!center) continue;
-		const readout = buildEnergyReadout(energy, tint);
+		const readout = buildEnergyReadout(pool, tint);
 		readout.position.set(center.x + rowRightReach + ENERGY_LABEL_GAP, center.y);
 		energyLabelLayer.addChild(readout);
 	}
 }
 
-// Repaint the read-outs whenever either pool changes or the battery icon finishes
-// loading (both sides' totals live in reactive $state; the texture is $state too).
+// Repaint the read-outs whenever any pool changes or the battery icon finishes loading
+// (each side's three pools live in reactive $state; the texture is $state too).
 $effect(() => {
-	void energyPoints;
-	void cpuEnergy;
+	void energy.summon;
+	void energy.move;
+	void energy.attack;
+	void cpuEnergy.summon;
+	void cpuEnergy.move;
+	void cpuEnergy.attack;
 	void batteryTexture;
 	renderEnergyLabels();
 });
@@ -2702,8 +2838,8 @@ function startMove() {
 	// No more actions once the match is decided.
 	if (gameOver) return;
 
-	// Not enough energy to pay the creature's cost: can't move.
-	if (energyPoints < unit.creature.cost) return;
+	// Not enough move energy to pay the creature's cost: can't move.
+	if (energy.move < unit.creature.cost) return;
 
 	movingUnit = unit;
 	moveHighlight = moveTargetsFor(unit);
@@ -2798,7 +2934,7 @@ function completeMove(x: number, y: number) {
 
 	relocateUnit(unit, x, y);
 
-	energyPoints -= unit.creature.cost;
+	energy.move -= unit.creature.cost;
 
 	// The unit shown in the top-right panel just changed cells, so its combat
 	// reach was recomputed against the new position — refresh the Combat button's
@@ -2860,8 +2996,8 @@ function startCombat() {
 	// No more actions once the match is decided.
 	if (gameOver) return;
 
-	// Not enough energy to pay the creature's cost: can't attack.
-	if (energyPoints < unit.creature.cost) return;
+	// Not enough attack energy to pay the creature's cost: can't attack.
+	if (energy.attack < unit.creature.cost) return;
 
 	const targets = combatTargetsFor(unit);
 	if (!targets.length) return;
@@ -3152,8 +3288,8 @@ async function resolveCombat(x: number, y: number) {
 	const result = applyAttack(attacker, x, y, rolls);
 
 	if (result) {
-		// Pay the combat cost out of the energy pool.
-		energyPoints -= attacker.creature.cost;
+		// Pay the combat cost out of the attack energy pool.
+		energy.attack -= attacker.creature.cost;
 
 		// Stamp the winning dice (at/above the target's defense) as white result
 		// squares over the black dice still shown in the box.
@@ -3300,7 +3436,8 @@ function enumerateCpuMoves(): CpuMove[] {
 		// Fusion / Ritual cards are never net-summoned; they're special-summoned by
 		// sacrificing on-board creatures in a separate step (see runCpuSpecialSummons).
 		if (isSpecialSummon(creature)) continue;
-		if (creature.cost > cpuEnergy) continue;
+		// Summoning is paid from the rival's summon pool.
+		if (creature.cost > cpuEnergy.summon) continue;
 
 		for (let rot = 0; rot < 4; rot++) {
 			const offsets = offsetsForRotation(rot);
@@ -3317,17 +3454,22 @@ function enumerateCpuMoves(): CpuMove[] {
 
 	for (const unit of placedUnits.values()) {
 		if (unit.side !== 'cpu') continue;
-		if (unit.creature.cost > cpuEnergy) continue;
 
-		for (const key of moveTargetsFor(unit)) {
-			const [x, y] = key.split(',').map(Number);
-			moves.push({ type: 'move', creature: unit.creature, x, y, cost: unit.creature.cost, unit });
+		// Moving is paid from the move pool; attacking from the attack pool — each
+		// action is only enumerated when its own pool can cover the creature's cost.
+		if (unit.creature.cost <= cpuEnergy.move) {
+			for (const key of moveTargetsFor(unit)) {
+				const [x, y] = key.split(',').map(Number);
+				moves.push({ type: 'move', creature: unit.creature, x, y, cost: unit.creature.cost, unit });
+			}
 		}
 
 		// Attacks on player creatures / the player's origin within this unit's reach.
-		for (const key of combatTargetsFor(unit)) {
-			const [x, y] = key.split(',').map(Number);
-			moves.push({ type: 'combat', creature: unit.creature, x, y, cost: unit.creature.cost, unit });
+		if (unit.creature.cost <= cpuEnergy.attack) {
+			for (const key of combatTargetsFor(unit)) {
+				const [x, y] = key.split(',').map(Number);
+				moves.push({ type: 'combat', creature: unit.creature, x, y, cost: unit.creature.cost, unit });
+			}
 		}
 	}
 
@@ -3509,7 +3651,10 @@ async function runCpuTurn() {
 				relocateUnit(move.unit, move.x, move.y);
 			}
 
-			cpuEnergy -= move.cost;
+			// Spend the cost from the pool matching the action: summons from `summon`,
+			// relocations from `move`, attacks from `attack`.
+			const pool: DiceRole = move.type === 'summon' ? 'summon' : move.type === 'move' ? 'move' : 'attack';
+			cpuEnergy[pool] -= move.cost;
 
 			// Pace the actions so the player can watch the rival move one at a time.
 			await new Promise((resolve) => setTimeout(resolve, 400));
@@ -3538,7 +3683,7 @@ function startUnfold() {
 
 	// Can't unfold mid-move/combat, during the rival's turn, or without the energy.
 	if (moving || combating || rivalThinking) return;
-	if (energyPoints < UNFOLD_COST) return;
+	if (energy.summon < UNFOLD_COST) return;
 
 	// Drop any selected creature so only the plain net previews.
 	selectedMonster = null;
@@ -3849,6 +3994,17 @@ $effect(() => {
 		loadDeck();
 		loadCpuDeck();
 
+		// Load the dice template config, then mirror the player's owned dice so both the
+		// player's turn-start pick and the rival's auto-pick have real dice to roll. The
+		// store subscription keeps `ownedDice` live as the collection loads or changes;
+		// `diceReady` gates the opening roll so it never fires before there are dice.
+		const diceReady = diceAdapter.loadTemplates().then((cfg) => {
+			diceConfig = cfg;
+			iconRoleMap = diceAdapter.roleByIcon(cfg);
+			syncOwnedDice();
+		});
+		const unsubscribePlayer = playerService.store.subscribe(() => syncOwnedDice());
+
 
 		let dragging = false;
 		let lastX = 0;
@@ -3959,7 +4115,9 @@ energyLabelLayer = new Container();
 energyLabelLayer.eventMode = 'none';
 camera.addChild(energyLabelLayer);
 
-const pixi = { Container, Graphics, Text, Matrix };
+// Sprite + Assets let the energy dice paint their owned faces' baked PNGs; the
+// other boxes (HP, combat) roll plain numeral dice and ignore them.
+const pixi = { Container, Graphics, Text, Matrix, Sprite, Assets };
 anchorDice = new Dice3D({ app, layer: diceLayer, pixi, boxSize: DICE_BOX_SIZE });
 playerEnergyDice = new Dice3D({ app, layer: worldDice, pixi, boxSize: DICE_WORLD_SIZE });
 rivalEnergyDice = new Dice3D({ app, layer: worldDice, pixi, boxSize: DICE_WORLD_SIZE });
@@ -4059,10 +4217,12 @@ hpDice = new Dice3D({
 			});
 			resizeObserver.observe(host);
 
-			// Open the match by rolling the player's energy below their red origin
-			// hearts — the same auto-roll that begins each of their later turns. The
-			// rival rolls on its own turn (see runCpuTurn), not now.
-			rollPlayerEnergy();
+			// Open the match by starting the player's turn-start dice pick below their
+			// red origin hearts — the same phase that begins each of their later turns.
+			// Wait for the dice config to load first so the pool is never empty. The
+			// rival picks and rolls on its own turn (see runCpuTurn), not now.
+			await diceReady;
+			beginPlayerDicePhase();
 		}
 
 		function buildGrid() {
@@ -4129,7 +4289,7 @@ hpDice = new Dice3D({
 	// Unfold mode: clicking a legal tile stamps the dice net's floor onto the
 	// player's red network — no creature summoned — for a fixed energy cost.
 	if (unfolding) {
-		if (energyPoints < UNFOLD_COST) return;
+		if (energy.summon < UNFOLD_COST) return;
 		if (!canPlaceAt(x, y)) return;
 
 		const offsets = rotatedOffsets();
@@ -4149,15 +4309,15 @@ hpDice = new Dice3D({
 			paintCell(nx, ny, CELL_RED);
 		}
 
-		energyPoints -= UNFOLD_COST;
+		energy.summon -= UNFOLD_COST;
 		return;
 	}
 
 	const monster = selectedMonster;
 	if (!monster?.billboard) return;
 
-	// Not enough energy to summon this monster: ignore the placement.
-	if (monster.cost > energyPoints) return;
+	// Not enough summon energy to summon this monster: ignore the placement.
+	if (monster.cost > energy.summon) return;
 
 	// The dice net must extend the red network from an adjacent red tile.
 	if (!canPlaceAt(x, y)) return;
@@ -4190,8 +4350,8 @@ hpDice = new Dice3D({
 	try {
 		const unit = await placeMonster(monster, x, y, 'player', CELL_RED, offsets);
 
-		// Pay the summon cost out of the energy pool.
-		energyPoints -= monster.cost;
+		// Pay the summon cost out of the summon energy pool.
+		energy.summon -= monster.cost;
 
 		// Now the creature is on the board with its rolled HP, re-point the detail
 		// panel at the placed unit so its Move/Combat/Effect buttons reflect the live
@@ -4345,6 +4505,7 @@ tile.on('pointerout', () => {
 
 		return () => {
 			resizeObserver?.disconnect();
+			unsubscribePlayer();
 			app.destroy(true, {
 				children: true
 			});
@@ -4378,11 +4539,23 @@ tile.on('pointerout', () => {
 		get sortDir() {
 			return sortDir;
 		},
-		get energyPoints() {
-			return energyPoints;
+		get energy() {
+			return energy;
 		},
 		get cpuEnergy() {
 			return cpuEnergy;
+		},
+		// The player's turn-start dice-pick phase: whether the picker overlay is open,
+		// the dice it chooses from (the player's owned dice, or the starter trio when
+		// they own none), and how many the roll uses.
+		get pickingDice() {
+			return pickingDice;
+		},
+		get dicePool() {
+			return dicePool();
+		},
+		get dicePickCount() {
+			return dicePickCount();
 		},
 		get turnNumber() {
 			return turnNumber;
@@ -4463,7 +4636,8 @@ tile.on('pointerout', () => {
 		startCombat,
 		cancelCombat,
 		startUnfold,
-		endTurn
+		endTurn,
+		confirmDicePick
 	};
 }
 
