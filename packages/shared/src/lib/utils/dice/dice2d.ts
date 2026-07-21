@@ -20,7 +20,7 @@ const SHADOW_ALPHA = 0.5;
 const ICON_SPAN = 0.92; // icon half-height, in face half-extents
 const SHADOW_DX = 0.055 / 0.9; // drop-shadow offset (x), in face half-extents
 const SHADOW_DY = 0.069 / 0.9; // drop-shadow offset (y), in face half-extents
-const NUMBER_SPAN = 0.5; // centred face-value glyph half-height, in face half-extents
+const NUMBER_SPAN = 0.75; // centred face-value glyph half-height, in face half-extents
 
 // A base glyph size the value text is authored at, then scaled down to fit; keeping
 // the font/stroke ratio fixed (72 / 10) reproduces the 3D die's outline weight.
@@ -32,6 +32,23 @@ function shade(color: number, f: number): number {
 	const g = Math.min(255, Math.round(((color >> 8) & 0xff) * f));
 	const b = Math.min(255, Math.round((color & 0xff) * f));
 	return (r << 16) | (g << 8) | b;
+}
+
+// Pixi anchors a Text by its layout box (ascent + descent), so glyphs with no
+// descender — like digits — end up sitting visually high. This measures the string's
+// actual ink bounds and returns how far (in authored font px) the ink centre lies
+// below the layout-box centre, so callers can nudge the text back to true centre.
+let measureCtx: CanvasRenderingContext2D | null = null;
+function glyphCentreOffset(str: string, fontSize: number, fontWeight: string): number {
+	if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+	if (!measureCtx) return 0;
+	measureCtx.font = `${fontWeight} ${fontSize}px Arial, sans-serif`;
+	measureCtx.textBaseline = 'alphabetic';
+	const m = measureCtx.measureText(str);
+	// Box centre and ink centre, both measured downward from the baseline.
+	const boxCentre = (m.fontBoundingBoxDescent - m.fontBoundingBoxAscent) / 2;
+	const inkCentre = (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2;
+	return inkCentre - boxCentre;
 }
 
 // Pixi is loaded once, lazily, and shared across every preview.
@@ -171,8 +188,10 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			const number = new Text({ text: str, style: numberStyle });
 			number.anchor.set(0.5);
 			const numberScale = (2 * NUMBER_SPAN * H) / number.height;
+			// Nudge down so the digit's ink — not its padded box — is vertically centred.
+			const centreY = fcy - glyphCentreOffset(str, NUMBER_FONT, '700') * numberScale;
 			number.scale.set(numberScale);
-			number.position.set(fcx, fcy);
+			number.position.set(fcx, centreY);
 
 			// A solid black copy, offset like the icon shadow (tint blacks out fill+stroke).
 			const numberShadow = new Text({ text: str, style: numberStyle });
@@ -180,7 +199,7 @@ export async function renderDieFaces(opts: RenderFacesOptions): Promise<HTMLCanv
 			numberShadow.scale.set(numberScale);
 			numberShadow.tint = SHADOW;
 			numberShadow.alpha = SHADOW_ALPHA;
-			numberShadow.position.set(fcx + SHADOW_DX * H, fcy + SHADOW_DY * H);
+			numberShadow.position.set(fcx + SHADOW_DX * H, centreY + SHADOW_DY * H);
 
 			root.addChild(numberShadow);
 			root.addChild(number);
