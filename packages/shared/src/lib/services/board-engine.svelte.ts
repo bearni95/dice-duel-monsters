@@ -895,6 +895,16 @@ let handToken = 0;
 // just under the player's red energy-dice row (see renderActionButtons).
 let actionLayer: Container | undefined;
 
+// The world-space layer holding each side's on-board energy read-out (the same battery
+// icon the sidebar uses plus the running total), one sitting just to the right of that
+// side's turn-start dice row. Built in init inside `camera` so the read-outs pan and
+// zoom with the board (see renderEnergyLabels).
+let energyLabelLayer: Container | undefined;
+// The battery-pack icon (the same /assets/icons/sbed/battery-pack.svg the sidebar's
+// DiceRoller masks) loaded once in init and tinted per side for the on-board read-out.
+// $state so renderEnergyLabels' $effect re-runs and paints the icons once it lands.
+let batteryTexture: Texture | null = $state(null);
+
 // Layout of the on-canvas action-button column: each button's width and height, the
 // vertical gap between stacked buttons, and the gap between the red dice row above and
 // the top of the column.
@@ -1309,6 +1319,76 @@ $effect(() => {
 	void specialReady;
 	void specialPrompt;
 	renderActionButtons();
+});
+
+// On-board energy read-out geometry. The battery icon is sized to the LP hearts
+// (TILE_HEIGHT tall) so both counters read at the same scale on the board; the total
+// sits ICON_TEXT_GAP to its right, and the whole group starts ENERGY_LABEL_GAP past the
+// right edge of the side's three-die row.
+const ENERGY_ICON_SIZE = TILE_HEIGHT;
+const ENERGY_ICON_TEXT_GAP = 6;
+const ENERGY_LABEL_GAP = 14;
+
+// Build one side's on-board energy read-out: the running total then the tinted battery
+// icon (number-then-icon, matching the sidebar's "You: 12 [icon]" order). Both are
+// vertically centered on the group origin so the caller can pin it to the dice row's
+// mid-line. Tinted to the side's dice color (red for the player, blue for the rival) so
+// each read-out reads as its own — echoing the network colors right beside it.
+function buildEnergyReadout(energy: number, tint: number): Container {
+	const c = new Container();
+
+	const label = new Text({
+		text: String(energy),
+		style: { fill: 0xffffff, fontSize: 22, fontWeight: 'bold' },
+		resolution: LABEL_RESOLUTION
+	});
+	label.anchor.set(0, 0.5);
+	c.addChild(label);
+
+	const icon = new Sprite(batteryTexture!);
+	icon.anchor.set(0, 0.5);
+	icon.scale.set(ENERGY_ICON_SIZE / batteryTexture!.height);
+	icon.tint = tint;
+	icon.position.set(label.width + ENERGY_ICON_TEXT_GAP, 0);
+	c.addChild(icon);
+
+	return c;
+}
+
+// (Re)draw both sides' on-board energy read-outs, each pinned just past the right edge
+// of that side's turn-start dice row and centered on its mid-line. A no-op until the
+// layer, texture and origins exist; reactive via the $effect below so each total tracks
+// its pool as energy is rolled and spent.
+function renderEnergyLabels() {
+	if (!energyLabelLayer || !batteryTexture) return;
+	for (const child of energyLabelLayer.removeChildren()) child.destroy();
+
+	// Horizontal reach of a three-die row from its box centre: the rightmost die's
+	// centre sits one cell (a quarter of the box) out, plus that die's own half-width.
+	const cell = DICE_WORLD_SIZE / 4;
+	const dieHalf = playerEnergyDice?.diceHalfExtent(3) ?? cell * 0.4;
+	const rowRightReach = cell + dieHalf;
+
+	const sides: Array<{ center: { x: number; y: number } | null; energy: number; tint: number }> = [
+		{ center: turnDiceCenterFor(redOrigin, false), energy: energyPoints, tint: 0xff3344 },
+		{ center: turnDiceCenterFor(blueOrigin, true), energy: cpuEnergy, tint: 0x4d8cff }
+	];
+
+	for (const { center, energy, tint } of sides) {
+		if (!center) continue;
+		const readout = buildEnergyReadout(energy, tint);
+		readout.position.set(center.x + rowRightReach + ENERGY_LABEL_GAP, center.y);
+		energyLabelLayer.addChild(readout);
+	}
+}
+
+// Repaint the read-outs whenever either pool changes or the battery icon finishes
+// loading (both sides' totals live in reactive $state; the texture is $state too).
+$effect(() => {
+	void energyPoints;
+	void cpuEnergy;
+	void batteryTexture;
+	renderEnergyLabels();
 });
 
 // Frame the whole isometric grid into the horizontal gap the two fixed side
@@ -3822,6 +3902,12 @@ app.stage.addChild(diceLayer);
 const worldDice = new Container();
 camera.addChild(worldDice);
 
+// The energy read-outs live in the camera too (world space) so they track the dice
+// rows they annotate, added above the dice layer so the icon and total read on top.
+energyLabelLayer = new Container();
+energyLabelLayer.eventMode = 'none';
+camera.addChild(energyLabelLayer);
+
 const pixi = { Container, Graphics, Text, Matrix };
 anchorDice = new Dice3D({ app, layer: diceLayer, pixi, boxSize: DICE_BOX_SIZE });
 playerEnergyDice = new Dice3D({ app, layer: worldDice, pixi, boxSize: DICE_WORLD_SIZE });
@@ -3861,6 +3947,10 @@ hpDice = new Dice3D({
 			// over each combat target as its clickable attack handle.
 			swordTexture = await Assets.load('/assets/icons/lorc/broadsword.svg');
 
+			// Load the battery-pack icon (the same one the sidebar's DiceRoller masks) for
+			// the on-board energy read-outs. Assigning it re-runs renderEnergyLabels' effect.
+			batteryTexture = await Assets.load('/assets/icons/sbed/battery-pack.svg');
+
 			// Each origin cell starts with 3 life points, shown as a stack of hearts.
 			// Kept as destroyable OriginCells so combat can whittle their life down.
 			redOrigin = {
@@ -3897,6 +3987,10 @@ hpDice = new Dice3D({
 			// Paint the action-button column now that the red origin (its anchor) exists;
 			// its $effect repaints it as the inspected unit, energy and turn flags change.
 			renderActionButtons();
+
+			// Paint both sides' energy read-outs now that the origins (their anchors) exist;
+			// their $effect repaints each total as its pool is rolled and spent.
+			renderEnergyLabels();
 
 			setupControls();
 
