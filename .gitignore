@@ -5,7 +5,7 @@ node_modules
 .vercel
 .netlify
 .wrangler
-/.svelte-kit
+.svelte-kit
 /build
 
 # OS
@@ -27,15 +27,4 @@ coverage/
 .vitest/
 
 # Build output
-/dist/
-
-# Assets (not tracked in git)
-/Textures/
-/ref/
-
-# Card source data (data/cards/) lives outside static/ and is never shipped.
-# The build assembles it into the only served card dataset, catalog.json.
-# Generated at build time from data/cards/cardinfo.json + assignments.json
-/static/cards/catalog.json
-# Intermediate batches from scripts/import-card-assets.mjs
-/data/cards/.partials/
+dist/

@@ -42,18 +42,19 @@ jobs:
 
       # `pnpm build` runs the card export (needs the committed app.db + the
       # sqlite3 CLI, preinstalled on ubuntu runners) then `vite build`, which
-      # emits the static SPA to dist/ with an index.html fallback.
+      # emits the static SPA to packages/frontend/dist with an index.html
+      # fallback. The root script delegates to the frontend workspace package.
       - name: Build static SPA
         run: pnpm build
 
       # Custom domain: GitHub Pages needs a CNAME in the published artifact so
       # the domain setting survives each deploy.
       - name: Add CNAME
-        run: echo 'ddm.bearni.io' > dist/CNAME
+        run: echo 'ddm.bearni.io' > packages/frontend/dist/CNAME
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: packages/frontend/dist
 
   deploy:
     needs: build
