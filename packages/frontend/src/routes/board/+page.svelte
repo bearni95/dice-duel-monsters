@@ -796,7 +796,7 @@ $effect(() => {
 });
 
 // The player's hand rendered as upright card PNGs (the same generated bitmaps the
-// right sidebar and the board plaques use) as a left-aligned pyramid at the grid's
+// right sidebar and the board plaques use) as two left-aligned rows at the grid's
 // bottom-left. Like the red/blue plaques it lives inside `camera`, so it pans and zooms
 // with the board — but unlike them the cards are drawn upright (plain sprites, no
 // isometric shear), standing rather than lying flat. Each card is two grid cells wide.
@@ -863,12 +863,12 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	handLayer.addChild(label);
 }
 
-// The player's hand is laid out as a left-aligned pyramid of three rows — 1 card in
-// the first, 2 in the second, 3 in the third (6 = HAND_SIZE) — filled in draw order.
-const HAND_ROWS = [1, 2, 3];
+// The player's hand is laid out as two left-aligned rows of 3 cards each
+// (6 = HAND_SIZE) — filled in draw order.
+const HAND_ROWS = [3, 3];
 
 // (Re)draw the player's hand from scratch for the current `hand` (in draw order), as a
-// left-aligned three-row pyramid of upright cards in the board's lower-left. The anchor
+// left-aligned two-row block of upright cards in the board's lower-left. The anchor
 // is computed in world coords from the grid's corner cells, so the block tracks the grid
 // as the camera pans/zooms, and every row shares the same left edge. Reactive to `hand`
 // and `energyPoints` (the latter drives the affordability dim); a no-op until the
@@ -887,10 +887,10 @@ async function renderHand() {
 		return;
 	}
 
-	// Left-align the pyramid just inside the grid's left corner (first col, last row) and
-	// grow the rows downward. The block is tall (three rows of upright cards), so bias its
+	// Left-align the block just inside the grid's left corner (first col, last row) and
+	// grow the rows downward. The block is tall (two rows of upright cards), so bias its
 	// vertical center below the grid's midline (worldCenterY = half the bottom corner's y,
-	// since the top corner sits at y=0) — this keeps the whole pyramid in the board's
+	// since the top corner sits at y=0) — this keeps the whole block in the board's
 	// lower-left rather than running off the bottom.
 	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
 	const bottomCorner = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
