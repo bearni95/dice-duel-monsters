@@ -5,9 +5,10 @@
 	"type": "module",
 	"description": "Git-tracked media baked by the admin tooling — currently the full-size card PNGs. This package is the single source of truth for those files; the frontend syncs them into its static tree to serve them.",
 	"bin": {
-		"sync-generated-cards": "scripts/sync-generated-cards.mjs"
+		"sync-generated-cards": "scripts/sync-generated-cards.mjs",
+		"sync-generated-dice": "scripts/sync-generated-dice.mjs"
 	},
 	"scripts": {
-		"sync": "node scripts/sync-generated-cards.mjs"
+		"sync": "node scripts/sync-generated-cards.mjs && node scripts/sync-generated-dice.mjs"
 	}
 }
