@@ -11,11 +11,15 @@
 	import { CreatureAdapter, type IGameCreature } from '$adapters/creature.adapter';
 	import type { CardEffectImplementation } from '$types/card-effect.type';
 	import { cardEffects, ensureCardEffects } from '$services/card-effects.service';
+	import { decks as deckStore, refreshDecks } from '$services/deck.service';
+	import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
+	import type { Deck } from '$types/deck.type';
 
-	// Server-side paginated card browser, mirroring the /database page's data flow:
-	// each page and every filter change is a fresh /database/cards call. Shows every
-	// card type through the shared CardTile renderer; monsters only surface once
-	// they have a cutout (billboard) prepared for the board.
+	// Paginated browser over just the cards that belong to the saved decks (the
+	// /decks page's decks), distinct by id. The deck set is read from the deck
+	// store, so newly imported decks surface their cards here automatically. Each
+	// page and every filter change re-queries the prebuilt catalog client-side,
+	// restricted to the deck-derived card ids, through the shared CardTile renderer.
 	const LIMIT = 24;
 	const cardApiAdapter = new CardApiAdapter();
 	cardApiAdapter.limit = LIMIT;
@@ -25,6 +29,29 @@
 	let cards = $state<CardAsset[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
+
+	// The union of every saved deck's enabled card ids (and separately their forced
+	// ids), derived from the deck store. These drive which cards the browser shows;
+	// they update whenever a deck is added, edited, or removed.
+	let deckCardIds = $state<number[]>([]);
+	let deckForcedIds = $state<number[]>([]);
+
+	// Recompute the deck-derived card set on every store change and reload from the
+	// first page, so newly imported decks immediately show their cards. The store
+	// starts empty and is populated by refreshDecks() in onMount.
+	deckStore.subscribe((list: Deck[]) => {
+		const ids = new Set<number>();
+		const forced = new Set<number>();
+		for (const deck of list) {
+			for (const id of enabledCardIds(deck, [...deck.main, ...deck.extra, ...deck.side])) {
+				ids.add(id);
+			}
+			for (const id of forcedCardIds(deck)) forced.add(id);
+		}
+		deckCardIds = [...ids];
+		deckForcedIds = [...forced];
+		reload();
+	});
 
 	let search = $state('');
 	let categoryFilter = $state('all');
@@ -76,7 +103,9 @@
 		loading = true;
 		loadError = '';
 		try {
-			const res = await cardApiAdapter.loadCatalog(
+			const res = await cardApiAdapter.loadDeckCatalog(
+				deckCardIds,
+				deckForcedIds,
 				page,
 				search,
 				categoryFilter,
@@ -130,7 +159,9 @@
 	}
 
 	onMount(() => {
-		loadCards();
+		// Load the saved decks; the store subscription above reloads the card grid
+		// once they arrive. ensureCardEffects backs the per-tile effect counts.
+		refreshDecks();
 		ensureCardEffects();
 	});
 </script>

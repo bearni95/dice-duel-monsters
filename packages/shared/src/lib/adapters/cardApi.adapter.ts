@@ -120,6 +120,68 @@ export class CardApiAdapter extends AdapterClass {
         };
     }
 
+    // Browse only the cards that belong to the saved decks, distinct by id, with
+    // the same filter/pagination UI the full catalog uses. `deckCardIds` is the
+    // union of every deck's enabled card ids and `forcedIds` the union of their
+    // forced ids, so the resolved set mirrors exactly what the /decks page renders
+    // (playable cards, plus forced ones). The catalog holds one entry per id, so
+    // restricting to the id set is inherently deduplicated. Facets and pagination
+    // are then computed over that restricted set, so the filter dropdowns only
+    // offer values present in the decks.
+    async loadDeckCatalog(
+        deckCardIds: number[],
+        forcedIds: number[] = [],
+        p: number = 1,
+        q: string = '',
+        category: string = 'all',
+        subType: string = 'all',
+        attr: string = 'all',
+        race: string = 'all'
+    ) {
+        const uniqueIds = [...new Set(deckCardIds)];
+        if (!uniqueIds.length) {
+            return {
+                cards: [] as CardAsset[],
+                total: 0,
+                availableAttributes: [] as string[],
+                availableRaces: [] as string[],
+                monsterTypes: [] as string[],
+                spellTypes: [] as string[],
+                trapTypes: [] as string[]
+            };
+        }
+
+        const catalog = await loadCatalogData();
+        // Restrict to the deck-derived, playable (or forced) cards — one entry per
+        // id, matching the /decks page resolution.
+        const restricted = queryCatalog(catalog, {
+            ids: uniqueIds,
+            playable: true,
+            force: [...new Set(forcedIds)]
+        }).cards;
+
+        // Apply the UI filters + pagination over just those cards.
+        const data = queryCatalog(restricted, {
+            limit: this.limit,
+            offset: (p - 1) * this.limit,
+            q,
+            category,
+            subType,
+            attribute: attr,
+            race
+        });
+
+        return {
+            cards: data.cards as CardAsset[],
+            total: data.total,
+            availableAttributes: data.availableAttributes,
+            availableRaces: data.availableRaces,
+            monsterTypes: data.monsterTypes,
+            spellTypes: data.spellTypes,
+            trapTypes: data.trapTypes
+        };
+    }
+
     // Resolve a list of card ids into their raw card assets, preserving the order
     // they appear in and keeping duplicates so deck copy counts survive. Only
     // playable cards come back: vanilla monsters, plain Effect Monsters, and
