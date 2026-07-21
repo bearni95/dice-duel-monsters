@@ -65,6 +65,17 @@ export interface DiceTemplateConfig {
 export const DICE_RARITY_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 export type DiceRarity = (typeof DICE_RARITY_LEVELS)[number];
 
+// A side's energy, split into one pool per die role. Each turn-start dice roll
+// feeds the pool matching each landed face's role, and each action spends the
+// pool of its own kind: summoning from `summon`, moving from `move`, attacking
+// from `attack`.
+export type EnergyPools = Record<DiceRole, number>;
+
+// A fresh, empty set of energy pools.
+export function emptyEnergyPools(): EnergyPools {
+	return { move: 0, summon: 0, attack: 0 };
+}
+
 // A concrete die produced by spawning a template at a rarity: a full
 // DiceDefinition plus the template/role/rarity it came from, for grouping and
 // labelling in the UI.

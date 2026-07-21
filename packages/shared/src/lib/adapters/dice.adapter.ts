@@ -4,6 +4,8 @@ import {
 	DICE_RARITY_LEVELS,
 	type DiceDefinition,
 	type DiceFace,
+	type DiceRole,
+	type DiceRoleConfig,
 	type DiceTemplate,
 	type DiceTemplateConfig,
 	type DistinctFace,
@@ -198,6 +200,52 @@ export class DiceAdapter extends AdapterClass {
 		const all = this.spawnAll(config);
 		if (all.length === 0) return [];
 		return Array.from({ length: count }, () => all[Math.floor(Math.random() * all.length)].id);
+	}
+
+	// --- Energy dice (turn-start rolls on the board) ---------------------------
+
+	// An icon→role lookup for the config, so a landed face can be traced back to the
+	// role it scores. Each role carries a distinct icon (see the roles map), so the
+	// icon painted on a face is enough to recover which pool it feeds.
+	roleByIcon(config: DiceTemplateConfig): Map<string, DiceRole> {
+		return new Map(
+			(Object.entries(config.roles) as [DiceRole, DiceRoleConfig][]).map(([role, cfg]) => [
+				cfg.icon,
+				role
+			])
+		);
+	}
+
+	// The role and numeric value a die contributes when it lands on `face` (its
+	// 1-based face index). The role is recovered from the face's icon; the value is
+	// the number baked on that face. Returns null for an out-of-range face or an
+	// icon that maps to no role.
+	faceEnergy(
+		config: DiceTemplateConfig,
+		die: DiceDefinition,
+		face: number,
+		roleByIcon?: Map<string, DiceRole>
+	): { role: DiceRole; value: number } | null {
+		const f = die.faces[face - 1];
+		if (!f) return null;
+		const role = (roleByIcon ?? this.roleByIcon(config)).get(f.icon);
+		if (!role) return null;
+		const value = parseInt(f.value, 10);
+		return { role, value: Number.isNaN(value) ? 0 : value };
+	}
+
+	// The fallback dice a side rolls when it owns none: one rarity-1 die of each of
+	// the first three templates (Move / Summon / Attack), so energy still splits
+	// across the three pools and each die carries real baked face art.
+	starterDice(config: DiceTemplateConfig): SpawnedDie[] {
+		return config.templates.slice(0, 3).map((t) => this.spawn(config, t, 1));
+	}
+
+	// Pick `count` dice at random (with repeats) from a resolved list — the rival's
+	// turn-start pick from the player's owned dice.
+	randomDice(dice: SpawnedDie[], count: number): SpawnedDie[] {
+		if (dice.length === 0) return [];
+		return Array.from({ length: count }, () => dice[Math.floor(Math.random() * dice.length)]);
 	}
 }
 
