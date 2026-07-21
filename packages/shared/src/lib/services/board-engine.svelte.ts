@@ -33,7 +33,7 @@ import rollDie from '$utils/dice/rollDie';
 import { Dice3D } from '$utils/dice/dice3d';
 import { shuffle } from '$utils/board/shuffle';
 import { cellLabel } from '$utils/board/coords';
-import { NEIGHBOR_OFFSETS, offsetsForRotation } from '$utils/board/diceNet';
+import { DICE_NETS, NEIGHBOR_OFFSETS, offsetsForRotation } from '$utils/board/diceNet';
 import { pSingleDie, pAnyDie } from '$utils/board/cpuScoring';
 import { opaqueBounds } from '$utils/board/opaqueBounds';
 import type { Side, PlacedUnit, OriginCell, CpuMove, CardPlaque, SortKey } from '$types/board.type';
@@ -1943,6 +1943,10 @@ function tileKey(x: number, y: number) {
 // Current orientation of the dice net, in 90° clockwise steps (0..3). Rotated
 // with the mouse wheel while a creature is selected for summoning.
 let netRotation = 0;
+// Which of the 11 unique cube nets (see DICE_NETS) the player's summons and Unfold
+// actions currently lay. The default (index 0) is the classic cross/T net; the
+// in-canvas net picker sets this for the current and every following net action.
+let activeNetIndex = $state(0);
 // Last grid cell the pointer hovered, so a wheel-rotation can re-render the
 // preview in place.
 let hoverTile: { x: number; y: number } | null = null;
@@ -1956,9 +1960,9 @@ let unfolding = $state(false);
 // The fixed energy cost of a standalone Unfold action.
 const UNFOLD_COST = 6;
 
-// The dice-net offsets rotated by the current player orientation.
+// The active dice net's offsets rotated by the current player orientation.
 function rotatedOffsets(): Array<[number, number]> {
-	return offsetsForRotation(netRotation);
+	return offsetsForRotation(netRotation, DICE_NETS[activeNetIndex]);
 }
 
 // Whether the cell is painted the given network color.
@@ -3511,6 +3515,174 @@ function clearPreview() {
 	}
 }
 
+// --- In-canvas dice-net picker ------------------------------------------------
+// A right-triangle panel tucked under the grid's south-west edge: its hypotenuse runs
+// along that edge from the grid's leftmost point to its bottommost point, and the right
+// angle sits at the bottom-left corner of the board's bounding box. It shows all 11
+// unique ways a d6 unfolds; clicking one makes that net the shape every following
+// summon / Unfold lays. Only visible while the player is choosing a placement (a
+// creature selected, or Unfold mode). It lives in `camera`, so it stays glued to those
+// grid corners as the board pans and zooms.
+let netPanel: Container | undefined;
+type NetThumb = { container: Container; bg: Graphics; glyph: Graphics; index: number };
+let netThumbs: NetThumb[] = [];
+
+// Inset from the triangle's edges, and how many thumbnails sit in each row from top to
+// bottom — rows widen toward the bottom to match the triangle (1 + 2 + 3 + 5 = 11).
+const NET_PANEL_MARGIN = 16;
+const NET_PANEL_ROWS = [1, 2, 3, 5];
+const NET_THUMB_SIZE = 34;
+
+// Build the picker once: the translucent triangle backdrop plus the 11 net thumbnails,
+// laid into rows centered between the left leg and the hypotenuse at each row's height.
+function buildNetPanel() {
+	if (!camera) return;
+
+	const panel = new Container();
+	// 'passive' so the layer itself isn't hit-tested but its thumbnail children still
+	// receive clicks (the same treatment the hand and action layers use).
+	panel.eventMode = 'passive';
+	panel.visible = false;
+
+	// The triangle's three corners in world space. The grid's leftmost / bottommost
+	// diamond vertices are a half-tile out from those corner cells' centers; the right
+	// angle is the bottom-left of the board's bounding box.
+	const left = {
+		x: isoPosOf(0, GRID_HEIGHT - 1).x - TILE_WIDTH / 2,
+		y: isoPosOf(0, GRID_HEIGHT - 1).y
+	};
+	const bottom = {
+		x: isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1).x,
+		y: isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1).y + TILE_HEIGHT / 2
+	};
+	const corner = { x: left.x, y: bottom.y };
+
+	// Filled triangle with a faint red edge, matching the player's red network.
+	const bg = new Graphics();
+	bg.moveTo(corner.x, corner.y).lineTo(left.x, left.y).lineTo(bottom.x, bottom.y).closePath();
+	bg.fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1.5, color: CELL_RED, alpha: 0.7 });
+	bg.eventMode = 'none';
+	panel.addChild(bg);
+
+	// x of the hypotenuse at a given y (the right boundary of the usable area; the left
+	// boundary is the vertical left leg).
+	const hypX = (y: number) => left.x + ((y - left.y) * (bottom.x - left.x)) / (bottom.y - left.y);
+	const band = (bottom.y - left.y - NET_PANEL_MARGIN * 2) / NET_PANEL_ROWS.length;
+
+	netThumbs = [];
+	let index = 0;
+	NET_PANEL_ROWS.forEach((count, row) => {
+		const cy = left.y + NET_PANEL_MARGIN + band * (row + 0.5);
+		const rowLeft = corner.x + NET_PANEL_MARGIN;
+		const rowRight = hypX(cy) - NET_PANEL_MARGIN;
+		const slot = (rowRight - rowLeft) / count;
+
+		for (let k = 0; k < count && index < DICE_NETS.length; k++, index++) {
+			const thumb = buildNetThumb(index, rowLeft + slot * (k + 0.5), cy);
+			netThumbs.push(thumb);
+			panel.addChild(thumb.container);
+		}
+	});
+
+	netPanel = panel;
+	camera.addChild(panel);
+	paintNetPanel();
+}
+
+// A single clickable thumbnail: a rounded background plus the net's glyph, selecting
+// its net on tap.
+function buildNetThumb(index: number, cx: number, cy: number): NetThumb {
+	const container = new Container();
+	container.position.set(cx, cy);
+	container.eventMode = 'static';
+	container.cursor = 'pointer';
+
+	const bg = new Graphics();
+	const glyph = new Graphics();
+	glyph.eventMode = 'none';
+	container.addChild(bg);
+	container.addChild(glyph);
+
+	container.on('pointertap', () => selectNet(index));
+
+	return { container, bg, glyph, index };
+}
+
+// Adopt a net as the active one and re-light the picker, then refresh the live hover
+// preview so the new shape appears immediately under the pointer.
+function selectNet(index: number) {
+	if (index === activeNetIndex) return;
+	activeNetIndex = index;
+	paintNetPanel();
+
+	if (hoverTile) {
+		if (selectedMonster?.billboard) showPreview(selectedMonster.billboard, hoverTile.x, hoverTile.y);
+		else if (unfolding) showNetPreview(hoverTile.x, hoverTile.y);
+	}
+}
+
+// (Re)draw every thumbnail so the active net reads red and lit while the rest stay gray.
+function paintNetPanel() {
+	const half = NET_THUMB_SIZE / 2;
+
+	for (const thumb of netThumbs) {
+		const active = thumb.index === activeNetIndex;
+
+		thumb.bg.clear();
+		thumb.bg
+			.roundRect(-half, -half, NET_THUMB_SIZE, NET_THUMB_SIZE, 5)
+			.fill({ color: active ? 0x3a1213 : 0x141414, alpha: 0.95 })
+			.stroke({
+				width: active ? 1.5 : 1,
+				color: active ? CELL_RED : 0x555555,
+				alpha: active ? 1 : 0.8
+			});
+
+		drawNetGlyph(thumb.glyph, DICE_NETS[thumb.index], active);
+	}
+}
+
+// Draw a net's six cells as flat squares centered in a thumbnail, scaled to fit its
+// bounding box. The crossroads cell (0, 0) is drawn a touch brighter so the shape's
+// anchor reads.
+function drawNetGlyph(g: Graphics, net: Array<[number, number]>, active: boolean) {
+	g.clear();
+
+	const xs = net.map(([dx]) => dx);
+	const ys = net.map(([, dy]) => dy);
+	const minX = Math.min(...xs);
+	const minY = Math.min(...ys);
+	const cols = Math.max(...xs) - minX + 1;
+	const rows = Math.max(...ys) - minY + 1;
+
+	const cell = (NET_THUMB_SIZE * 0.78) / Math.max(cols, rows);
+	// Center the polyomino's bounding box on the thumbnail's origin.
+	const originX = -(cols * cell) / 2 - minX * cell;
+	const originY = -(rows * cell) / 2 - minY * cell;
+	const pad = cell * 0.09;
+
+	for (const [dx, dy] of net) {
+		const crossroads = dx === 0 && dy === 0;
+		g.rect(
+			originX + dx * cell + pad,
+			originY + dy * cell + pad,
+			cell - pad * 2,
+			cell - pad * 2
+		).fill({
+			color: active ? (crossroads ? 0xff6666 : CELL_RED) : 0x888888,
+			alpha: active ? (crossroads ? 1 : 0.85) : 0.7
+		});
+	}
+}
+
+// Show the net picker only while the player is choosing where to lay a net — a normal
+// creature selected for summoning, or standalone Unfold mode — and never once the match
+// is over. It stays put through the whole placement so the shape can be changed mid-aim.
+$effect(() => {
+	const show = (!!selectedMonster?.billboard || unfolding) && !gameOver;
+	if (netPanel) netPanel.visible = show;
+});
+
 
 	// Boot the board into `hostEl` (the flex canvas host) and measure `leftPanelEl`
 	// (the floating dice panel) so the grid frames into the free space beside it.
@@ -3607,6 +3779,11 @@ camera.addChild(handLayer);
 actionLayer = new Container();
 actionLayer.eventMode = 'passive';
 camera.addChild(actionLayer);
+
+// The in-canvas dice-net picker, in the empty triangle below the grid's south-west
+// edge. Added above the board layers so its thumbnails read on top; hidden until a
+// net action starts (see the visibility $effect).
+buildNetPanel();
 
 app.stage.addChild(camera);
 
