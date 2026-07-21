@@ -72,6 +72,19 @@ function isPlainEffectMonster(card: CardItem): boolean {
 	return card.type === 'Effect Monster';
 }
 
+// A Fusion or Ritual monster (any of their `type` variants — "Fusion Monster",
+// "Ritual Monster", "Ritual Effect Monster", "Pendulum Effect Fusion Monster",
+// "Pendulum Effect Ritual Monster", …). These are now treated as playable on
+// their own, like vanilla and plain Effect Monsters, without needing a scripted
+// effect assigned.
+function isFusionOrRitualMonster(card: CardItem): boolean {
+	return (
+		categoryOf(card) === 'monster' &&
+		typeof card.type === 'string' &&
+		(card.type.includes('Fusion') || card.type.includes('Ritual'))
+	);
+}
+
 // The card-effect assignments (`cardId -> implementations[]`) authored on
 // /cards, persisted alongside the card catalog. A card is "playable" when
 // it has at least one implementation here (or is a vanilla monster).
@@ -149,10 +162,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			return isMonster ? Boolean(card.billboard) : true;
 		});
 	}
-	// Keep only cards that are actually playable: vanilla monsters and plain Effect
-	// Monsters (playable on their own), plus any other card (gimmick monster, spell,
-	// or trap) that has at least one effect assigned. Used by deck previews so the
-	// remaining special-summon monsters and spell/traps without effects are hidden.
+	// Keep only cards that are actually playable: vanilla monsters, plain Effect
+	// Monsters, and Fusion/Ritual monsters (all playable on their own), plus any
+	// other card (remaining gimmick monster, spell, or trap) that has at least one
+	// effect assigned. Used by deck previews so the remaining special-summon
+	// monsters and spell/traps without effects are hidden.
 	// This is authoritative here rather than in the client. The optional `force`
 	// list (a deck's forced card ids) overrides the verdict, so those cards pass
 	// even when they wouldn't otherwise be playable.
@@ -168,7 +182,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			: null;
 		filtered = filtered.filter((card) => {
 			if (forceSet?.has(card.id)) return true;
-			if (isVanillaMonster(card) || isPlainEffectMonster(card)) return true;
+			if (
+				isVanillaMonster(card) ||
+				isPlainEffectMonster(card) ||
+				isFusionOrRitualMonster(card)
+			)
+				return true;
 			const impls = effects[String(card.id)];
 			return Array.isArray(impls) && impls.length > 0;
 		});
