@@ -487,9 +487,12 @@ export function createBoardEngine() {
 		pickingDice = false;
 		dicePick = [];
 		const picked = dice.slice(0, 3);
+		// Pull the picked dice out of the pool up front so they vanish from the grid the
+		// moment Roll is hit (leaving their slots empty); the throw then plays out with them
+		// already gone, and we still await it before banking the energy.
+		playerDice = consumeDice(playerDice, picked);
 		const center = turnDiceCenterFor(redOrigin, false) ?? { x: 0, y: 0 };
 		await rollEnergyDice(playerEnergyDice, picked, center, energy);
-		playerDice = consumeDice(playerDice, picked);
 		energyRolled = true;
 	}
 
