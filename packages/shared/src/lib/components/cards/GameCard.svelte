@@ -8,8 +8,10 @@
 	import { effectsService } from "$services/effect.service";
 	import { effectAdapter } from "$adapters/effect.adapter";
 	import { cardEffects, ensureCardEffects } from "$services/card-effects.service";
+	import { spells, ensureSpells } from "$services/spell.service";
 	import type { CardEffect } from "$types/effect.type";
 	import type { CardEffectImplementation } from "$types/card-effect.type";
+	import type { SpellDefinition } from "$types/spell.type";
 
 	export type CardAsset = {
 		id: number;
@@ -52,6 +54,16 @@
 
 	let effectsMap = $state<Record<string, CardEffectImplementation[]>>({});
 	cardEffects.subscribe((v) => (effectsMap = v));
+
+	// The six board spells (see /spells), mirrored so a card that represents a spell
+	// can print that spell's effect text at its bottom. A spell is linked to a
+	// magic/trap card by id on the /spells page.
+	let spellList = $state<SpellDefinition[]>([]);
+	spells.subscribe((v) => (spellList = v));
+
+	// The spell this card visually represents, if any — matched by the spell's
+	// associated card id. Its description is rendered as the card's bottom text.
+	const spellForCard = $derived(spellList.find((s) => s.card?.id === card.id) ?? null);
 
 	const isSpellOrTrap = $derived.by(() => {
 		const type = (card.type ?? '').toLowerCase();
@@ -108,7 +120,10 @@
 
 	// Load the linked-effects map once (guarded by the service's own flag) so the
 	// overlay works wherever a card renders, without the parent wiring it up.
-	onMount(ensureCardEffects);
+	onMount(() => {
+		ensureCardEffects();
+		ensureSpells();
+	});
 </script>
 
 <!-- One stat laid out horizontally — icon on the left, value on the right — for the
@@ -239,6 +254,17 @@
 				{@render statRow('Reach', '[mask-image:url(/assets/icons/lorc/arrowhead.svg)]', card.reach)}
 				{@render statRow('Def', '[mask-image:url(/assets/icons/lorc/edged-shield.svg)]', card.def)}
 				{@render statRow('SPD', '[mask-image:url(/assets/icons/lorc/walking-boot.svg)]', card.speed)}
+			</div>
+		{/if}
+
+		<!-- Spell effect text: for a card that represents a board spell, its effect
+		     (authored on /spells) is printed at the bottom, in the same white/50 boxed,
+		     drop-shadowed treatment as the rest of the card copy. -->
+		{#if spellForCard?.description}
+			<div
+				class="rounded bg-white/50 px-1.5 py-1 text-center text-[9px] leading-snug font-semibold text-white [filter:drop-shadow(0_0_1px_#000)_drop-shadow(0_0_1px_#000)]"
+			>
+				{spellForCard.description}
 			</div>
 		{/if}
 
