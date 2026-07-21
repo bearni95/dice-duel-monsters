@@ -69,11 +69,11 @@
 
 	// The distinct owned dice as canvas specs — one shared WebGL canvas tumbles them
 	// all, in the same order as `ownedDice` so the count labels line up underneath.
+	// Each die's faces come from its baked PNGs, so the id (and body tint) is all the
+	// canvas needs.
 	let diceSpecs = $derived<DieSpec[]>(
 		ownedDice.map(({ die }) => ({
 			id: die.id,
-			faceIcons: diceAdapter.faceIcons(die),
-			faceLabels: diceAdapter.faceLabels(die),
 			color: diceAdapter.colorNumber(die)
 		}))
 	);

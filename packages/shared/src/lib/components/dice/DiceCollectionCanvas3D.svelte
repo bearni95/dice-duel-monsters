@@ -1,12 +1,11 @@
 <script module lang="ts">
-	// One die in the collection: its six face icon URLs and the corner-badge value
-	// painted on each face (index 0 => face 1 … 5 => face 6) plus an optional body
-	// tint. Declared in the module script so pages can import the type alongside the
-	// component.
+	// One die in the collection. The six faces are drawn from the die's baked PNGs
+	// (`/dice/generated/<id>-<face>.png`, exported by the admin /dice page), so a die
+	// is identified by its id alone; the optional body tint only shades the backing
+	// polygon behind each textured face. Declared in the module script so pages can
+	// import the type alongside the component.
 	export interface DieSpec {
 		id: string;
-		faceIcons: string[];
-		faceLabels: string[];
 		color?: number;
 	}
 </script>
@@ -24,20 +23,21 @@
 		type Quat,
 		type Vec3
 	} from '$utils/dice/cube3d';
-	import type { Application, Graphics, Sprite, Texture, Text as PixiText, Matrix } from 'pixi.js';
+	import type { Application, Graphics, Sprite, Texture, Matrix } from 'pixi.js';
 
 	// A whole collection of icon dice drawn in ONE PixiJS WebGL canvas, laid out as
 	// a single horizontal strip: one die per column. Every die tumbles slowly and
-	// forever on its own axis and paints its per-face value badge (the same faces
-	// /dice shows); nothing is interactive. Carrying per-die icons/labels/colour
-	// lets any number of *different* dice share one WebGL context instead of paying
-	// one context each.
+	// forever on its own axis, each of its six faces textured with the die's baked
+	// face PNG (the same art /dice exports); nothing is interactive. Carrying per-die
+	// ids/colour lets any number of *different* dice share one WebGL context instead
+	// of paying one context each.
 
 	let {
 		dice: specs = [] as DieSpec[],
 		tileSize = 88,
 		spinSpeed = 0.5,
-		defaultColor = 0xd7382f
+		defaultColor = 0xd7382f,
+		faceSrcBase = '/dice/generated'
 	}: {
 		dice?: DieSpec[];
 		// Pixel size of each square die tile (also the strip height).
@@ -45,16 +45,15 @@
 		// Base tumble speed in radians/second; each die varies slightly around it.
 		spinSpeed?: number;
 		defaultColor?: number;
+		// Directory the baked face PNGs are served from; a die's face N loads from
+		// `${faceSrcBase}/${id}-${N}.png`.
+		faceSrcBase?: string;
 	} = $props();
 
-	const TINT = 0xf7f3ea;
-	const SHADOW = 0x000000;
-	const SHADOW_ALPHA = 0.5;
-	const SHADOW_DX = 0.055;
-	const SHADOW_DY = 0.069;
-	const ICON_SPAN = 0.92;
-	const LABEL_SPAN = 0.24;
-	const LABEL_MARGIN = 0.1;
+	// The face plane spans u,v in [-1, 1], so a span of 1 covers the whole face — the
+	// baked PNG is full-bleed (body colour, edge and icon/value baked in) and is laid
+	// edge to edge over each face.
+	const FACE_SPAN = 1;
 	const CAM_Z = 5;
 	const FOCAL = 3.6;
 
@@ -63,12 +62,11 @@
 	let g: Graphics | null = null;
 	let MatrixCtor: new (a: number, b: number, c: number, d: number, tx: number, ty: number) => Matrix;
 	let SpriteCtor: typeof import('pixi.js').Sprite;
-	let TextCtor: typeof import('pixi.js').Text;
 	let AssetsRef: typeof import('pixi.js').Assets;
 	let ready = false;
 
-	// A single tumbling die in the strip. Carries its own sprites so dice with
-	// different icons coexist in one canvas, plus the axis/speed it spins on.
+	// A single tumbling die in the strip. Carries its own six face sprites so dice
+	// with different art coexist in one canvas, plus the axis/speed it spins on.
 	interface Cell {
 		cubeQ: Quat;
 		axis: Vec3;
@@ -77,11 +75,8 @@
 		cy: number;
 		scale: number;
 		color: number;
-		icons: Sprite[];
-		shadows: Sprite[];
-		iconHalf: Array<[number, number]>;
-		labels: Array<PixiText | null>;
-		labelHalf: Array<[number, number]>;
+		faces: Sprite[];
+		faceHalf: Array<[number, number]>;
 	}
 
 	let cells: Cell[] = [];
@@ -109,59 +104,27 @@
 		return [cx + p[0] * persp * scale, cy - p[1] * persp * scale, persp];
 	}
 
-	// Load (and cache) the six face textures for a die spec, in face order.
+	// Load (and cache) the six baked face PNGs for a die, in face order — face N is
+	// served from `${faceSrcBase}/${id}-${N}.png`.
 	async function loadTextures(spec: DieSpec): Promise<Texture[]> {
-		return Promise.all(spec.faceIcons.map((url) => AssetsRef.load<Texture>(url)));
+		return Promise.all(
+			Array.from({ length: 6 }, (_, i) =>
+				AssetsRef.load<Texture>(`${faceSrcBase}/${spec.id}-${i + 1}.png`)
+			)
+		);
 	}
 
 	function makeCell(spec: DieSpec, textures: Texture[], cx: number, cy: number, scale: number): Cell {
 		const color = spec.color ?? defaultColor;
-		const icons: Sprite[] = [];
-		const shadows: Sprite[] = [];
-		const iconHalf: Array<[number, number]> = [];
-		// Shadows first so every icon composites above every drop-shadow of this cell.
-		for (let n = 1; n <= 6; n++) {
-			const shadow = new SpriteCtor(textures[n - 1]);
-			shadow.anchor.set(0.5);
-			shadow.tint = SHADOW;
-			shadow.alpha = SHADOW_ALPHA;
-			shadow.visible = false;
-			shadows.push(shadow);
-			app?.stage.addChild(shadow);
-		}
+		const faces: Sprite[] = [];
+		const faceHalf: Array<[number, number]> = [];
 		for (let n = 1; n <= 6; n++) {
 			const sprite = new SpriteCtor(textures[n - 1]);
 			sprite.anchor.set(0.5);
-			sprite.tint = TINT;
 			sprite.visible = false;
-			icons.push(sprite);
-			iconHalf.push([sprite.width / 2, sprite.height / 2]);
+			faces.push(sprite);
+			faceHalf.push([sprite.width / 2, sprite.height / 2]);
 			app?.stage.addChild(sprite);
-		}
-		const labels: Array<PixiText | null> = [];
-		const labelHalf: Array<[number, number]> = [];
-		for (let n = 1; n <= 6; n++) {
-			const str = spec.faceLabels[n - 1];
-			if (!str) {
-				labels.push(null);
-				labelHalf.push([1, 1]);
-				continue;
-			}
-			const text = new TextCtor({
-				text: str,
-				style: {
-					fontFamily: 'Arial, sans-serif',
-					fontSize: 72,
-					fontWeight: '700',
-					fill: TINT,
-					stroke: { color: SHADOW, width: 10, join: 'round' }
-				}
-			});
-			text.anchor.set(0.5);
-			text.visible = false;
-			labels.push(text);
-			labelHalf.push([text.width / 2, text.height / 2]);
-			app?.stage.addChild(text);
 		}
 		return {
 			cubeQ: randomQuat(),
@@ -172,18 +135,14 @@
 			cy,
 			scale,
 			color,
-			icons,
-			shadows,
-			iconHalf,
-			labels,
-			labelHalf
+			faces,
+			faceHalf
 		};
 	}
 
 	function clearCells() {
 		for (const cell of cells) {
-			for (const node of [...cell.shadows, ...cell.icons, ...cell.labels]) {
-				if (!node) continue;
+			for (const node of cell.faces) {
 				node.parent?.removeChild(node);
 				node.destroy();
 			}
@@ -191,12 +150,20 @@
 		cells = [];
 	}
 
-	function positionIcon(cell: Cell, face: (typeof CUBE_FACES)[number], worldQ: Quat) {
-		const icon = cell.icons[face.value - 1];
-		const shadow = cell.shadows[face.value - 1];
-		if (!icon || !MatrixCtor) return;
-		const [hw, hh] = cell.iconHalf[face.value - 1];
-		const spanV = ICON_SPAN;
+	// Lay a face's baked PNG edge to edge over its projected quad. The PNG is
+	// full-bleed square art, so an affine map from three face-plane points (centre,
+	// +right, +up) fits it to the face; `light` (0..1) tints it so faces angled away
+	// darken exactly like the backing polygon.
+	function positionFace(
+		cell: Cell,
+		face: (typeof CUBE_FACES)[number],
+		worldQ: Quat,
+		light: number
+	) {
+		const sprite = cell.faces[face.value - 1];
+		if (!sprite || !MatrixCtor) return;
+		const [hw, hh] = cell.faceHalf[face.value - 1];
+		const spanV = FACE_SPAN;
 		const spanU = spanV * (hw / hh);
 		const at = (u: number, v: number): [number, number] => {
 			const [x, y] = project(
@@ -218,52 +185,15 @@
 		const b = (ry - cy) / hw;
 		const c = (cx - ux) / hh;
 		const d = (cy - uy) / hh;
-		if (shadow) {
-			shadow.visible = true;
-			shadow.setFromMatrix(
-				new MatrixCtor(a, b, c, d, cx + SHADOW_DX * cell.scale, cy + SHADOW_DY * cell.scale)
-			);
-		}
-		icon.visible = true;
-		icon.setFromMatrix(new MatrixCtor(a, b, c, d, cx, cy));
-	}
-
-	function positionLabel(cell: Cell, face: (typeof CUBE_FACES)[number], worldQ: Quat) {
-		const label = cell.labels[face.value - 1];
-		if (!label || !MatrixCtor) return;
-		const [hw, hh] = cell.labelHalf[face.value - 1];
-		const spanV = LABEL_SPAN;
-		const spanU = spanV * (hw / hh);
-		const u0 = 1 - LABEL_MARGIN - spanU;
-		const v0 = 1 - LABEL_MARGIN / 2 - spanV;
-		const at = (u: number, v: number): [number, number] => {
-			const [x, y] = project(
-				rotateVec(worldQ, [
-					face.normal[0] + face.right[0] * u + face.up[0] * v,
-					face.normal[1] + face.right[1] * u + face.up[1] * v,
-					face.normal[2] + face.right[2] * u + face.up[2] * v
-				]),
-				cell.cx,
-				cell.cy,
-				cell.scale
-			);
-			return [x, y];
-		};
-		const [cx, cy] = at(u0, v0);
-		const [rx, ry] = at(u0 + spanU, v0);
-		const [ux, uy] = at(u0, v0 + spanV);
-		label.visible = true;
-		label.setFromMatrix(
-			new MatrixCtor((rx - cx) / hw, (ry - cy) / hw, (cx - ux) / hh, (cy - uy) / hh, cx, cy)
-		);
+		sprite.visible = true;
+		sprite.tint = shade(0xffffff, light);
+		sprite.setFromMatrix(new MatrixCtor(a, b, c, d, cx, cy));
 	}
 
 	function draw() {
 		if (!g) return;
 		g.clear();
-		for (const cell of cells)
-			for (const node of [...cell.shadows, ...cell.icons, ...cell.labels])
-				if (node) node.visible = false;
+		for (const cell of cells) for (const node of cell.faces) node.visible = false;
 
 		for (const cell of cells) {
 			const worldQ = cell.cubeQ;
@@ -288,11 +218,12 @@
 					return [x, y];
 				});
 				const light = Math.max(0, Math.min(1, 0.5 + 0.5 * normal[2]));
+				// Backing polygon fills any sub-pixel gap at the face edge (the affine
+				// PNG fit ignores perspective foreshortening) and matches the die body.
 				g.poly(poly)
 					.fill(shade(cell.color, light))
 					.stroke({ width: 2, color: edge, join: 'round', alignment: 0.5 });
-				positionIcon(cell, face, worldQ);
-				positionLabel(cell, face, worldQ);
+				positionFace(cell, face, worldQ, light);
 			}
 		}
 	}
@@ -336,11 +267,7 @@
 	// Rebuild whenever the set of dice changes. A signature keeps unrelated reactive
 	// ticks from tearing down and rebuilding the whole canvas needlessly.
 	let sigKey = $derived(
-		specs
-			.map((s) => `${s.id}|${s.color ?? ''}|${s.faceIcons.join(',')}|${s.faceLabels.join(',')}`)
-			.join(';') +
-			'@' +
-			tileSize
+		specs.map((s) => `${s.id}|${s.color ?? ''}`).join(';') + '@' + tileSize
 	);
 	let lastSignature = '';
 	$effect(() => {
@@ -351,10 +278,9 @@
 	});
 
 	onMount(async () => {
-		const { Application, Graphics, Sprite, Text, Assets, Matrix } = await import('pixi.js');
+		const { Application, Graphics, Sprite, Assets, Matrix } = await import('pixi.js');
 		MatrixCtor = Matrix;
 		SpriteCtor = Sprite;
-		TextCtor = Text;
 		AssetsRef = Assets;
 		app = new Application();
 		await app.init({
