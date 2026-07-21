@@ -1,2 +1,10 @@
 @import 'tailwindcss';
 @plugin "daisyui";
+
+/* The shared UI (GameCard and friends) lives outside this app's tree, so
+   Tailwind's automatic content detection never sees it. Without this the
+   arbitrary-value utilities used only in shared components (w-[18px] icons,
+   border-[5px] frame, text-[11px] stats, aspect-square, grid-cols-4 stat rows,
+   mask-image icons) are dropped from the build, which is what blew up the card
+   images and broke the board grid layout after the monorepo refactor. */
+@source "../../../shared/src";
