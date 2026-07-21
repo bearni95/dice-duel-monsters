@@ -807,8 +807,6 @@ $effect(() => {
 const HAND_CARD_W = CELL_WIDTH;
 const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
 const HAND_CARD_GAP = 6;
-// Inset (world px) of the pyramid's left edge from the grid's left corner.
-const HAND_MARGIN = 12;
 // World-px shift of the pyramid below the grid's midline, biasing it toward the
 // board's bottom-left corner while keeping every row on-screen.
 const HAND_BOTTOM_BIAS = 150;
@@ -887,17 +885,20 @@ async function renderHand() {
 		return;
 	}
 
-	// Left-align the block just inside the grid's left corner (first col, last row) and
-	// grow the rows downward. The block is tall (two rows of upright cards), so bias its
-	// vertical center below the grid's midline (worldCenterY = half the bottom corner's y,
-	// since the top corner sits at y=0) — this keeps the whole block in the board's
-	// lower-left rather than running off the bottom.
+	// Left-align the block with the grid's leftmost point (the west vertex of the
+	// leftmost cell, first col / last row) and grow the rows downward. isoPosOf gives
+	// that cell's center, so the drawn diamond's left tip — the grid's westmost pixel —
+	// sits half a drawn tile (HAND_CARD_W / 2 = CELL_WIDTH / 2) further left. The block
+	// is tall (two rows of upright cards), so bias its vertical center below the grid's
+	// midline (worldCenterY = half the bottom corner's y, since the top corner sits at
+	// y=0) — this keeps the whole block in the board's lower-left rather than running
+	// off the bottom.
 	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
 	const bottomCorner = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
 	const worldCenterY = bottomCorner.y / 2;
 	const blockHeight = HAND_ROWS.length * HAND_CARD_H + (HAND_ROWS.length - 1) * HAND_CARD_GAP;
 
-	const leftX = leftCorner.x + HAND_MARGIN;
+	const leftX = leftCorner.x - HAND_CARD_W / 2;
 	const topY = worldCenterY - blockHeight / 2 + HAND_BOTTOM_BIAS;
 
 	// Fix each card's world position up front (in draw order, filling the rows).
