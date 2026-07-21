@@ -1,201 +1,242 @@
 <script lang="ts">
 	import classNames from 'classnames';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { refreshDecks, refreshAssignments } from '$services/deck.service';
-	import CardTile from '$components/cards/CardTile.svelte';
-	import { CardApiAdapter } from '$adapters/cardApi.adapter';
-	import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
+	import { playerService } from '$services/player.service';
+	import { authService } from '$services/auth.service';
 	import { characters } from '$data/characters';
-	import type { Character } from '$types/character.type';
-	import type { Deck } from '$types/deck.type';
-	import type { CardAsset } from '$components/cards/GameCard.svelte';
+	import { diceAdapter } from '$adapters/dice.adapter';
+	import type { DiceTemplateConfig } from '$types/dice.type';
+	import DiceCollectionCanvas3D, {
+		type DieSpec
+	} from '$components/dice/DiceCollectionCanvas3D.svelte';
 
-	// The root page previews the deck assigned to each character (via the
-	// /admin/characters page, which writes the `slug -> deckId` assignment map).
-	// One tab per character that has a deck, showing that deck's full card list
-	// through the same CardTile renderer the /admin/cards browser uses.
-	const cardApiAdapter = new CardApiAdapter();
+	// Discord auth via Supabase, entirely browser-side. When Supabase env values
+	// are absent (`authService.configured === false`) the gate is skipped so the
+	// app still runs, e.g. for local UI work without a Supabase project.
+	const auth = authService.store;
 
-	interface CharacterDeck {
-		character: Character;
-		deck: Deck;
-		cards: CardAsset[];
+	// The root page lets the local player set their name and avatar. Both choices
+	// live in `playerService` (localStorage-backed), so once set they persist and
+	// the page opens straight to the saved summary on the next visit.
+	const store = playerService.store;
+
+	// Draft state for the picker, seeded from whatever is already saved. Editing
+	// mutates the draft; only `save` commits it back to the service.
+	let name = $state($store.name ?? '');
+	let avatar = $state<string | null>($store.avatar ?? null);
+	let editing = $state(!($store.name && $store.avatar));
+
+	let selectedCharacter = $derived(characters.find((c) => c.slug === avatar) ?? null);
+	let canSave = $derived(name.trim().length > 0 && avatar !== null);
+
+	// The dice template config, loaded once, so the player's owned die ids can be
+	// resolved into concrete dice and rendered in the same 3D canvas the admin uses.
+	let diceConfig = $state<DiceTemplateConfig | null>(null);
+
+	// The raw list of owned die ids (duplicates kept), and the total copy count.
+	let ownedIds = $derived($store.dice ?? []);
+
+	// One entry per distinct (type, rarity) the player owns, each with its copy
+	// count. This drives both the tumbling-dice gallery and its underneath labels.
+	let ownedDice = $derived(diceConfig ? diceAdapter.ownedUnique(diceConfig, ownedIds) : []);
+
+	function save() {
+		if (!canSave) return;
+		playerService.set({ ...$store, name: name.trim(), avatar });
+		editing = false;
 	}
 
-	let entries = $state<CharacterDeck[]>([]);
-	let activeSlug = $state<string | null>(null);
-	let loading = $state(true);
-	let loadError = $state('');
-
-	let active = $derived(entries.find((e) => e.character.slug === activeSlug) ?? null);
-
-	// Which shown deck the player picked for each side of the next match (tracked by
-	// character slug, since each shown deck belongs to one character). A match needs
-	// both a player and a rival deck before it can start.
-	let playerSlug = $state<string | null>(null);
-	let cpuSlug = $state<string | null>(null);
-
-	let playerEntry = $derived(entries.find((e) => e.character.slug === playerSlug) ?? null);
-	let cpuEntry = $derived(entries.find((e) => e.character.slug === cpuSlug) ?? null);
-	let canStart = $derived(!!playerEntry && !!cpuEntry);
-
-	// Kick off the match, passing the chosen decks to the board as query params so
-	// each side loads the deck the player picked here.
-	function startGame() {
-		if (!playerEntry || !cpuEntry) return;
-		const params = new URLSearchParams({
-			player: playerEntry.deck.id,
-			cpu: cpuEntry.deck.id
-		});
-		goto(`/board?${params}`);
+	function edit() {
+		name = $store.name ?? '';
+		avatar = $store.avatar ?? null;
+		editing = true;
 	}
 
-	// A deck preview only shows playable cards: vanilla monsters, plus any
-	// effect-type monster, spell, or trap that has an effect assigned on
-	// /admin/cards. That filtering is applied server-side by the /database/cards
-	// endpoint (via `loadCardAssetsByIds`). On top of that, cards the owner turned
-	// off in the deck editor (the deck's `disabled` ids) are dropped here via
-	// `enabledCardIds`, while cards forced on (`forced` ids) are passed through so
-	// the server keeps them despite the playable verdict.
-	async function load() {
-		loading = true;
-		loadError = '';
-		try {
-			const [decks, assignments] = await Promise.all([
-				refreshDecks(),
-				refreshAssignments()
-			]);
-			const deckById = new Map(decks.map((d) => [d.id, d]));
+	// The distinct owned dice as canvas specs — one shared WebGL canvas tumbles them
+	// all, in the same order as `ownedDice` so the count labels line up underneath.
+	let diceSpecs = $derived<DieSpec[]>(
+		ownedDice.map(({ die }) => ({
+			id: die.id,
+			faceIcons: diceAdapter.faceIcons(die),
+			faceLabels: diceAdapter.faceLabels(die),
+			color: diceAdapter.colorNumber(die)
+		}))
+	);
 
-			// Keep only characters whose assignment resolves to an existing deck.
-			const assigned = characters
-				.map((character) => {
-					const deckId = assignments[character.slug];
-					const deck = deckId ? deckById.get(deckId) : undefined;
-					return deck ? { character, deck } : null;
-				})
-				.filter((v): v is { character: Character; deck: Deck } => v !== null);
+	// The owned dice tallied into a rarity-by-type grid (rows = rarity, columns =
+	// die type) for the inventory table below the canvas.
+	let diceGrid = $derived(diceConfig ? diceAdapter.ownedGrid(diceConfig, ownedIds) : null);
 
-			entries = await Promise.all(
-				assigned.map(async ({ character, deck }) => {
-					const ids = enabledCardIds(deck, [...deck.main, ...deck.extra, ...deck.side]);
-					const cards = await cardApiAdapter.loadCardAssetsByIds(ids, forcedCardIds(deck));
-					return { character, deck, cards };
-				})
-			);
-			activeSlug = entries[0]?.character.slug ?? null;
-		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Could not load decks.';
-		} finally {
-			loading = false;
-		}
+	// Grant three random dice (from every die the game can produce) and persist them
+	// onto the player's collection.
+	function giveRandomDice() {
+		if (!diceConfig) return;
+		const granted = diceAdapter.randomDiceIds(diceConfig, 3);
+		playerService.set({ ...$store, dice: [...($store.dice ?? []), ...granted] });
 	}
 
-	onMount(load);
+	onMount(async () => {
+		diceConfig = await diceAdapter.loadTemplates();
+	});
 </script>
 
 <svelte:head>
 	<title>Dice Guardians</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-	{#if loading}
-		<div class="flex justify-center py-20" aria-live="polite">
-			<span class="loading loading-spinner loading-lg text-primary" aria-label="Loading decks"></span>
-		</div>
-	{:else if loadError}
-		<div class="alert alert-error" role="alert">{loadError}</div>
-	{:else if !entries.length}
-		<p class="text-base-content/50 text-sm">
-			No character has a deck yet. Assign one from the
-			<a class="link link-primary" href="/admin/characters">characters page</a>.
-		</p>
+<main class="mx-auto w-full max-w-2xl space-y-6 p-4 sm:p-6 lg:p-8">
+	{#if authService.configured && $auth.loading}
+		<section class="flex items-center justify-center py-16" aria-label="Loading">
+			<span class="loading loading-spinner loading-lg text-primary"></span>
+		</section>
+	{:else if authService.configured && !$auth.user}
+		<section class="space-y-6 py-8 text-center" aria-label="Sign in">
+			<div class="space-y-2">
+				<h1 class="text-2xl font-bold">Dice Guardians</h1>
+				<p class="text-base-content/60 text-sm">Sign in with Discord to start playing.</p>
+			</div>
+			<button class="btn btn-primary" onclick={() => authService.signInWithDiscord()}>
+				Continue with Discord
+			</button>
+		</section>
 	{:else}
-		<div class="flex flex-col gap-6 lg:flex-row">
-			<!-- Character picker: single vertical column to the left of the deck grid. -->
-			<nav
-				class="flex shrink-0 flex-col gap-1 lg:w-56"
-				aria-label="Available characters"
+		{#if authService.configured && $auth.user}
+			<section
+				class="flex items-center justify-between gap-3 rounded-lg bg-base-200 px-3 py-2"
+				aria-label="Signed in"
 			>
-				<div
-					class={classNames('w-full', {
-						'tooltip tooltip-bottom': !canStart
-					})}
-					data-tip="Select a player and a rival character deck to start the game"
-				>
-					<button
-						class="btn btn-primary btn-lg w-full"
-						disabled={!canStart}
-						onclick={startGame}
-					>
-						Start game
-					</button>
+				<div class="flex items-center gap-2 min-w-0">
+					{#if $auth.user.avatar}
+						<img src={$auth.user.avatar} alt="" class="h-8 w-8 rounded-full" />
+					{/if}
+					<span class="truncate text-sm">
+						Signed in as <span class="font-medium">{$auth.user.name}</span>
+					</span>
 				</div>
+				<button class="btn btn-ghost btn-xs" onclick={() => authService.signOut()}>Sign out</button>
+			</section>
+		{/if}
+		{#if editing}
+		<section class="space-y-5" aria-label="Player profile">
+			<h1 class="text-2xl font-bold">Who's playing?</h1>
 
-				{#each entries as entry (entry.character.slug)}
-					<div
-						class={classNames('flex flex-col gap-2 rounded-lg border-2 p-2 transition-colors', {
-							'border-primary': entry.character.slug === activeSlug,
-							'border-transparent': entry.character.slug !== activeSlug
-						})}
-					>
+			<label class="form-control w-full">
+				<span class="label-text mb-1">Your name</span>
+				<input
+					class="input input-bordered w-full"
+					type="text"
+					placeholder="Enter your name"
+					maxlength="24"
+					bind:value={name}
+				/>
+			</label>
+
+			<div class="space-y-2">
+				<span class="label-text">Pick an avatar</span>
+				<div class="grid max-h-80 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">
+					{#each characters as character (character.slug)}
 						<button
-							class="grid grid-cols-2 items-center gap-3 text-left"
-							aria-current={entry.character.slug === activeSlug}
-							onclick={() => (activeSlug = entry.character.slug)}
+							type="button"
+							class={classNames(
+								'rounded-lg border-2 p-1 transition-colors',
+								avatar === character.slug ? 'border-primary' : 'border-transparent hover:border-base-300'
+							)}
+							aria-pressed={avatar === character.slug}
+							aria-label={character.name}
+							title={character.name}
+							onclick={() => (avatar = character.slug)}
 						>
 							<img
-								src={entry.character.src}
+								src={character.src}
 								alt=""
-								class={classNames('h-auto w-full border-2 [image-rendering:pixelated]', {
-									'border-primary': entry.character.slug === activeSlug,
-									'border-white': entry.character.slug !== activeSlug
-								})}
+								class="h-auto w-full [image-rendering:pixelated]"
 							/>
-							<span class="min-w-0 whitespace-pre-line text-center font-medium"
-								>{entry.character.name.split(' ').join('\n')}</span
-							>
 						</button>
-						<div class="flex gap-1">
-							<button
-								class={classNames('btn btn-xs flex-1', {
-									'btn-primary': playerSlug === entry.character.slug,
-									'btn-outline': playerSlug !== entry.character.slug
-								})}
-								onclick={() => (playerSlug = entry.character.slug)}
-							>
-								Player
-							</button>
-							<button
-								class={classNames('btn btn-xs flex-1', {
-									'btn-primary': cpuSlug === entry.character.slug,
-									'btn-outline': cpuSlug !== entry.character.slug
-								})}
-								onclick={() => (cpuSlug = entry.character.slug)}
-							>
-								Rival
-							</button>
-						</div>
-					</div>
-				{/each}
-			</nav>
+					{/each}
+				</div>
+			</div>
 
-			{#if active}
-				<section class="min-w-0 flex-1 space-y-4" aria-label={`${active.character.name}'s deck`}>
-					{#if active.cards.length}
-						<div class="flex flex-wrap gap-4">
-							{#each active.cards as card, i (`${active.deck.id}-${card.id}-${i}`)}
-								<div class="w-[200px]">
-									<CardTile {card} />
-								</div>
+			<button class="btn btn-primary" disabled={!canSave} onclick={save}>Save</button>
+		</section>
+	{:else}
+		<section class="flex items-center gap-4" aria-label="Player profile">
+			{#if selectedCharacter}
+				<img
+					src={selectedCharacter.src}
+					alt={selectedCharacter.name}
+					class="border-primary h-20 w-20 rounded-lg border-2 [image-rendering:pixelated]"
+				/>
+			{/if}
+			<div class="min-w-0 flex-1">
+				<p class="text-base-content/50 text-xs uppercase tracking-wide">Player</p>
+				<p class="truncate text-2xl font-bold">{$store.name}</p>
+			</div>
+			<button class="btn btn-ghost btn-sm" onclick={edit}>Edit</button>
+		</section>
+
+		<section class="space-y-4" aria-label="Your dice">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<h2 class="text-xl font-bold">Your dice</h2>
+					<p class="text-base-content/60 text-sm">
+						{ownedIds.length}
+						{ownedIds.length === 1 ? 'die' : 'dice'} owned
+					</p>
+				</div>
+				<button class="btn btn-primary btn-sm" disabled={!diceConfig} onclick={giveRandomDice}>
+					Give 3 random dice
+				</button>
+			</div>
+
+			{#if ownedDice.length > 0}
+				<!-- One shared WebGL canvas tumbles every distinct die in a strip; a
+				     matching row of 88px-wide cells shows each die's copy count directly
+				     underneath it (tile width matches the canvas `tileSize`). -->
+				<div class="card overflow-x-auto bg-base-200 p-4">
+					<div class="inline-block">
+						<DiceCollectionCanvas3D dice={diceSpecs} tileSize={88} />
+						<div class="flex">
+							{#each ownedDice as { die, count } (die.id)}
+								<span class="w-[88px] shrink-0 text-center text-sm font-medium">×{count}</span>
 							{/each}
 						</div>
-					{:else}
-						<p class="text-base-content/50 text-sm">No renderable cards in this deck.</p>
-					{/if}
-				</section>
+					</div>
+				</div>
+
+				{#if diceGrid}
+					<!-- Inventory breakdown: rows are rarity levels, columns are die types,
+					     each cell the number of that die the player owns. -->
+					<div class="overflow-x-auto">
+						<table class="table table-sm">
+							<thead>
+								<tr>
+									<th>Rarity</th>
+									{#each diceGrid.templates as template (template.id)}
+										<th class="text-center">{template.name}</th>
+									{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each diceGrid.rows as row (row.rarity)}
+									<tr>
+										<th>Rarity {row.rarity}</th>
+										{#each row.cells as count, i (diceGrid.templates[i].id)}
+											<td class={classNames('text-center', { 'opacity-30': count === 0 })}>
+												{count}
+											</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			{:else}
+				<div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center text-sm">
+					You don't own any dice yet. Grab some to get started.
+				</div>
 			{/if}
-		</div>
+		</section>
+		{/if}
 	{/if}
 </main>

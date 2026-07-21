@@ -5,17 +5,18 @@
 
 	let { children } = $props();
 
-	// The navbar only surfaces admin tooling, so hide it entirely unless the
-	// admin routes/backend were enabled via ADMIN_ENABLED for local dev.
+	// The menu only surfaces admin tooling, so hide the burger + drawer entirely
+	// unless the admin routes/backend were enabled via ADMIN_ENABLED for local dev.
 	const showNavbar = Boolean(import.meta.env.VITE_ADMIN_ENABLED);
 </script>
 
 {#if showNavbar}
 	<Navbar />
 {/if}
-<!-- Expose the real navbar height so pages that offset content below it (e.g. the
-     board) collapse that gap to 0 when the navbar isn't rendered. `contents` keeps
-     this wrapper out of layout while still passing the variable to descendants. -->
-<div class="contents" style:--navbar-h={showNavbar ? '4rem' : '0px'}>
+<!-- The menu is now a floating burger + right-side drawer that overlays the app
+     instead of a navbar occupying layout height, so pages never need to offset
+     content below it. `contents` keeps this wrapper out of layout while still
+     passing the variable to descendants. -->
+<div class="contents" style:--navbar-h="0px">
 	{@render children?.()}
 </div>

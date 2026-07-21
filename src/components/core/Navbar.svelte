@@ -1,59 +1,88 @@
 <script lang="ts">
-	import { page } from '$app/stores';
 	import classNames from 'classnames';
-	import Button from '$components/core/Button.svelte';
-	import { ThemeColors, ThemeSizes } from '$types/core.type';
-	import type { NavRoute } from '$types/navigation.type';
+	import NavMenuItems from '$components/core/NavMenuItems.svelte';
 	import { routes } from '$utils/navigation/routes';
 
-	function isActive(route: NavRoute): boolean {
-		if (route.children?.length) {
-			return $page.url.pathname.startsWith(route.path);
-		}
-		return $page.url.pathname === route.path;
+	// Whether the right-side menu is open. Toggled by the burger button and
+	// closed by the backdrop, the close button, or navigating to a route.
+	let open = false;
+
+	function toggle() {
+		open = !open;
+	}
+
+	function close() {
+		open = false;
 	}
 </script>
 
-<nav class="navbar bg-base-200 shadow-sm">
-	<div class="flex-1"></div>
-	<div class="flex flex-none items-center gap-2">
-		{#each routes as route (route.path)}
-			{#if route.children?.length}
-				<div class="dropdown dropdown-end">
-					<Button
-						label={route.label}
-						size={ThemeSizes.Small}
-						color={ThemeColors.Primary}
-						outline={!isActive(route)}
-						classes={classNames({ 'btn-active': isActive(route) })}
-					/>
-					<ul
-						class="menu dropdown-content bg-base-100 rounded-box z-[1] mt-1 w-40 gap-1 p-2 shadow"
-					>
-						{#each route.children as child (child.path)}
-							<li>
-								<a
-									href={child.path}
-									class={classNames({
-										'menu-active': $page.url.pathname === child.path
-									})}
-								>
-									{child.label}
-								</a>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{:else}
-				<Button
-					href={route.path}
-					label={route.label}
-					size={ThemeSizes.Small}
-					color={ThemeColors.Primary}
-					outline={!isActive(route)}
-					classes={classNames({ 'btn-active': isActive(route) })}
+<!-- Burger button, fixed to the top-right of the app. Replaces the full navbar. -->
+<button
+	type="button"
+	class="btn btn-square btn-ghost fixed top-2 right-2 z-50"
+	aria-label="Open menu"
+	aria-expanded={open}
+	on:click={toggle}
+>
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		class="h-6 w-6"
+		fill="none"
+		viewBox="0 0 24 24"
+		stroke="currentColor"
+	>
+		<path
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			stroke-width="2"
+			d="M4 6h16M4 12h16M4 18h16"
+		/>
+	</svg>
+</button>
+
+<!-- Backdrop: dims the app and closes the menu when clicked. -->
+{#if open}
+	<button
+		type="button"
+		class="fixed inset-0 z-40 cursor-default bg-black/40"
+		aria-label="Close menu"
+		on:click={close}
+	></button>
+{/if}
+
+<!-- Foldable right-side drawer holding the full, nested route tree. -->
+<aside
+	class={classNames(
+		'bg-base-200 fixed inset-y-0 right-0 z-50 flex w-72 max-w-[80vw] flex-col shadow-xl transition-transform duration-200 ease-out',
+		{ 'translate-x-0': open, 'translate-x-full': !open }
+	)}
+	aria-hidden={!open}
+>
+	<div class="flex items-center justify-between p-2">
+		<span class="px-2 font-semibold">Menu</span>
+		<button
+			type="button"
+			class="btn btn-square btn-ghost btn-sm"
+			aria-label="Close menu"
+			on:click={close}
+		>
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				class="h-5 w-5"
+				fill="none"
+				viewBox="0 0 24 24"
+				stroke="currentColor"
+			>
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M6 18L18 6M6 6l12 12"
 				/>
-			{/if}
-		{/each}
+			</svg>
+		</button>
 	</div>
-</nav>
+	<nav class="flex-1 overflow-y-auto p-2">
+		<NavMenuItems items={routes} on:navigate={close} />
+	</nav>
+</aside>
