@@ -3589,17 +3589,20 @@ function buildNetPanel() {
 	const cyTop = left.y + half + (rowLeftCenter - left.x + NET_PANEL_MARGIN + half) / slope;
 	const rowStep = NET_PANEL_ROWS.length > 1 ? (cyBottom - cyTop) / (NET_PANEL_ROWS.length - 1) : 0;
 
+	// Shared column grid: the widest (bottom) row spans the left leg to the hypotenuse and
+	// fixes the x of every column, so upper rows drop into the same columns and line up
+	// vertically instead of each row spreading on its own. Upper rows are narrower, so they
+	// only fill the leftmost columns — which are the ones that clear the hypotenuse there.
+	const maxCount = Math.max(...NET_PANEL_ROWS);
+	const colStep = maxCount > 1 ? (rowRightCenter(cyBottom) - rowLeftCenter) / (maxCount - 1) : 0;
+
 	netThumbs = [];
 	let index = 0;
 	NET_PANEL_ROWS.forEach((count, row) => {
 		const cy = cyTop + rowStep * row;
-		const rightCenter = rowRightCenter(cy);
-		// Spread the row's thumbnails from the left leg to that right bound, so the first
-		// hugs the vertical leg and the last sits just inside the hypotenuse.
-		const step = count > 1 ? (rightCenter - rowLeftCenter) / (count - 1) : 0;
 
 		for (let k = 0; k < count && index < DICE_NETS.length; k++, index++) {
-			const thumb = buildNetThumb(index, rowLeftCenter + step * k, cy);
+			const thumb = buildNetThumb(index, rowLeftCenter + colStep * k, cy);
 			netThumbs.push(thumb);
 			panel.addChild(thumb.container);
 		}
