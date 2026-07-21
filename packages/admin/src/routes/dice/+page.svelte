@@ -8,7 +8,11 @@
 	import Button from '$components/core/Button.svelte';
 	import { ThemeColors, ThemeSizes } from '$types/core.type';
 	import { diceAdapter } from '$adapters/dice.adapter';
+	import { renderDieFace } from '$utils/dice/dice2d';
 	import type { DiceTemplate, DiceTemplateConfig, SpawnedDie } from '$types/dice.type';
+
+	// Square size (px) each face is baked to when exported as a standalone PNG.
+	const FACE_EXPORT_SIZE = 1024;
 
 	// Each throw is a fixed 50ms arrange off the face + random spin + 50ms arrange
 	// onto the face. The slider controls just the middle random-spin duration.
@@ -39,6 +43,44 @@
 	let selectedId = $state('');
 
 	let selected = $derived(spawned.find((d) => d.id === selectedId) ?? spawned[0] ?? null);
+
+	// Bake each of the selected die's six faces to a full-resolution PNG and POST it
+	// into the assets package (dice/generated/<id>-<face>.png), one request per face.
+	let exporting = $state(false);
+	let exportStatus = $state('');
+
+	async function exportFaces() {
+		if (!selected || exporting) return;
+		exporting = true;
+		exportStatus = '';
+		try {
+			const icons = diceAdapter.faceIcons(selected);
+			const labels = diceAdapter.faceLabels(selected);
+			const baseColor = diceAdapter.colorNumber(selected) ?? 0xd7382f;
+			for (let i = 0; i < icons.length; i++) {
+				const canvas = await renderDieFace({
+					faceIcon: icons[i] ?? '',
+					faceLabel: labels[i] ?? '',
+					baseColor,
+					size: FACE_EXPORT_SIZE
+				});
+				const res = await fetch('/dice/faces', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ id: selected.id, face: i + 1, dataUrl: canvas.toDataURL('image/png') })
+				});
+				if (!res.ok) {
+					const msg = await res.text().catch(() => '');
+					throw new Error(msg || `Face ${i + 1} failed (${res.status}).`);
+				}
+			}
+			exportStatus = `Exported ${icons.length} faces to the assets package.`;
+		} catch (e) {
+			exportStatus = e instanceof Error ? e.message : 'Export failed.';
+		} finally {
+			exporting = false;
+		}
+	}
 
 	// Spawned dice grouped by their template, preserving template order.
 	let byTemplate = $derived(
@@ -206,6 +248,20 @@
 							baseColor={diceAdapter.colorNumber(selected) ?? 0xd7382f}
 							classes="w-full"
 						/>
+
+						<!-- Bake each face to a full-res PNG in the assets package. -->
+						<div class="flex flex-col items-center gap-2">
+							<Button
+								label={exporting ? 'Exporting…' : 'Export faces as PNGs'}
+								color={ThemeColors.Secondary}
+								size={ThemeSizes.Medium}
+								disabled={exporting}
+								on:click={exportFaces}
+							/>
+							{#if exportStatus}
+								<span class="text-sm text-base-content opacity-70">{exportStatus}</span>
+							{/if}
+						</div>
 					</div>
 				</div>
 			{/if}

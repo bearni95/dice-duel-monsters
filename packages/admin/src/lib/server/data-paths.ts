@@ -27,3 +27,7 @@ export const CATALOG_OUT = dataPath('dist', 'catalog.json');
 // read and write them there directly; resolve the dir from that workspace dep.
 const ASSETS_ROOT = dirname(require.resolve('assets/package.json'));
 export const GENERATED_DIR = join(ASSETS_ROOT, 'cards', 'generated');
+
+// Baked die-face PNGs share that home: one full-resolution PNG per face, exported
+// from /dice so both the admin and frontend can serve them as static art.
+export const GENERATED_DICE_DIR = join(ASSETS_ROOT, 'dice', 'generated');
