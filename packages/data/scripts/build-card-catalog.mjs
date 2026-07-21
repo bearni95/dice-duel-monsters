@@ -49,6 +49,16 @@ function isVanillaMonster(type) {
 function isPlainEffectMonster(type) {
 	return type === 'Effect Monster';
 }
+// Fusion and Ritual monsters (any of their `type` variants — "Fusion Monster",
+// "Ritual Monster", "Ritual Effect Monster", "Pendulum Effect Fusion Monster",
+// …) are playable on their own, like vanilla and plain Effect Monsters.
+function isFusionOrRitualMonster(type) {
+	return (
+		categoryOf(type) === 'monster' &&
+		typeof type === 'string' &&
+		(type.includes('Fusion') || type.includes('Ritual'))
+	);
+}
 
 // A monster only earns a place in the catalog once it has a billboard cutout
 // prepared for the board — there is nothing to render on the field without one.
@@ -102,6 +112,7 @@ const cards = raw.data.filter(survivesBillboardGate).map((card) => {
 	const playable =
 		isVanillaMonster(card.type) ||
 		isPlainEffectMonster(card.type) ||
+		isFusionOrRitualMonster(card.type) ||
 		(Array.isArray(impls) && impls.length > 0);
 
 	// Board positioning: only fields adjusted away from their default carry a
