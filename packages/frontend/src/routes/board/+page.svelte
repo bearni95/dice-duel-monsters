@@ -49,6 +49,19 @@
 				<CombatResultCard result={engine.combatResult} />
 			{/if}
 		</aside>
+
+		<!-- The card viewer: a DOM element pinned to the page's bottom-left, showing the
+		     full art of whichever card the pointer is hovering on the canvas (a hand card,
+		     a played plaque card, or an on-board creature). Fixed 300px wide; the in-canvas
+		     hover handlers drive engine.previewCardSrc. pointer-events-none so it never
+		     intercepts board interaction. -->
+		{#if engine.previewCardSrc}
+			<img
+				src={engine.previewCardSrc}
+				alt="Hovered card"
+				class="pointer-events-none fixed bottom-4 left-4 z-20 w-[300px] rounded-xl shadow-2xl"
+			/>
+		{/if}
 	</div>
 </div>
 
