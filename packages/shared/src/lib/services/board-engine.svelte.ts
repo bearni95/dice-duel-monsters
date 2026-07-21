@@ -578,7 +578,7 @@ export function createBoardEngine() {
 		const { player } = selectedDeckIds();
 		const chosen = (await getDeckById(player)) ?? (await getPlayerDeck());
 
-		if (!chosen?.main.length) {
+		if (!chosen || (!chosen.main.length && !chosen.extra.length)) {
 			await loadCards(1);
 			return;
 		}
@@ -586,11 +586,14 @@ export function createBoardEngine() {
 		loading = true;
 
 		try {
-			// Only playable, enabled cards make it into the deck: drop the ids the
-			// owner turned off in the deck editor, then resolve them playable-only —
-			// passing the deck's forced ids so cards toggled on despite being flagged
-			// not playable are kept too.
-			await cardApiAdapter.loadByIds(enabledCardIds(chosen, chosen.main), true, forcedCardIds(chosen));
+			// This game has no separate extra deck: Fusion / Ritual monsters (which
+			// imported decks file under `extra`) are drawn from the main deck like any
+			// card, so both sections feed one draw pile. Only playable, enabled cards
+			// make it in: drop the ids the owner turned off in the deck editor, then
+			// resolve them playable-only — passing the deck's forced ids so cards
+			// toggled on despite being flagged not playable are kept too.
+			const cardIds = [...chosen.main, ...chosen.extra];
+			await cardApiAdapter.loadByIds(enabledCardIds(chosen, cardIds), true, forcedCardIds(chosen));
 			// Shuffle the playable (billboard) cards into the draw pile, then deal the
 			// opening hand up to HAND_SIZE.
 			deck = shuffle(cardApiAdapter.cards.filter((c) => c.billboard));
@@ -608,13 +611,15 @@ export function createBoardEngine() {
 	async function loadCpuDeck() {
 		const { cpu } = selectedDeckIds();
 		const chosen = (await getDeckById(cpu)) ?? (await getCpuDeck());
-		if (!chosen?.main.length) return;
+		if (!chosen || (!chosen.main.length && !chosen.extra.length)) return;
 
 		try {
-			// Same filter as the player's deck: enabled ids only, resolved playable-only,
-			// with the deck's forced ids kept past the playable verdict. The rival draws
-			// its opening hand at the start of its first turn (see runCpuTurn).
-			await cpuAdapter.loadByIds(enabledCardIds(chosen, chosen.main), true, forcedCardIds(chosen));
+			// Same as the player's deck: fold the extra deck (Fusion / Ritual monsters)
+			// into the one draw pile, enabled ids only, resolved playable-only, with the
+			// deck's forced ids kept past the playable verdict. The rival draws its
+			// opening hand at the start of its first turn (see runCpuTurn).
+			const cardIds = [...chosen.main, ...chosen.extra];
+			await cpuAdapter.loadByIds(enabledCardIds(chosen, cardIds), true, forcedCardIds(chosen));
 			cpuDeck = shuffle(cpuAdapter.cards.filter((c) => c.billboard));
 		} catch (e) {
 			console.error('Failed to load CPU deck:', e);
