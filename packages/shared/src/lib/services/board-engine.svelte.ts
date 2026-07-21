@@ -493,13 +493,19 @@ export function createBoardEngine() {
 		// moment Roll is hit (leaving their slots empty); the throw then plays out with them
 		// already gone, and we still await it before banking the energy.
 		playerDice = consumeDice(playerDice, picked);
-		// Throw the picked dice in the 3D roller laid one row past the static isometric dice
-		// block (down-left border), turned so the tumbling dice run along the block's uHat
-		// diagonal — the roller keeps its upright 3D cubes, it's only moved and angled to sit
-		// as the next row after the grid dice.
+		// Throw the picked dice in the 3D roller just past the pool's down-right (+uHat) end —
+		// its bottom-right corner, toward the grid's bottom corner — at the row band's mid-
+		// thickness, so the roller aligns to that end instead of hanging off the outward
+		// bottom-left (+vHat). The dice still run along uHat to match the pool's row
+		// orientation, and stay upright 3D cubes.
 		const { uHat, vHat, mid } = playerDiceAxes();
-		const rollerOut = MATCH_DIE_OUT_GAP + MATCH_DICE_MAX_ROWS * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
-		const center = { x: mid.x + vHat.x * rollerOut, y: mid.y + vHat.y * rollerOut };
+		const poolEndAlong = ((MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE / 2;
+		const rollerAlong = poolEndAlong + MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
+		const bandOut = MATCH_DIE_OUT_GAP + ((MATCH_DICE_MAX_ROWS - 1) / 2) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
+		const center = {
+			x: mid.x + uHat.x * rollerAlong + vHat.x * bandOut,
+			y: mid.y + uHat.y * rollerAlong + vHat.y * bandOut
+		};
 		await rollEnergyDice(playerEnergyDice, picked, center, energy, uHat);
 		energyRolled = true;
 	}
