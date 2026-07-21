@@ -149,7 +149,7 @@
 	</div>
 {/snippet}
 
-<article class="group card relative overflow-hidden border-[5px] border-black/50 bg-base-100">
+<article class="group card relative flex flex-col overflow-hidden border-[5px] border-black/50 bg-base-100">
 	<!-- Type-matched background texture (Normal, Effect, Ritual, Synchro, Xyz,
 	     Link, …), tinting the whole card frame behind its content. -->
 	<img
@@ -162,7 +162,7 @@
 	<!-- The card art with a stat bar above and below it. Each bar is a 4-column grid
 	     of stat cells; the art fills the space between them. On non-monster cards
 	     (showStats = false) the bars are dropped and the art fills the whole frame. -->
-	<div class="relative z-10 flex w-full flex-col gap-1 p-1">
+	<div class="relative z-10 flex min-h-0 w-full flex-1 flex-col gap-1 p-1">
 		<!-- Name row: the cost badge on the left end and the HP badge on the right end,
 		     with the card's name centered between them. Each badge is the same icon-with-
 		     value-overlaid treatment used on the art, sized 24px with a 14px black value. -->
@@ -200,10 +200,14 @@
 			{/if}
 		</div>
 
-		<!-- The card art in its blue-bordered frame: a full-width square. object-contain
-		     shows the whole image without cropping. -->
-		<div class="flex items-stretch gap-1 rounded border border-black">
-			<figure class="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[3px]">
+		<!-- The card art, vertically centered in the space left between the top name row
+		     and the bottom row (stats or spell text), so those two rows pin to the card's
+		     top and bottom edges while the art floats in the middle of the fixed height. -->
+		<div class="flex min-h-0 flex-1 flex-col justify-center">
+			<!-- The card art in its blue-bordered frame: a full-width square. object-contain
+			     shows the whole image without cropping. -->
+			<div class="flex items-stretch gap-1 rounded border border-black">
+				<figure class="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[3px]">
 				<img
 					class="h-full w-full object-contain"
 					src={card.cardImages?.[0]?.image_url_cropped}
@@ -243,6 +247,7 @@
 					</div>
 				{/if}
 			</figure>
+			</div>
 		</div>
 
 		<!-- Atk / reach / def / SPD row: a 4-column grid under the card art, each cell
