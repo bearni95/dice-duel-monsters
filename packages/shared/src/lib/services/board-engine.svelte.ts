@@ -399,8 +399,8 @@ export function createBoardEngine() {
 			cpuHand = [...cpuHand, next];
 		}
 	}
-	// Reactive so the rival's remaining energy can be mirrored in the DiceRoller
-	// panel and update live as the CPU spends it during its turn.
+	// Reactive so the rival's remaining energy stays in sync with its on-board read-out
+	// (see renderEnergyLabels) and updates live as the CPU spends it during its turn.
 	let cpuEnergy = $state(0);
 	let rivalThinking = $state(false);
 
@@ -901,7 +901,7 @@ let actionLayer: Container | undefined;
 // zoom with the board (see renderEnergyLabels).
 let energyLabelLayer: Container | undefined;
 // The battery-pack icon (the same /assets/icons/sbed/battery-pack.svg the sidebar's
-// DiceRoller masks) loaded once in init and tinted per side for the on-board read-out.
+// on-board read-out masks) loaded once in init and tinted per side for that read-out.
 // $state so renderEnergyLabels' $effect re-runs and paints the icons once it lands.
 let batteryTexture: Texture | null = $state(null);
 
@@ -3947,8 +3947,8 @@ hpDice = new Dice3D({
 			// over each combat target as its clickable attack handle.
 			swordTexture = await Assets.load('/assets/icons/lorc/broadsword.svg');
 
-			// Load the battery-pack icon (the same one the sidebar's DiceRoller masks) for
-			// the on-board energy read-outs. Assigning it re-runs renderEnergyLabels' effect.
+			// Load the battery-pack icon for the on-board energy read-outs. Assigning it
+			// re-runs renderEnergyLabels' effect so both totals paint once it lands.
 			batteryTexture = await Assets.load('/assets/icons/sbed/battery-pack.svg');
 
 			// Each origin cell starts with 3 life points, shown as a stack of hearts.

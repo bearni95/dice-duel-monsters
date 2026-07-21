@@ -1,8 +1,10 @@
 <script lang="ts">
 	// The board match route. All the game logic and the PixiJS renderer live in the
 	// board engine (see $services/board-engine); this page is just the shell that boots
-	// the engine into the canvas host and lays out the DOM overlays / sidebar around it,
-	// each of which reads the engine's reactive state and dispatches its commands.
+	// the engine into the canvas host and lays out the DOM overlays around it, each of
+	// which reads the engine's reactive state and dispatches its commands. The hand,
+	// detail preview, turn number and energy totals all render on the board canvas now,
+	// so there is no DOM sidebar — the canvas fills the whole area below the navbar.
 	import { onMount } from 'svelte';
 	import { createBoardEngine } from '$services/board-engine.svelte';
 	import CombatHitMarkers from '$components/board/CombatHitMarkers.svelte';
@@ -10,19 +12,13 @@
 	import CombatResultToast from '$components/board/CombatResultToast.svelte';
 	import RivalTurnBadge from '$components/board/RivalTurnBadge.svelte';
 	import GameOverModal from '$components/board/GameOverModal.svelte';
-	import BoardSidebar from '$components/board/BoardSidebar.svelte';
 
 	const engine = createBoardEngine();
 
-	// The flex canvas host the engine renders into, and the floating dice panel it
-	// measures so the grid frames into the free space beside it.
+	// The canvas host the engine renders into, and the floating dice panel it measures so
+	// the grid frames into the free space beside it.
 	let host: HTMLDivElement;
 	let leftPanel: HTMLElement | undefined = $state();
-
-	// Whether the right column (hand + detail) is collapsed. When collapsed the sidebar
-	// takes no width and the canvas flexes to fill the whole row (the engine's resize
-	// observer reframes the board into the new space automatically).
-	let sidebarCollapsed = $state(false);
 
 	// Boot the renderer once the host is in the DOM; the engine returns its teardown.
 	onMount(() => engine.mount(host, leftPanel));
@@ -32,27 +28,12 @@
 	<title>Isometric Grid</title>
 </svelte:head>
 
-<!-- The board fills the space below the navbar as a flex row: the game canvas on the
-     left shrinks to fit, and the right column (hand + detail) is a real, space-occupying
-     DOM column beside it — never overlapping the canvas. -->
+<!-- The board fills the space below the navbar. The game canvas takes the whole area;
+     its own overlays (left dice panel, combat markers) are absolutely positioned within
+     it. The player and rival "board" plaques are drawn on the canvas itself (Pixi objects
+     laid flat on the isometric ground). -->
 <div class="board-layout">
-	<!-- Game canvas: flexes to fill the space left of the right column. Its own overlays
-	     (left dice panel, combat markers) are absolutely positioned within it, so they
-	     track the canvas, not the whole window. The player and rival "board" plaques are
-	     drawn on the canvas itself (Pixi objects laid flat on the isometric ground). -->
 	<div bind:this={host} class="viewport">
-		<!-- Collapse toggle: pinned to the top-right corner of the canvas, which is exactly
-		     the sidebar's left edge when it's open — so the button stays put and visible
-		     whether the sidebar is collapsed or not. -->
-		<button
-			class="btn btn-circle btn-sm absolute top-2 right-2 z-20"
-			onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
-			aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-			title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-		>
-			{sidebarCollapsed ? '«' : '»'}
-		</button>
-
 		{#if engine.combatBoxHits && engine.combatBoxHits.length}
 			<CombatHitMarkers hits={engine.combatBoxHits} />
 		{/if}
@@ -69,8 +50,6 @@
 			{/if}
 		</aside>
 	</div>
-
-	<BoardSidebar {engine} collapsed={sidebarCollapsed} />
 </div>
 
 {#if engine.rivalThinking}
@@ -87,12 +66,9 @@
 
 <style>
 	:global(:root) {
-		/* Height of the app navbar (DaisyUI .navbar default). The board row is offset
-		   by this so the canvas and the right column sit below it, not under it. */
+		/* Height of the app navbar (DaisyUI .navbar default). The board area is offset
+		   by this so the canvas sits below it, not under it. */
 		--navbar-h: 4rem;
-		/* Width of the right column (hand + detail). It's a real flex column of this
-		   width; the canvas takes whatever horizontal space is left. */
-		--right-col-w: 400px;
 	}
 
 	:global(html),
@@ -103,10 +79,7 @@
 		background: #1b1b1b;
 	}
 
-	/* The board is a flex row filling the space below the navbar: the canvas on the
-	   left and the right column beside it. Being a real flex row, the two never
-	   overlap — the column occupies its own horizontal space and the canvas gets the
-	   remainder. */
+	/* The board fills the space below the navbar; the canvas host takes the whole area. */
 	.board-layout {
 		position: fixed;
 		inset: var(--navbar-h) 0 0 0;
@@ -114,11 +87,10 @@
 		align-items: stretch;
 	}
 
-	/* The game canvas host: flexes to fill the space left of the right column and
-	   shrinks with it. min-width:0 lets the flex item shrink below the canvas's
-	   intrinsic size (so the canvas follows the box instead of forcing it wide);
-	   overflow:hidden clips any transient over-paint so nothing bleeds past the edge.
-	   The left dice panel floats over it as an absolute overlay. */
+	/* The game canvas host: fills the board area. min-width:0 lets the flex item shrink
+	   with the box (so the canvas follows it instead of forcing it wide); overflow:hidden
+	   clips any transient over-paint so nothing bleeds past the edge. The left dice panel
+	   floats over it as an absolute overlay. */
 	.viewport {
 		position: relative;
 		flex: 1 1 auto;
