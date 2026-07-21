@@ -27,6 +27,13 @@ const FRONTEND_STATIC = join(dirname(fileURLToPath(import.meta.url)), '..', '..'
 const routes: Array<{ re: RegExp; to: (m: RegExpMatchArray) => string }> = [
 	{ re: /^\/cards\/catalog\.json$/, to: () => join(DATA_ROOT, 'dist', 'catalog.json') },
 	{ re: /^\/cards\/generated\/([^/]+)$/, to: (m) => join(ASSETS_GENERATED, m[1]) },
+	// Monster cutout billboards (the on-board sprites the catalog references as
+	// `/cards/monster-billboards/…`), served from the frontend's static tree so the
+	// board preview modal can load them without the frontend running.
+	{
+		re: /^\/cards\/monster-billboards\/([^/]+)$/,
+		to: (m) => join(FRONTEND_STATIC, 'cards', 'monster-billboards', m[1])
+	},
 	{ re: /^\/card-effects\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'card-effects', m[1]) },
 	{ re: /^\/decks\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'decks', m[1]) },
 	{ re: /^\/dice\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'dice', m[1]) },
