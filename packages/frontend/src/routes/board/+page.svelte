@@ -799,10 +799,12 @@ $effect(() => {
 // right sidebar and the board plaques use) as a left-aligned pyramid at the grid's
 // bottom-left. Like the red/blue plaques it lives inside `camera`, so it pans and zooms
 // with the board — but unlike them the cards are drawn upright (plain sprites, no
-// isometric shear), standing rather than lying flat. Each card is two grid cells wide
-// (2 × CELL_WIDTH — the drawn, gap-applied cell the billboards are sized to); its
+// isometric shear), standing rather than lying flat. Each card is two grid cells wide.
+// Calibrated against the on-screen grid: the sprite.width setter on the loaded PNG
+// renders at ~2× the nominal value (unlike the .scale.set() the board billboards use),
+// so CELL_WIDTH here — not 2 × CELL_WIDTH — spans two drawn (gap-applied) tiles. Its
 // height follows the 1080×1415 PNG aspect so the art isn't distorted.
-const HAND_CARD_W = CELL_WIDTH * 2;
+const HAND_CARD_W = CELL_WIDTH;
 const HAND_CARD_H = (HAND_CARD_W * 1415) / 1080;
 const HAND_CARD_GAP = 6;
 // Inset (world px) of the pyramid's left edge from the grid's left corner.
