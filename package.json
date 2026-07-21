@@ -21,7 +21,7 @@
 		"export-cards": "node scripts/export-cards-from-db.mjs"
 	},
 	"dependencies": {
-		"@3d-dice/dice-box": "^1.1.4",
+		"@supabase/supabase-js": "^2.110.7",
 		"@sveltejs/adapter-static": "^3.0.9",
 		"classnames": "^2.5.1",
 		"pixi.js": "^8.19.0",
