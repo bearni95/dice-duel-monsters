@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { refreshDecks, refreshAssignments } from '$services/deck.service';
-	import CardTile from '$components/cards/CardTile.svelte';
+	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
 	import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
 	import { characters } from '$data/characters';
@@ -14,7 +14,8 @@
 	// The root page previews the deck assigned to each character (via the
 	// /admin/characters page, which writes the `slug -> deckId` assignment map).
 	// One tab per character that has a deck, showing that deck's full card list
-	// through the same CardTile renderer the /admin/cards browser uses.
+	// as the pre-baked card PNGs (GeneratedCardImage) served from the static tree —
+	// the frontend never live-renders GameCard; that is /admin-only tooling.
 	const cardApiAdapter = new CardApiAdapter();
 
 	interface CharacterDeck {
@@ -187,7 +188,7 @@
 						<div class="flex flex-wrap gap-4">
 							{#each active.cards as card, i (`${active.deck.id}-${card.id}-${i}`)}
 								<div class="w-[200px]">
-									<CardTile {card} />
+									<GeneratedCardImage id={card.id} name={card.name} />
 								</div>
 							{/each}
 						</div>
