@@ -272,12 +272,11 @@ export function createBoardEngine() {
 	// opening roll fires automatically; End Turn stays disabled until it lands).
 	let energyRolled = $state(false);
 
-	// The player's red energy dice (matching their red network).
-	const ENERGY_DICE_COLOR = '#ff3344';
-
-	// Theme color for the rival's dice in the shared 3D box (blue, matching its
-	// blue network), so its rolls read differently from the player's red ones.
-	const RIVAL_DICE_COLOR = '#4d8cff';
+	// Neutral body colour behind the static grid dice, shared by both sides. The baked
+	// face PNGs already carry their own coloured borders, so the cube backing stays a dark
+	// neutral (just filling seams / any transparent margin) rather than tinting each side
+	// red or blue, which would frame every face in a second, unwanted border.
+	const STATIC_DIE_BODY_COLOR = '#2b2b2b';
 
 	// Theme color for a summoned creature's HP dice (green), matching the healthy HP
 	// bar the roll fills. Both sides' summons roll their HP with these same dice.
@@ -1762,8 +1761,8 @@ async function renderDiceDisplay() {
 	const pixi = { Container, Graphics, Sprite, Matrix };
 
 	const sides = [
-		{ dice: playerDice, matrix: PLAYER_BOARD_MATRIX, color: ENERGY_DICE_COLOR, interactive: true },
-		{ dice: rivalDice, matrix: RIVAL_BOARD_MATRIX, color: RIVAL_DICE_COLOR, interactive: false }
+		{ dice: playerDice, matrix: PLAYER_BOARD_MATRIX, color: STATIC_DIE_BODY_COLOR, interactive: true },
+		{ dice: rivalDice, matrix: RIVAL_BOARD_MATRIX, color: STATIC_DIE_BODY_COLOR, interactive: false }
 	];
 
 	// Preload the three faces each cube shows (top + two sides), keyed `${id}-${face}`.
