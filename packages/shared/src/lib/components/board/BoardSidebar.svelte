@@ -20,15 +20,10 @@
 		collapsed ? 'w-0 overflow-hidden p-0' : 'w-[var(--right-col-w)] overflow-y-auto p-2'
 	)}
 >
-	<!-- Turn + energy read-out: the shared turn number and both sides' energy pools. -->
-	<div class="rounded bg-base-100 shadow-sm">
-		<DiceRoller
-			energyPoints={engine.energyPoints}
-			rivalEnergy={engine.cpuEnergy}
-			turnNumber={engine.turnNumber}
-			rolling={engine.rolling}
-		/>
-	</div>
+	<!-- Dice-status read-out: only the transient "Rolling…" indicator now, shown while a
+	     throw tumbles (the turn number and both sides' energy totals are drawn on the
+	     board itself). Renders nothing when idle, so it takes no space. -->
+	<DiceRoller rolling={engine.rolling} />
 
 	<InspectPanel {engine} />
 
