@@ -188,7 +188,7 @@
 		<!-- The card art in its blue-bordered frame: a full-width square. object-contain
 		     shows the whole image without cropping. -->
 		<div class="flex items-stretch gap-1 rounded border border-black">
-			<figure class="relative aspect-square min-w-0 flex-1 overflow-hidden rounded">
+			<figure class="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[3px]">
 				<img
 					class="h-full w-full object-contain"
 					src={card.cardImages?.[0]?.image_url_cropped}
