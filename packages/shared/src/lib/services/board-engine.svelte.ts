@@ -890,6 +890,21 @@ const HAND_PLAQUE_GAP = 24;
 let handLayer: Container | undefined;
 let handToken = 0;
 
+// The card viewer: a screen-space layer added straight to `app.stage` (NOT inside
+// `camera`), so the board's pan/zoom never touches it — it always paints at a fixed
+// size and position. It shows the art of whichever hand card the pointer is hovering
+// (see showCardPreview / the addHandCard hover handlers) at a constant 400px width.
+// Because it is a plain stage child it can be pinned anywhere in the canvas — change
+// positionCardPreview to move it. Built in init, above the camera so it reads on top.
+let previewLayer: Container | undefined;
+// The viewer's fixed art width (per the spec: always 400px), its height following the
+// 1080×1415 generated-card aspect, the inner padding of its backing panel, and the
+// gap kept between the panel and the canvas edge it's pinned to.
+const PREVIEW_CARD_W = 400;
+const PREVIEW_CARD_H = (PREVIEW_CARD_W * 1415) / 1080;
+const PREVIEW_PAD = 12;
+const PREVIEW_MARGIN = 24;
+
 // The world-space column of turn/unit action buttons (Move/Combat/Unfold/End Turn),
 // built in init and added to `camera` so it pans and zooms with the board. It sits
 // just under the player's red energy-dice row (see renderActionButtons).
@@ -1044,10 +1059,64 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	hover.addChild(button);
 	cardContainer.addChild(hover);
 
-	cardContainer.on('pointerenter', () => (hover.visible = true));
-	cardContainer.on('pointerleave', () => (hover.visible = false));
+	// On hover, reveal the in-card Summon overlay AND fill the fixed card viewer with
+	// this card's full art; leaving the card tears both down.
+	cardContainer.on('pointerenter', () => {
+		hover.visible = true;
+		showCardPreview(texture);
+	});
+	cardContainer.on('pointerleave', () => {
+		hover.visible = false;
+		showCardPreview(null);
+	});
 
 	handLayer.addChild(cardContainer);
+}
+
+// Pin the card viewer's top-left within the canvas. It's right-of-center by default
+// (clear of the top-left combat panel and the bottom hand row); this is the one place
+// to edit to drop the viewer anywhere else. Recomputed on every show and on resize
+// (see frameBoard) so it tracks the live canvas size.
+function positionCardPreview() {
+	if (!previewLayer || !app) return;
+	const panelW = PREVIEW_CARD_W + PREVIEW_PAD * 2;
+	const panelH = PREVIEW_CARD_H + PREVIEW_PAD * 2;
+	previewLayer.position.set(
+		app.screen.width - panelW - PREVIEW_MARGIN,
+		Math.max(PREVIEW_MARGIN, (app.screen.height - panelH) / 2)
+	);
+}
+
+// (Re)paint the card viewer with a card texture at the fixed 400px width, or clear and
+// hide it when texture is null (hover-out, or the hand being rebuilt). Rebuilt from
+// scratch each call so it always shows the currently hovered card and never leaks a
+// stale sprite. A no-op until init has created the layer.
+function showCardPreview(texture: Texture | null) {
+	if (!previewLayer) return;
+	for (const child of previewLayer.removeChildren()) child.destroy();
+
+	if (!texture) {
+		previewLayer.visible = false;
+		return;
+	}
+
+	const panelW = PREVIEW_CARD_W + PREVIEW_PAD * 2;
+	const panelH = PREVIEW_CARD_H + PREVIEW_PAD * 2;
+
+	// A dark rounded backing so the card reads as a floating viewer over the board.
+	const panel = new Graphics()
+		.roundRect(0, 0, panelW, panelH, 16)
+		.fill({ color: 0x000000, alpha: 0.55 });
+	previewLayer.addChild(panel);
+
+	const sprite = new Sprite(texture);
+	sprite.width = PREVIEW_CARD_W;
+	sprite.height = PREVIEW_CARD_H;
+	sprite.position.set(PREVIEW_PAD, PREVIEW_PAD);
+	previewLayer.addChild(sprite);
+
+	positionCardPreview();
+	previewLayer.visible = true;
 }
 
 
@@ -1065,6 +1134,11 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 async function renderHand() {
 	if (!handLayer) return;
 	const token = ++handToken;
+
+	// Clearing the old cards destroys their containers, so a card hovered at the moment
+	// of a re-render never fires its pointerleave — drop the viewer up front so it can't
+	// strand a preview of a card that's about to disappear.
+	showCardPreview(null);
 
 	if (!hand.length) {
 		for (const child of handLayer.removeChildren()) child.destroy();
@@ -1426,6 +1500,9 @@ function frameBoard() {
 	// at the canvas midline vertically (worldCenterX is 0, so it drops out of x).
 	camera.x = leftW + availableW / 2;
 	camera.y = app.screen.height / 2 - worldCenterY * scale;
+
+	// Keep the screen-space card viewer pinned to the (now re-measured) canvas edge.
+	positionCardPreview();
 }
 
 const tiles = new Map<string, Graphics>();
@@ -3895,6 +3972,15 @@ app.stage.addChild(camera);
 // they stay a constant size at the bottom-center of the viewport regardless of zoom.
 const diceLayer = new Container();
 app.stage.addChild(diceLayer);
+
+// The card viewer: another screen-space layer, added last so it reads on top of
+// everything. Immune to the board zoom (it's a stage child, not inside `camera`),
+// non-interactive so it never eats clicks, hidden until a hand card is hovered.
+previewLayer = new Container();
+previewLayer.eventMode = 'none';
+previewLayer.visible = false;
+app.stage.addChild(previewLayer);
+positionCardPreview();
 
 // World-space layer inside the camera for the board-bound dice (turn-start energy at
 // the origin hearts, HP above a summoned creature), added last so they render on top
