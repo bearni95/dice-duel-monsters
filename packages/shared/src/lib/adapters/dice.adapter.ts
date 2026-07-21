@@ -11,7 +11,7 @@ import {
 } from '$types/dice.type';
 
 // Transforms die definitions (as stored in static/dice/dice.json) into the props
-// the 3D dice canvases expect, and wraps the /admin/dice/store CRUD endpoint.
+// the 3D dice canvases expect, and wraps the /dice/store CRUD endpoint.
 // All die data-shaping lives here so the page and canvas components stay UI-only.
 export class DiceAdapter extends AdapterClass {
 	constructor() {
@@ -54,17 +54,17 @@ export class DiceAdapter extends AdapterClass {
 		return { ...die, faces: die.faces.map((f) => ({ ...f })) };
 	}
 
-	// --- CRUD against /admin/dice/store (dev-time authoring endpoint) ---------
+	// --- CRUD against /dice/store (dev-time authoring endpoint) ---------
 
 	async list(): Promise<DiceDefinition[]> {
-		const res = await fetch('/admin/dice/store');
+		const res = await fetch('/dice/store');
 		if (!res.ok) throw new Error(`Could not load dice (${res.status})`);
 		const data = await res.json();
 		return (data?.dice ?? []) as DiceDefinition[];
 	}
 
 	async save(die: DiceDefinition): Promise<DiceDefinition> {
-		const res = await fetch('/admin/dice/store', {
+		const res = await fetch('/dice/store', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(die)
@@ -75,7 +75,7 @@ export class DiceAdapter extends AdapterClass {
 	}
 
 	async remove(id: DiceDefinition['id']): Promise<void> {
-		const res = await fetch(`/admin/dice/store?id=${encodeURIComponent(String(id))}`, {
+		const res = await fetch(`/dice/store?id=${encodeURIComponent(String(id))}`, {
 			method: 'DELETE'
 		});
 		if (!res.ok) throw new Error(`Could not delete die (${res.status})`);

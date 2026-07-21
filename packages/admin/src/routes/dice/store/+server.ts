@@ -10,7 +10,7 @@ import { DICE_FILE } from '$lib/server/data-paths';
 // the source of truth the game reads at runtime, and this endpoint is the
 // dev-time authoring surface that writes it (mirroring how card effects and
 // decks persist their JSON under static/). The card catalog stays read-only;
-// only these die definitions live here and are edited from /admin/dice.
+// only these die definitions live here and are edited from /dice.
 const FILE = DICE_FILE;
 
 // Lowercase, ASCII, hyphen-separated. Derives a filename-safe id from a die name

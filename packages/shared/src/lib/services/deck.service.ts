@@ -4,13 +4,13 @@ import { ObjectServiceClass } from '$services/classes/object-service.class';
 import type { Deck, DeckSelection } from '$types/deck.type';
 
 // Decks are persisted as static JSON files under `static/decks/` (see the
-// /admin/decks/store endpoint), replacing the old localStorage collection. The
+// /decks/store endpoint), replacing the old localStorage collection. The
 // client reads the regenerated `manifest.json` aggregate to list every deck and
 // writes through the endpoint, which works in dev where the files are authored.
 const MANIFEST_URL = '/decks/manifest.json';
 const ASSIGNMENTS_URL = '/decks/assignments.json';
-const STORE_ENDPOINT = '/admin/decks/store';
-const ASSIGNMENTS_ENDPOINT = '/admin/decks/assignments';
+const STORE_ENDPOINT = '/decks/store';
+const ASSIGNMENTS_ENDPOINT = '/decks/assignments';
 
 // Reactive mirror of every saved deck, populated from the manifest.
 export const decks = writable<Deck[]>([]);

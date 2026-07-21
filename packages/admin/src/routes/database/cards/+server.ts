@@ -73,7 +73,7 @@ function isPlainEffectMonster(card: CardItem): boolean {
 }
 
 // The card-effect assignments (`cardId -> implementations[]`) authored on
-// /admin/cards, persisted alongside the card catalog. A card is "playable" when
+// /cards, persisted alongside the card catalog. A card is "playable" when
 // it has at least one implementation here (or is a vanilla monster).
 function readEffectAssignments(): Record<string, unknown[]> {
 	if (!existsSync(CARD_EFFECTS)) return {};

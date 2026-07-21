@@ -90,7 +90,7 @@ const EQUIP_REQUIREMENT_EFFECTS: RequirementEffect[] = [
 const DEFAULT_EFFECTS: CardEffect[] = [...BASE_EFFECTS, ...EQUIP_REQUIREMENT_EFFECTS];
 
 // All on-board card effects, persisted to localStorage and managed from
-// /admin/effects.
+// /effects.
 export const effectsService = new ArrayServiceClass<CardEffect>('effects', DEFAULT_EFFECTS);
 
 // Retired canonical descriptions for shipped presets, by id. A stored preset

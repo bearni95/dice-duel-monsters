@@ -7,7 +7,7 @@ import { CARD_EFFECTS } from '$lib/server/data-paths';
 
 // Which effect templates each card implements, persisted as a single static JSON
 // map (`cardId -> implementations[]`) alongside the card assets. Edited from
-// /admin/cards (the effects modal) and read at runtime as a static asset. The
+// /cards (the effects modal) and read at runtime as a static asset. The
 // card catalog itself stays read-only; only these per-card assignments live here.
 const FILE = CARD_EFFECTS;
 const DIR = dirname(FILE);

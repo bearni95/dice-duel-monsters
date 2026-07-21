@@ -8,7 +8,7 @@
 
 	let { card, onClose }: { card: CardAsset; onClose: () => void } = $props();
 
-	// The effect templates defined on /admin/effects, mirrored so the picker
+	// The effect templates defined on /effects, mirrored so the picker
 	// reflects any edits made there.
 	let templates = $state<CardEffect[]>(effectsService.all());
 	effectsService.store.subscribe((v) => (templates = v));

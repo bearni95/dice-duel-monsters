@@ -14,7 +14,7 @@ let catalogPromise: Promise<CatalogCard[]> | null = null;
 function loadCatalogData(): Promise<CatalogCard[]> {
 	if (!catalogPromise) {
 		// Cache-bust so a rebuilt catalog (e.g. after saving card positioning/effects
-		// on /admin/cards) is picked up on the next page load rather than a stale
+		// on /cards) is picked up on the next page load rather than a stale
 		// browser-cached copy. The catalog is memoised per tab below, so this is one
 		// fetch per session, not per query.
 		catalogPromise = fetch(`/cards/catalog.json?t=${Date.now()}`, { cache: 'no-store' })
@@ -34,7 +34,7 @@ function loadCatalogData(): Promise<CatalogCard[]> {
 
 // Drop the memoised catalog so the next loadCatalogData() re-fetches from disk.
 // Called after the catalog is rebuilt on the server (e.g. saving card positioning
-// or effect assignments on /admin/cards): without this the tab keeps serving the
+// or effect assignments on /cards): without this the tab keeps serving the
 // snapshot taken on first load, so a client-side navigation to the board renders
 // from pre-save data and the customizations appear to have no effect.
 export function invalidateCatalog(): void {

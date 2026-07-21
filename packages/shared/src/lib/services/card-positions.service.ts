@@ -5,15 +5,15 @@ import { invalidateCatalog } from '$adapters/cardApi.adapter';
 
 // Per-card board positioning — a billboard size factor plus an x/y pixel offset
 // of the image (its red square) relative to its cell (the purple square) —
-// persisted under data/cards/positions.json through the /admin/cards/positions
+// persisted under data/cards/positions.json through the /cards/positions
 // endpoint and baked into the card catalog at build time. Edited from the
-// board-preview modal on /admin/cards. Because the source file lives outside
+// board-preview modal on /cards. Because the source file lives outside
 // static/ (it's a build input, never shipped), both reads and writes go through
 // the endpoint rather than fetching a served asset. Keyed by stringified card
 // id; only fields adjusted away from their default are stored, and a card left
 // fully at the default (size 1, x/y 0 — the borders matching, centered) has no
 // entry.
-const ENDPOINT = '/admin/cards/positions';
+const ENDPOINT = '/cards/positions';
 
 export type CardPosition = { size: number; x: number; y: number };
 

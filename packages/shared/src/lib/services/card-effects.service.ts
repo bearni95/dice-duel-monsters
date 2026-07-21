@@ -4,13 +4,13 @@ import type { CardEffectImplementation } from '$types/card-effect.type';
 import type { ID } from '$types/core.type';
 
 // Per-card effect implementations, persisted as a single static JSON file under
-// `static/card-effects/` (see the /admin/cards/effects endpoint) and edited from
-// the effects modal on /admin/cards. Replaces the old localStorage collection so
+// `static/card-effects/` (see the /cards/effects endpoint) and edited from
+// the effects modal on /cards. Replaces the old localStorage collection so
 // assignments are shared server-side, exactly like character→deck assignments.
 // Keyed by card id (stringified, since JSON object keys are strings); a card with
 // no implementations has no entry at all.
 const ASSIGNMENTS_URL = '/card-effects/assignments.json';
-const ENDPOINT = '/admin/cards/effects';
+const ENDPOINT = '/cards/effects';
 
 type EffectsMap = Record<string, CardEffectImplementation[]>;
 

@@ -43,7 +43,7 @@
 	}: { card: IGameCreature; overlay?: Snippet; showStats?: boolean } = $props();
 
 	// Spell and trap cards fade in a preview of their linked effects on hover. The
-	// data comes from the same services the /admin/cards editor writes to, so any
+	// data comes from the same services the /cards editor writes to, so any
 	// card rendered anywhere through GameCard shows its effects without the parent
 	// wiring anything up. Both stores are mirrored into local state so the overlay
 	// stays reactive to edits.

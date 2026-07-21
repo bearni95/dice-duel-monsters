@@ -1125,7 +1125,7 @@ function depthFor(x: number, y: number): number {
 	return (x + y) * (TILE_HEIGHT / 2);
 }
 
-// Per-card board customizations authored in the /admin/cards board-preview modal
+// Per-card board customizations authored in the /cards board-preview modal
 // and baked into the catalog, applied here so a creature renders on the board
 // exactly as it previews there. `sizeOf` is the billboard scale multiplier (1 =
 // default), and `offsetOf` is its x/y nudge (in world px) from the cell center.
@@ -1134,7 +1134,7 @@ function sizeOf(creature: IGameCreature): number {
 }
 function offsetOf(creature: IGameCreature): { x: number; y: number } {
 	// The authored offset was calibrated against a full TILE_WIDTH cell in the
-	// /admin/cards preview. The board's cells (and the purple reference square) are
+	// /cards preview. The board's cells (and the purple reference square) are
 	// now shrunk by CELL_GAP, so scale the offset by the same factor to keep the
 	// image's placement relative to the square identical to the calibration.
 	return {
@@ -1459,7 +1459,7 @@ function positionShadow(unit: PlacedUnit) {
 }
 
 // Build the purple cell square for a unit, rendered identically to the cell
-// square in the /admin/cards board-preview modal: an axis-aligned square whose
+// square in the /cards board-preview modal: an axis-aligned square whose
 // side equals the drawn (gapped) cell's horizontal diagonal (CELL_WIDTH),
 // matching the billboard width, centered on the cell
 // center (x = 0) with its bottom edge flush with it (y = 0), so it rises above
@@ -1697,7 +1697,7 @@ async function placeMonster(
 	// As wide as the drawn (gapped) cell, with the billboard's bottom edge anchored
 	// to the cell center (anchor.y = 1), so the image's vertical end sits on the
 	// tile. The card's authored size factor (default 1) scales it, matching the
-	// board preview in /admin/cards 1:1.
+	// board preview in /cards 1:1.
 	const scale = CELL_WIDTH / texture.width;
 	sprite.scale.set(scale * sizeOf(creature));
 
@@ -1722,7 +1722,7 @@ async function placeMonster(
 	sprite.cursor = 'pointer';
 
 	// Red frame around the summoned creature, rendered identically to the image
-	// border in the /admin/cards board-preview modal so a creature looks on the
+	// border in the /cards board-preview modal so a creature looks on the
 	// board exactly as it was calibrated there. It hugs the full texture rectangle
 	// (the whole image, transparent margins included), with square corners and no
 	// padding. Added as a child of the sprite so it inherits the sprite's scale,

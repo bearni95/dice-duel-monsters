@@ -5,8 +5,8 @@ import { rasterizeElement } from '$utils/dom/rasterize';
 
 // Render a card to a PNG entirely in the browser, without the caller having to put
 // a GameCard on screen. This is the single card→image producer shared by the
-// /admin/print page (which shows the full-size PNG for a url-fed card id) and the
-// /admin/cards grid (which renders each tile from the PNG rather than a live DOM
+// /print page (which shows the full-size PNG for a url-fed card id) and the
+// /cards grid (which renders each tile from the PNG rather than a live DOM
 // card). It mounts a GameCard into an off-screen host, rasterizes it (see
 // rasterizeElement) and reads the result off a canvas as a PNG data URL.
 //
@@ -28,7 +28,7 @@ export interface CardPng {
 
 export interface RenderCardOptions {
 	// Output pixel width of the PNG. The height follows the card's aspect ratio.
-	// Defaults to 1080 (the /admin/print full-size output).
+	// Defaults to 1080 (the /print full-size output).
 	width?: number;
 	// Whether to render GameCard's in-game stat overlays. Mirrors GameCard's own
 	// prop: monsters show stats, other card types (spells, traps, …) do not.
@@ -44,7 +44,7 @@ function rewriteAssetUrl(assetUrl: string): string {
 	try {
 		const parsed = new URL(assetUrl, window.location.href);
 		if (parsed.origin === window.location.origin) return assetUrl;
-		return `/admin/print/proxy?url=${encodeURIComponent(parsed.href)}`;
+		return `/print/proxy?url=${encodeURIComponent(parsed.href)}`;
 	} catch {
 		return assetUrl;
 	}

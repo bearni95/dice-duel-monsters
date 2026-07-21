@@ -37,9 +37,10 @@ export function serveDataAssets(): Plugin {
 					if (!m) continue;
 					const file = to(m);
 					if (!existsSync(file) || !statSync(file).isFile()) {
-						res.statusCode = 404;
-						res.end('Not found');
-						return;
+						// Only claim URLs we can actually serve. On a miss, fall through to
+						// SvelteKit rather than 404ing — the admin CRUD endpoints share these
+						// prefixes (e.g. /dice/store, /decks/search) and must reach their routes.
+						break;
 					}
 					res.setHeader('Content-Type', CONTENT_TYPES[extname(file)] ?? 'application/octet-stream');
 					// Author-then-read loop: never cache, so admin edits show on reload.

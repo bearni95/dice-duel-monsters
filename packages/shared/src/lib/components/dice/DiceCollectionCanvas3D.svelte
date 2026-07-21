@@ -29,7 +29,7 @@
 	// A whole collection of icon dice drawn in ONE PixiJS WebGL canvas, laid out as
 	// a single horizontal strip: one die per column. Every die tumbles slowly and
 	// forever on its own axis and paints its per-face value badge (the same faces
-	// /admin/dice shows); nothing is interactive. Carrying per-die icons/labels/colour
+	// /dice shows); nothing is interactive. Carrying per-die icons/labels/colour
 	// lets any number of *different* dice share one WebGL context instead of paying
 	// one context each.
 

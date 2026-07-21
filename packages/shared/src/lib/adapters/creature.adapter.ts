@@ -10,7 +10,7 @@ export interface IGameCreature{
 		cardImages: { image_url_cropped: string }[];
 		billboard?: string;
 
-		// Per-card board positioning authored in the /admin/cards board-preview modal
+		// Per-card board positioning authored in the /cards board-preview modal
 		// and baked into the catalog. `size` scales the billboard (1 = default), while
 		// `x`/`y` offset it (in world px) from its cell center. Absent means default
 		// (size 1, no offset — the red and purple borders matching, centered).

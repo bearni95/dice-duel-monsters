@@ -4,8 +4,8 @@
 	import { renderCardToPng } from '$utils/card/cardToPng';
 
 	// Renders a card as a rasterized PNG image (produced by the same off-screen
-	// renderer /admin/print uses) instead of a live GameCard DOM tree. Used by the
-	// /admin/cards grid so every tile is the print-ready image of the card. A square-
+	// renderer /print uses) instead of a live GameCard DOM tree. Used by the
+	// /cards grid so every tile is the print-ready image of the card. A square-
 	// ish placeholder holds the tile's space while the PNG is generated.
 	let {
 		card,

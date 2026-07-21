@@ -34,7 +34,7 @@ export const EFFECT_KINDS: Array<{ value: EffectKind; label: string }> = [
 // Effect kinds that carry no configuration — they just exist.
 export type SimpleEffectKind = 'destroy' | 'flip' | 'follow';
 
-// The top-level card categories, mirroring the /admin/cards filters. A card's
+// The top-level card categories, mirroring the /cards filters. A card's
 // category is derived from its Yu-Gi-Oh! card type (Monster/Spell/Trap).
 export type CardCategory = 'monster' | 'spell' | 'trap';
 
@@ -78,7 +78,7 @@ export const MONSTER_RACES: string[] = [
 
 // Criteria a card must satisfy to be a candidate for the rest of the effects.
 // Every field is optional — an empty string means "any". `category` and
-// `subType` mirror the /admin/cards filters (sub-type is a monster variety, or a
+// `subType` mirror the /cards filters (sub-type is a monster variety, or a
 // spell/trap race), `attribute` is the monster attribute (DARK, LIGHT, …), and
 // `race` is the monster race / "type" (Warrior, Spellcaster, …) from MONSTER_RACES.
 export interface RequirementCriteria {

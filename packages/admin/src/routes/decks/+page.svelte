@@ -137,7 +137,7 @@
 
 	// ── Community deck search ────────────────────────────────────────────
 	// Search already-built decks on ygoprodeck.com (proxied through
-	// /admin/decks/search to sidestep CORS), preview them, and import into "Your
+	// /decks/search to sidestep CORS), preview them, and import into "Your
 	// decks" as a normal saved deck.
 	const PAGE_SIZE = 20;
 
@@ -182,7 +182,7 @@
 			});
 			if (searchQuery.trim()) params.set('name', searchQuery.trim());
 
-			const res = await fetch(`/admin/decks/search?${params}`);
+			const res = await fetch(`/decks/search?${params}`);
 			if (!res.ok) throw new Error(`Search failed (${res.status})`);
 			const data = await res.json();
 			const decks = data.decks as YgoProDeckApiDeck[];
@@ -349,7 +349,7 @@
 										<div class="grid grid-cols-[repeat(10,minmax(0,1fr))] gap-2">
 											{#each groupCards(deckCards[d.id]) as entry (entry.card.id)}
 												<div class="relative">
-													<!-- The card's baked PNG via GET /admin/print?id=…, a
+													<!-- The card's baked PNG via GET /print?id=…, a
 													     plain file read — no per-card SPA/catalog/canvas.
 													     Cards not yet baked are generated on demand, once and
 													     throttled, then loaded in (see GeneratedCardImage). -->

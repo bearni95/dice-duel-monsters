@@ -17,7 +17,7 @@ interface FlatRoute {
  * Dynamic (`[param]`) and grouped (`(group)`) segments are skipped since they
  * can't be linked to as plain buttons.
  *
- * Nested routes (more than one segment, e.g. `/admin/cards`) are collected
+ * Nested routes (more than one segment, e.g. `/cards`) are collected
  * under a single parent nav item keyed by their first segment (e.g. `Admin`),
  * which renders them as a submenu instead of top-level buttons.
  */

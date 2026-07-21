@@ -3,7 +3,7 @@ import type { EffectParamValues } from '$types/effect.type';
 
 // One effect template a card implements, with the values the card supplies for
 // the template's templated params. `effectId` references a CardEffect template's
-// id, as defined on /admin/effects.
+// id, as defined on /effects.
 export interface CardEffectImplementation {
 	// Unique id for this implementation row (a card may implement the same
 	// template more than once, e.g. raise Attack and raise HP).

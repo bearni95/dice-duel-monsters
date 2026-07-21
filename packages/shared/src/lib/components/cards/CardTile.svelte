@@ -11,8 +11,8 @@
 	// opens the effect-implementation editor for this card. `effectCount` badges
 	// how many effect templates the card already implements.
 	// When `png` is set the card visual is rendered from a rasterized PNG (the same
-	// image /admin/print produces) instead of the live GameCard DOM. Used by the
-	// /admin/cards grid; every other caller keeps the default DOM render.
+	// image /print produces) instead of the live GameCard DOM. Used by the
+	// /cards grid; every other caller keeps the default DOM render.
 	let {
 		card,
 		onSelect,

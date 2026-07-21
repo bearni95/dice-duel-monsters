@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-// Dev-only image proxy for the /admin/print canvas rasterizer. The card art lives
+// Dev-only image proxy for the /print canvas rasterizer. The card art lives
 // on an external CDN that serves no CORS headers, so the browser can fetch it into
 // an <img> (for display) but cannot read its bytes to inline it into the canvas.
 // This endpoint refetches the remote image server-side — where CORS does not apply

@@ -35,7 +35,7 @@
 		{ value: 'text', label: 'Text' }
 	];
 
-	// Card facets for the requirement editor, mirroring /admin/cards: sub-types
+	// Card facets for the requirement editor, mirroring /cards: sub-types
 	// depend on the chosen category (monster variety, or spell/trap race), and
 	// attributes are the monster attributes (DARK, LIGHT, …). Loaded from the
 	// same /database/cards endpoint the cards page uses.

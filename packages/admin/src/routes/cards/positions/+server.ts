@@ -10,7 +10,7 @@ import { POSITIONS, CATALOG_SCRIPT, CATALOG_OUT } from '$lib/server/data-paths';
 // persisted as a single JSON map (`cardId -> { size?, x?, y? }`) in the data
 // package alongside the cardinfo the catalog is assembled from, so the values
 // are baked into the catalog at build time. Edited from the board-preview modal
-// on /admin/cards. Only fields adjusted away from their default (size 1, x/y 0)
+// on /cards. Only fields adjusted away from their default (size 1, x/y 0)
 // are stored, and a card left fully at the default carries no entry at all.
 const FILE = POSITIONS;
 

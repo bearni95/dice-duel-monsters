@@ -3,9 +3,9 @@
 	import { enqueueCardGeneration } from '$utils/card/generateQueue';
 
 	// Dev-only card tile for the /admin editors. The image is served by
-	// GET /admin/print?id=<id> from static/cards/generated. When that 404s (the card
+	// GET /print?id=<id> from static/cards/generated. When that 404s (the card
 	// hasn't been baked yet) the card is rendered once — client-side and throttled
-	// (see generateQueue) — and POSTed to /admin/print/save; on success the <img> is
+	// (see generateQueue) — and POSTed to /print/save; on success the <img> is
 	// reloaded and now resolves. If it still can't be produced, a "card not found"
 	// placeholder is shown.
 	//
@@ -22,7 +22,7 @@
 	let attempted = $state(false);
 	let failed = $state(false);
 
-	const src = $derived(`/admin/print?id=${card.id}${reloadToken ? `&t=${reloadToken}` : ''}`);
+	const src = $derived(`/print?id=${card.id}${reloadToken ? `&t=${reloadToken}` : ''}`);
 
 	async function handleError() {
 		if (attempted) {

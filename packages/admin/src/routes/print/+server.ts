@@ -4,11 +4,11 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { GENERATED_DIR } from '$lib/server/data-paths';
 
-// Serves a card's baked full-size PNG. `GET /admin/print?id=<cardId>` returns the
+// Serves a card's baked full-size PNG. `GET /print?id=<cardId>` returns the
 // image bytes from static/cards/generated/<id>.png, or 404 when that card has not
 // been generated yet. This is what card tiles point an <img> at; a 404 is the
 // signal for the owning page to render the card (client-side, throttled — see
-// $utils/card/generateQueue) and POST it to /admin/print/save, after which this
+// $utils/card/generateQueue) and POST it to /print/save, after which this
 // endpoint serves it. Anything unexpected is logged to the dev server console so
 // print problems are visible in the backend log. Like the other /admin endpoints
 // this is dev tooling and is absent from the static production build.
@@ -36,7 +36,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		return new Response(body, {
 			headers: {
 				'content-type': 'image/png',
-				// The file can be (re)written by /admin/print/save, so don't let the
+				// The file can be (re)written by /print/save, so don't let the
 				// browser hold a stale copy across a regeneration.
 				'cache-control': 'no-cache'
 			}

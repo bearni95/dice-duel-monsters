@@ -2,19 +2,19 @@ import type { CardAsset } from '$components/cards/GameCard.svelte';
 import { CreatureAdapter } from '$adapters/creature.adapter';
 import { renderCardToPng } from '$utils/card/cardToPng';
 
-// Client-side, throttled generator for the /admin/print PNGs. A card tile whose
-// baked PNG is missing (the /admin/print endpoint 404s) asks this queue to produce
+// Client-side, throttled generator for the /print PNGs. A card tile whose
+// baked PNG is missing (the /print endpoint 404s) asks this queue to produce
 // it: the card is rasterized off-screen (renderCardToPng) and POSTed to
-// /admin/print/save, which writes it under static/cards/generated so the endpoint
+// /print/save, which writes it under static/cards/generated so the endpoint
 // serves it thereafter.
 //
-// This is what replaced the old "one <iframe src=/admin/print> per card" approach:
+// This is what replaced the old "one <iframe src=/print> per card" approach:
 // every tile used to boot a whole SPA (app + 3.6MB catalog + canvas) in its own
 // document. Here all rendering happens in the *single* page that owns the tiles,
 // capped at MAX_CONCURRENT at a time, so a deck of dozens of cards can't stampede
 // the dev server (which is what made asset fetches fail and bake blank cards).
 
-// Output width of the produced PNG (the full-size /admin/print output).
+// Output width of the produced PNG (the full-size /print output).
 const OUTPUT_WIDTH = 1080;
 
 // How many cards may rasterize + save at once. Small on purpose: the bottleneck is
@@ -61,7 +61,7 @@ async function generate(card: CardAsset): Promise<void> {
 			showStats: creatureAdapter.isMonster(card)
 		});
 
-		const res = await fetch('/admin/print/save', {
+		const res = await fetch('/print/save', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			// failedAssets lets the server refuse to bake a card with missing art and

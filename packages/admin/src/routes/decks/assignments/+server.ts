@@ -6,7 +6,7 @@ import { DECKS_DIR } from '$lib/server/data-paths';
 
 // Which saved deck each character is assigned, persisted as a single static JSON
 // map (`characterSlug -> deckId`) alongside the per-deck files. Edited from
-// /admin/characters and read at runtime as a static asset.
+// /characters and read at runtime as a static asset.
 const DIR = DECKS_DIR;
 const FILE = join(DIR, 'assignments.json');
 

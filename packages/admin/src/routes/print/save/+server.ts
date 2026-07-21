@@ -4,10 +4,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { GENERATED_DIR } from '$lib/server/data-paths';
 
-// Write side of the /admin/print PNG cache. A card is rasterized in the browser
+// Write side of the /print PNG cache. A card is rasterized in the browser
 // (see renderCardToPng / generateQueue), which is expensive and non-deterministic;
 // the bitmap is POSTed here and persisted under static/cards/generated/<id>.png,
-// which GET /admin/print then serves directly. These files are committed to git —
+// which GET /print then serves directly. These files are committed to git —
 // they are the authored, baked-in art for each card. Like the other /admin
 // endpoints this is dev tooling and is absent from the static production build.
 const DIR = GENERATED_DIR;
@@ -49,5 +49,5 @@ export const POST: RequestHandler = async ({ request }) => {
 	writeFileSync(file, bytes);
 	console.info(`[admin/print] baked card ${id} (${bytes.length} bytes)`);
 
-	return json({ saved: true, url: `/admin/print?id=${id}` });
+	return json({ saved: true, url: `/print?id=${id}` });
 };
