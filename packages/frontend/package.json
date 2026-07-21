@@ -23,6 +23,7 @@
 	},
 	"dependencies": {
 		"data": "workspace:*",
+		"shared": "workspace:*",
 		"@supabase/supabase-js": "^2.110.7",
 		"@sveltejs/adapter-static": "^3.0.9",
 		"classnames": "^2.5.1",

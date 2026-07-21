@@ -1,0 +1,14 @@
+{
+	"name": "shared",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Shared UI, adapters, services, utils, types and data consumed by the frontend and admin apps (via source aliases).",
+	"dependencies": {
+		"@supabase/supabase-js": "^2.110.7",
+		"classnames": "^2.5.1",
+		"pixi.js": "^8.19.0",
+		"svelte": "^5.0.0",
+		"svelte-i18n": "^4.0.1"
+	}
+}

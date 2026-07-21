@@ -18,14 +18,16 @@ const config = {
 			precompress: false,
 			strict: false // This tells the adapter to ignore dynamic routes
 		}),
-		alias: {
-			$components: 'src/components/*',
-			$utils: 'src/utils/*',
-			$types: 'src/types/*',
-			$data: 'src/data/*',
-			$adapters: 'src/adapters/*',
-			$services: 'src/services/*'
-		}
+			// Shared UI/logic lives in the `shared` package; these aliases resolve
+			// into its source (compiled by this app's Vite). See packages/shared.
+			alias: {
+				$components: '../shared/src/lib/components/*',
+				$utils: '../shared/src/lib/utils/*',
+				$types: '../shared/src/lib/types/*',
+				$data: '../shared/src/lib/data/*',
+				$adapters: '../shared/src/lib/adapters/*',
+				$services: '../shared/src/lib/services/*'
+			}
 	}
 };
 
