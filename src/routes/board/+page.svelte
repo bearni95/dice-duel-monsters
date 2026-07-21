@@ -816,18 +816,14 @@ const HAND_BOTTOM_BIAS = 190;
 let handLayer: Container | undefined;
 let handToken = 0;
 
-// Place one hand card as an upright PNG at world (x, y) (its top-left), or a "card not
-// found" placeholder when the bitmap is missing — the same fallback the plaques and
-// hand tiles use. The token guards against a superseded render. Cards too costly for
-// the current energy pool are dimmed, echoing the sidebar's grayed-out tiles.
-async function addHandCard(card: IGameCreature, x: number, y: number, token: number) {
-	let texture: Texture | null = null;
-	try {
-		texture = await Assets.load(`/cards/generated/${card.id}.png`);
-	} catch {
-		texture = null;
-	}
-	if (token !== handToken || !handLayer) return;
+// Draw one hand card as an upright PNG at world (x, y) (its top-left) from an already-
+// loaded texture, or a "card not found" placeholder when the bitmap is missing — the
+// same fallback the plaques and hand tiles use. Synchronous: renderHand preloads every
+// texture first, so the whole hand is laid down in one atomic pass (no per-card await,
+// so a re-render can't leave a half-drawn hand). Cards too costly for the current energy
+// pool are dimmed, echoing the sidebar's grayed-out tiles.
+function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture | null) {
+	if (!handLayer) return;
 
 	const dim = canSummon(card) ? 1 : 0.45;
 
@@ -870,25 +866,30 @@ async function addHandCard(card: IGameCreature, x: number, y: number, token: num
 const HAND_ROWS = [1, 2, 3];
 
 // (Re)draw the player's hand from scratch for the current `hand` (in draw order), as a
-// left-aligned three-row pyramid of upright cards just outside the grid's bottom-left
-// edge. The block is centered on that edge in world coords (computed from the two
-// corner cells), so it tracks the grid as the camera pans/zooms, and every row shares
-// the same left edge. Reactive to `hand` and `energyPoints` (the latter drives the
-// affordability dim); a no-op until the container exists (init creates it once the
-// board is built).
+// left-aligned three-row pyramid of upright cards in the board's lower-left. The anchor
+// is computed in world coords from the grid's corner cells, so the block tracks the grid
+// as the camera pans/zooms, and every row shares the same left edge. Reactive to `hand`
+// and `energyPoints` (the latter drives the affordability dim); a no-op until the
+// container exists (init creates it once the board is built).
+//
+// The card PNGs are preloaded in parallel before anything is drawn, then the old cards
+// are cleared and the new ones added in a single synchronous pass. A stale token check
+// after the load drops a superseded render wholesale — so an energy roll or draw firing
+// mid-load can never leave a partially rendered hand (which showed up as missing rows).
 async function renderHand() {
 	if (!handLayer) return;
 	const token = ++handToken;
 
-	for (const child of handLayer.removeChildren()) child.destroy();
-	if (!hand.length) return;
+	if (!hand.length) {
+		for (const child of handLayer.removeChildren()) child.destroy();
+		return;
+	}
 
 	// Left-align the pyramid just inside the grid's left corner (first col, last row) and
 	// grow the rows downward. The block is tall (three rows of upright cards), so bias its
 	// vertical center below the grid's midline (worldCenterY = half the bottom corner's y,
 	// since the top corner sits at y=0) — this keeps the whole pyramid in the board's
-	// lower-left rather than running off the bottom. World coords, so it tracks the grid as
-	// the camera pans/zooms.
+	// lower-left rather than running off the bottom.
 	const leftCorner = isoPosOf(0, GRID_HEIGHT - 1);
 	const bottomCorner = isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1);
 	const worldCenterY = bottomCorner.y / 2;
@@ -897,17 +898,32 @@ async function renderHand() {
 	const leftX = leftCorner.x + HAND_MARGIN;
 	const topY = worldCenterY - blockHeight / 2 + HAND_BOTTOM_BIAS;
 
+	// Fix each card's world position up front (in draw order, filling the rows).
+	const placements: { card: IGameCreature; x: number; y: number }[] = [];
 	let index = 0;
 	let rowY = topY;
 	for (const count of HAND_ROWS) {
 		let x = leftX;
 		for (let c = 0; c < count && index < hand.length; c++) {
-			await addHandCard(hand[index], x, rowY, token);
+			placements.push({ card: hand[index], x, y: rowY });
 			x += HAND_CARD_W + HAND_CARD_GAP;
 			index++;
 		}
 		rowY += HAND_CARD_H + HAND_CARD_GAP;
 	}
+
+	// Preload every card's PNG in parallel (null on a miss → placeholder).
+	const textures = await Promise.all(
+		placements.map((p) =>
+			Assets.load<Texture>(`/cards/generated/${p.card.id}.png`).catch(() => null)
+		)
+	);
+
+	// A newer render superseded this one while the textures loaded — drop it wholesale.
+	if (token !== handToken || !handLayer) return;
+
+	for (const child of handLayer.removeChildren()) child.destroy();
+	placements.forEach((p, i) => addHandCard(p.card, p.x, p.y, textures[i]));
 }
 
 // Repaint the on-canvas hand whenever the hand changes or the energy pool shifts (so
