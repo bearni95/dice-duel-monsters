@@ -2,6 +2,16 @@
 
 This document guides Claude (and developers) on implementing features using this SvelteKit boilerplate. Follow these conventions strictly to maintain consistency across the codebase.
 
+## Git Commit Conventions
+
+These rules are mandatory and override any default commit behavior:
+
+- **Commit every change you make.** After completing a discrete change, commit it. Do not leave work uncommitted or batch unrelated changes into one commit — one logical change per commit.
+- **Single-line messages only.** No body, no bullet list, no trailers. Write one concise imperative summary line.
+- **No emoji** anywhere in the commit message.
+- **Never credit Claude/AI.** Do not add `Co-Authored-By: Claude ...`, `🤖 Generated with ...`, or any similar attribution. Commits must never be co-authored.
+- **Author identity must be `bearni95 <bernatcanal@gmail.com>`.** This is pinned in the repo's local git config; do not override it with `--author` or environment variables.
+
 ## Project Structure
 
 ```
