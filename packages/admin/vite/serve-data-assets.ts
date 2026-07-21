@@ -16,7 +16,9 @@ import type { Plugin } from 'vite';
 // admin write-endpoint is immediately visible to the admin UI with no copy step.
 const require = createRequire(import.meta.url);
 const DATA_ROOT = dirname(require.resolve('data/package.json'));
-const ASSETS_GENERATED = join(dirname(require.resolve('assets/package.json')), 'cards', 'generated');
+const ASSETS_ROOT = dirname(require.resolve('assets/package.json'));
+const ASSETS_GENERATED = join(ASSETS_ROOT, 'cards', 'generated');
+const ASSETS_DICE_GENERATED = join(ASSETS_ROOT, 'dice', 'generated');
 
 // The frontend's static tree, resolved by repo layout (packages/frontend/static)
 // rather than a package dependency, so admin needs nothing from the frontend at
@@ -36,6 +38,10 @@ const routes: Array<{ re: RegExp; to: (m: RegExpMatchArray) => string }> = [
 	},
 	{ re: /^\/card-effects\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'card-effects', m[1]) },
 	{ re: /^\/decks\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'decks', m[1]) },
+	// Baked die-face PNGs written by the /dice export endpoint, read through from
+	// the assets package (their git-tracked home) — matched before the generic
+	// dice-data route so the `generated/` subpath doesn't fall through to DATA_ROOT.
+	{ re: /^\/dice\/generated\/([^/]+)$/, to: (m) => join(ASSETS_DICE_GENERATED, m[1]) },
 	{ re: /^\/dice\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'dice', m[1]) },
 	{ re: /^\/spells\/([^/]+)$/, to: (m) => join(DATA_ROOT, 'spells', m[1]) },
 	// Static media from the frontend's static tree. `/characters` is also an admin
