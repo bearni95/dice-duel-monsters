@@ -203,6 +203,13 @@ export function createBoardEngine() {
 	let playerDice = $state<SpawnedDie[]>([]);
 	let rivalDice = $state<SpawnedDie[]>([]);
 
+	// The player's just-rolled turn-start dice: the cubes they picked, moved out to the roll
+	// spot past the block where they tumbled, and kept parked there (as plain static cubes)
+	// until the turn ends. Populated by rollPickedDice once the roll animation settles and
+	// cleared in endTurn. This is what replaced the old 3D energy roller for the player —
+	// the dice now roll in the 2D isometric board and stay put for the turn.
+	let rolledTurnDice = $state<SpawnedDie[]>([]);
+
 	// Fixed grid slot (0-based) each match die occupies, and the slot count of a full
 	// pool — both captured once at seed time (see seedMatchDice). The dice display draws
 	// every die at its slot against this total, so consumed dice leave their slot empty
@@ -481,44 +488,63 @@ export function createBoardEngine() {
 		await rollPickedDice(chosen);
 	}
 
-	// Tumble the given dice's cube nodes in place on the 2D isometric grid: a quick spin
-	// that eases to a stop paired with a couple of decaying vertical hops, so the picked
-	// dice visibly roll where they sit before they leave the pool (rather than blinking out).
-	// Resolves once the tumble settles the cubes back flat. Reads diceNodeById as it stands
-	// right now, so it must run before any state change repaints (and destroys) the layer.
-	function animateDiceRollInPlace(ids: string[]): Promise<void> {
-		const nodes = ids
-			.map((id) => diceNodeById.get(id))
-			.filter((n): n is Container => n !== undefined);
-		if (nodes.length === 0) return Promise.resolve();
+	// Animate the picked dice out to the roll spot and roll them there: a two-beat move where
+	// each cube first glides from its grid slot to its resting place in the roll-spot row
+	// (lofting through a shallow arc), then tumbles on the spot — a quick spin that eases to a
+	// stop over a couple of decaying hops — coming to rest exactly where renderDiceDisplay will
+	// redraw it as a parked `rolledTurnDice` cube. Reads diceNodeById as it stands right now, so
+	// it must run before any state change repaints (and destroys) the layer.
+	function animateDiceRollToSpot(picked: SpawnedDie[]): Promise<void> {
+		// Pair each picked cube with the offset from its current slot to its roll-spot seat, and
+		// hide its selection ring (a sibling in the wrap) so only the cube itself travels.
+		const items = picked
+			.map((die, i) => {
+				const cube = diceNodeById.get(die.id);
+				const wrap = cube?.parent;
+				if (!cube || !wrap) return null;
+				for (const sibling of wrap.children) if (sibling !== cube) sibling.visible = false;
+				const seat = rolledDieCenter(i, picked.length);
+				return { cube, base: { x: seat.x - wrap.x, y: seat.y - wrap.y } };
+			})
+			.filter((it): it is { cube: Container; base: { x: number; y: number } } => it !== null);
+		if (items.length === 0) return Promise.resolve();
 
-		const ms = 650;
-		const spins = 2; // full turns the cube spins through over the roll
+		const moveMs = 380; // beat one: glide to the roll spot
+		const rollMs = 620; // beat two: tumble on the spot
+		const spins = 2; // full turns the cube spins through as it rolls
 		const hops = 3; // vertical bounces, amplitude decaying to a flat landing
 		const hopAmp = MATCH_DIE_SIZE * 0.55;
+		const arc = MATCH_DIE_SIZE * 0.6; // loft of the glide's arc
 
 		return new Promise((resolve) => {
 			const start = performance.now();
 			const tick = (ticker: Ticker) => {
 				void ticker;
-				const t = Math.min(1, (performance.now() - start) / ms);
-				// easeOutCubic so the spin whips up then settles gently onto its final facing.
-				const ease = 1 - Math.pow(1 - t, 3);
-				const rot = spins * Math.PI * 2 * ease;
-				// Bounces that shrink to nothing by the end, so the die lands flush in its slot.
-				const bounce = Math.abs(Math.sin(hops * Math.PI * t)) * hopAmp * (1 - t);
-				// A subtle squash on each bounce, fading out with the hops.
-				const squash = 1 + 0.1 * Math.sin(hops * Math.PI * 2 * t) * (1 - t);
-				for (const node of nodes) {
-					node.rotation = rot;
-					node.y = -bounce;
-					node.scale.set(squash, squash);
+				const now = performance.now() - start;
+				for (const { cube, base } of items) {
+					if (now < moveMs) {
+						// Glide toward the seat on an easeInOutCubic, lofting through a shallow arc.
+						const mt = now / moveMs;
+						const ease = mt < 0.5 ? 4 * mt * mt * mt : 1 - Math.pow(-2 * mt + 2, 3) / 2;
+						cube.position.set(base.x * ease, base.y * ease - Math.sin(Math.PI * mt) * arc);
+						cube.rotation = 0;
+						cube.scale.set(1, 1);
+					} else {
+						// Tumble on the seat: spin eases to a stop over decaying hops and a squash.
+						const rt = Math.min(1, (now - moveMs) / rollMs);
+						const eo = 1 - Math.pow(1 - rt, 3);
+						const bounce = Math.abs(Math.sin(hops * Math.PI * rt)) * hopAmp * (1 - rt);
+						const squash = 1 + 0.1 * Math.sin(hops * Math.PI * 2 * rt) * (1 - rt);
+						cube.position.set(base.x, base.y - bounce);
+						cube.rotation = spins * Math.PI * 2 * eo;
+						cube.scale.set(squash, squash);
+					}
 				}
-				if (t >= 1) {
-					for (const node of nodes) {
-						node.rotation = 0;
-						node.y = 0;
-						node.scale.set(1, 1);
+				if (now >= moveMs + rollMs) {
+					for (const { cube, base } of items) {
+						cube.position.set(base.x, base.y);
+						cube.rotation = 0;
+						cube.scale.set(1, 1);
 					}
 					app.ticker.remove(tick);
 					resolve();
@@ -528,42 +554,43 @@ export function createBoardEngine() {
 		});
 	}
 
-	// Roll the dice the player chose (or the whole pool when there was no choice),
-	// banking their energy below the player's red origin hearts, then consuming the
-	// rolled dice from the player's match pool. Ends the pick phase.
+	// Bank the energy for a set of rolled dice with a plain RNG (no 3D roller): each die lands
+	// a random face and its value feeds the pool under the role that face carries. Mirrors the
+	// scoring rollEnergyDice does for the rival, minus the on-board 3D throw.
+	function bankPickedEnergy(dice: SpawnedDie[]) {
+		if (!diceConfig) return;
+		const map = (iconRoleMap ??= diceAdapter.roleByIcon(diceConfig));
+		for (const die of dice) {
+			const face = rollDie(6);
+			const scored = diceAdapter.faceEnergy(diceConfig, die, face, map);
+			if (scored) energy[scored.role] += scored.value;
+		}
+	}
+
+	// Roll the dice the player chose (or the whole pool when there was no choice). The picked
+	// cubes glide out to the roll spot past the block and tumble there in the 2D isometric board
+	// (no 3D roller), then stay parked at that spot until the turn ends; their energy is banked
+	// from the roll and the dice are consumed from the player's match pool.
 	async function rollPickedDice(dice: SpawnedDie[]) {
 		if (rolling) return;
 		const picked = dice.slice(0, 3);
-		// First tumble the picked dice in place on the 2D grid so they visibly roll where they
-		// sit. Lock the board for the tumble (it happens before the 3D throw sets `rolling`),
-		// and hold off the pick-phase teardown/pool consumption until it finishes, so the cube
-		// nodes survive the animation instead of being destroyed by an early repaint.
+		// Play the move-and-roll on the live cube nodes. Lock the board for it and hold off the
+		// pick-phase teardown / pool consumption until it finishes, so the cubes survive the
+		// animation instead of being destroyed by an early repaint.
 		rolling = true;
 		try {
-			await animateDiceRollInPlace(picked.map((d) => d.id));
+			await animateDiceRollToSpot(picked);
 		} finally {
 			rolling = false;
 		}
 		pickingDice = false;
 		dicePick = [];
-		// Pull the picked dice out of the pool now the in-place tumble is done so they leave the
-		// grid (their slots go empty); the 3D throw then plays out and we await it before banking.
+		// Pull the picked dice out of the pool (their grid slots go empty) and park them at the
+		// roll spot as `rolledTurnDice`, where renderDiceDisplay redraws them exactly where the
+		// animation left them — kept there until endTurn clears them.
 		playerDice = consumeDice(playerDice, picked);
-		// Throw the picked dice in the 3D roller just past the pool's down-right (+uHat) end —
-		// its bottom-right corner, toward the grid's bottom corner — at the row band's mid-
-		// thickness, so the roller aligns to that end instead of hanging off the outward
-		// bottom-left (+vHat). The dice run along vHat (the pool's outward/column axis, the
-		// other iso diagonal — a 90° turn from the rows) so they line up with the pool's
-		// right edge, and stay upright 3D cubes.
-		const { uHat, vHat, mid } = playerDiceAxes();
-		const poolEndAlong = ((MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP + MATCH_DIE_SIZE / 2;
-		const rollerAlong = poolEndAlong + MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
-		const bandOut = MATCH_DIE_OUT_GAP + ((MATCH_DICE_MAX_ROWS - 1) / 2) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
-		const center = {
-			x: mid.x + uHat.x * rollerAlong + vHat.x * bandOut,
-			y: mid.y + uHat.y * rollerAlong + vHat.y * bandOut
-		};
-		await rollEnergyDice(playerEnergyDice, picked, center, energy, vHat);
+		rolledTurnDice = picked;
+		bankPickedEnergy(picked);
 		energyRolled = true;
 	}
 
@@ -604,6 +631,8 @@ export function createBoardEngine() {
 		anchorDice?.clear();
 		energyRolled = false;
 		combatBoxHits = null;
+		// Clear the parked roll-spot dice — they only live for the turn that rolled them.
+		rolledTurnDice = [];
 
 		await runCpuTurn();
 		await beginPlayerDicePhase();
@@ -1867,11 +1896,33 @@ function matchDieCenter(
 	};
 }
 
-// (Re)draw both sides' remaining match dice past their plaques. Preloads only the three
-// visible faces of every die (cached by Assets), then rebuilds the layer in one pass
-// with a token guard so a superseded render (a roll consuming dice mid-load) is dropped.
-// The player's dice are wired click-to-pick while the turn-start phase is open, with a
-// Roll button past the block; the rival's are always a passive display.
+// The world-space centre of the player's roll spot: the row one past the full dice block
+// (where the Roll button sits), out along vHat. The block's row count is reckoned against
+// the full pool (diceSlotCount) so the spot stays put as the pool is consumed. This is where
+// the picked dice glide to, roll, and stay parked for the turn.
+function rollSpotAnchor(): { x: number; y: number } {
+	const { vHat, mid } = playerDiceAxes();
+	const slotTotal = diceSlotCount || playerDice.length || 1;
+	const rows = Math.max(1, Math.ceil(slotTotal / MATCH_DIE_COLS));
+	const out = MATCH_DIE_OUT_GAP + rows * MATCH_DIE_ROW_STEP + MATCH_DIE_ROW_STEP;
+	return { x: mid.x + vHat.x * out, y: mid.y + vHat.y * out };
+}
+
+// World centre of the k-th (of n) parked roll-spot die: laid in a single row along uHat,
+// centred on the roll-spot anchor, mirroring how matchDieCenter centres a pool row.
+function rolledDieCenter(k: number, n: number): { x: number; y: number } {
+	const { uHat } = playerDiceAxes();
+	const anchor = rollSpotAnchor();
+	const along = (k - (n - 1) / 2) * MATCH_DIE_COL_STEP;
+	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
+}
+
+// (Re)draw both sides' remaining match dice past their plaques, plus the player's parked
+// roll-spot dice. Preloads only the three visible faces of every die (cached by Assets), then
+// rebuilds the layer in one pass with a token guard so a superseded render (a roll consuming
+// dice mid-load) is dropped. The player's pool dice are wired click-to-pick while the turn-
+// start phase is open, with a Roll button past the block; the rival's are always a passive
+// display; the parked roll-spot dice are a passive display kept until the turn ends.
 async function renderDiceDisplay() {
 	if (!diceDisplayLayer) return;
 	const token = ++diceDisplayToken;
@@ -1885,14 +1936,14 @@ async function renderDiceDisplay() {
 	];
 
 	// Preload the three faces each cube shows (top + two sides), keyed `${id}-${face}`.
+	// The parked roll-spot dice have already left the pool, so add their faces too.
 	const needed = new Set<string>();
-	for (const side of sides)
-		for (const die of side.dice) {
-			const f = dieCubeFaces(die);
-			needed.add(`${die.id}-${f.top}`);
-			needed.add(`${die.id}-${f.left}`);
-			needed.add(`${die.id}-${f.right}`);
-		}
+	for (const die of [...playerDice, ...rivalDice, ...rolledTurnDice]) {
+		const f = dieCubeFaces(die);
+		needed.add(`${die.id}-${f.top}`);
+		needed.add(`${die.id}-${f.left}`);
+		needed.add(`${die.id}-${f.right}`);
+	}
 
 	const texEntries = await Promise.all(
 		[...needed].map(
@@ -1983,16 +2034,40 @@ async function renderDiceDisplay() {
 			diceDisplayLayer.addChild(btn);
 		}
 	}
+
+	// The player's parked roll-spot dice: the cubes they just rolled, seated in a row at the
+	// roll spot past the block and kept there until the turn ends. A passive display (no ring,
+	// not clickable), drawn back-to-front so nearer cubes overlap the ones behind them.
+	const parked: { node: Container; cy: number }[] = [];
+	rolledTurnDice.forEach((die, i) => {
+		const f = dieCubeFaces(die);
+		const { x, y } = rolledDieCenter(i, rolledTurnDice.length);
+		const wrap = new Container();
+		wrap.position.set(x, y);
+		wrap.addChild(
+			buildStaticDie(pixi, {
+				topTexture: texByKey.get(`${die.id}-${f.top}`) ?? null,
+				leftTexture: texByKey.get(`${die.id}-${f.left}`) ?? null,
+				rightTexture: texByKey.get(`${die.id}-${f.right}`) ?? null,
+				color: STATIC_DIE_BODY_COLOR,
+				size: MATCH_DIE_SIZE
+			})
+		);
+		parked.push({ node: wrap, cy: y });
+	});
+	parked.sort((a, b) => a.cy - b.cy).forEach(({ node }) => diceDisplayLayer!.addChild(node));
 }
 
 // Repaint the dice display whenever either pool changes (a roll consumed dice), the pick
-// phase opens or closes, or the player's selection changes (to re-draw the rings and the
-// Roll button's count). Guarded until the layer exists (init triggers the first render).
+// phase opens or closes, the player's selection changes (to re-draw the rings and the Roll
+// button's count), or the parked roll-spot dice appear/clear. Guarded until the layer exists
+// (init triggers the first render).
 $effect(() => {
 	void playerDice;
 	void rivalDice;
 	void pickingDice;
 	void dicePick;
+	void rolledTurnDice;
 	renderDiceDisplay();
 });
 
