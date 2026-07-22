@@ -488,12 +488,13 @@ export function createBoardEngine() {
 		await rollPickedDice(chosen);
 	}
 
-	// Animate the picked dice out to the roll spot and roll them there: a two-beat move where
-	// each cube first glides from its grid slot to its resting place in the roll-spot row
-	// (lofting through a shallow arc), then tumbles on the spot — a quick spin that eases to a
-	// stop over a couple of decaying hops — coming to rest exactly where renderDiceDisplay will
-	// redraw it as a parked `rolledTurnDice` cube. Reads diceNodeById as it stands right now, so
-	// it must run before any state change repaints (and destroys) the layer.
+	// Send the picked dice under the board and bring them back up at the roll spot, then roll them
+	// there: a three-beat move where each cube first loses height and sinks straight down through
+	// the board until it fades from view, then re-emerges rising up into its roll-spot seat, and
+	// finally — once every cube has surfaced — tumbles on the spot in unison (a quick spin that
+	// eases to a stop over a couple of decaying hops), coming to rest exactly where
+	// renderDiceDisplay will redraw it as a parked `rolledTurnDice` cube. Reads diceNodeById as it
+	// stands right now, so it must run before any state change repaints (and destroys) the layer.
 	function animateDiceRollToSpot(picked: SpawnedDie[]): Promise<void> {
 		// Pair each picked cube with the offset from its current slot to its roll-spot seat, and
 		// hide its selection ring (a sibling in the wrap) so only the cube itself travels.
@@ -509,12 +510,13 @@ export function createBoardEngine() {
 			.filter((it): it is { cube: Container; base: { x: number; y: number } } => it !== null);
 		if (items.length === 0) return Promise.resolve();
 
-		const moveMs = 380; // beat one: glide to the roll spot
-		const rollMs = 620; // beat two: tumble on the spot
+		const sinkMs = 340; // beat one: drop straight down through the board and fade out
+		const emergeMs = 360; // beat two: rise back up into view at the roll-spot seat
+		const rollMs = 620; // beat three: tumble on the spot
 		const spins = 2; // full turns the cube spins through as it rolls
 		const hops = 3; // vertical bounces, amplitude decaying to a flat landing
 		const hopAmp = MATCH_DIE_SIZE * 0.55;
-		const arc = MATCH_DIE_SIZE * 0.6; // loft of the glide's arc
+		const depth = MATCH_DIE_SIZE * 1.5; // how far below the board a cube sinks before it vanishes
 
 		return new Promise((resolve) => {
 			const start = performance.now();
@@ -522,29 +524,38 @@ export function createBoardEngine() {
 				void ticker;
 				const now = performance.now() - start;
 				for (const { cube, base } of items) {
-					if (now < moveMs) {
-						// Glide toward the seat on an easeInOutCubic, lofting through a shallow arc.
-						const mt = now / moveMs;
-						const ease = mt < 0.5 ? 4 * mt * mt * mt : 1 - Math.pow(-2 * mt + 2, 3) / 2;
-						cube.position.set(base.x * ease, base.y * ease - Math.sin(Math.PI * mt) * arc);
-						cube.rotation = 0;
-						cube.scale.set(1, 1);
+					cube.rotation = 0;
+					cube.scale.set(1, 1);
+					if (now < sinkMs) {
+						// Sink straight down from the grid slot, fading out as it slips under the board.
+						const st = now / sinkMs;
+						const ease = st * st; // easeInQuad: accelerate downward
+						cube.position.set(0, depth * ease);
+						cube.alpha = 1 - ease;
+					} else if (now < sinkMs + emergeMs) {
+						// Surface at the seat (x jumps over while invisible), rising up as it fades in.
+						const et = (now - sinkMs) / emergeMs;
+						const ease = 1 - Math.pow(1 - et, 2); // easeOutQuad: decelerate into the seat
+						cube.position.set(base.x, base.y + depth * (1 - ease));
+						cube.alpha = ease;
 					} else {
 						// Tumble on the seat: spin eases to a stop over decaying hops and a squash.
-						const rt = Math.min(1, (now - moveMs) / rollMs);
+						const rt = Math.min(1, (now - sinkMs - emergeMs) / rollMs);
 						const eo = 1 - Math.pow(1 - rt, 3);
 						const bounce = Math.abs(Math.sin(hops * Math.PI * rt)) * hopAmp * (1 - rt);
 						const squash = 1 + 0.1 * Math.sin(hops * Math.PI * 2 * rt) * (1 - rt);
+						cube.alpha = 1;
 						cube.position.set(base.x, base.y - bounce);
 						cube.rotation = spins * Math.PI * 2 * eo;
 						cube.scale.set(squash, squash);
 					}
 				}
-				if (now >= moveMs + rollMs) {
+				if (now >= sinkMs + emergeMs + rollMs) {
 					for (const { cube, base } of items) {
 						cube.position.set(base.x, base.y);
 						cube.rotation = 0;
 						cube.scale.set(1, 1);
+						cube.alpha = 1;
 					}
 					app.ticker.remove(tick);
 					resolve();
@@ -568,9 +579,9 @@ export function createBoardEngine() {
 	}
 
 	// Roll the dice the player chose (or the whole pool when there was no choice). The picked
-	// cubes glide out to the roll spot past the block and tumble there in the 2D isometric board
-	// (no 3D roller), then stay parked at that spot until the turn ends; their energy is banked
-	// from the roll and the dice are consumed from the player's match pool.
+	// cubes sink under the board and re-emerge at the roll spot past the block, then tumble there
+	// in the 2D isometric board (no 3D roller), then stay parked at that spot until the turn ends;
+	// their energy is banked from the roll and the dice are consumed from the player's match pool.
 	async function rollPickedDice(dice: SpawnedDie[]) {
 		if (rolling) return;
 		const picked = dice.slice(0, 3);
