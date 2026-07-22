@@ -25,6 +25,10 @@ export interface PlacedUnit {
 	hp: number;
 	maxHp: number;
 	healthBar: Container;
+	// The Move / Combat action buttons that unfold beneath this creature while the
+	// pointer hovers it (player units only). Lives in the `overlays` layer, pinned
+	// under the sprite; hidden until hovered. Built lazily on summon.
+	actionGroup?: Container;
 }
 
 // A destroyable origin cell: its grid position, network side/color, remaining
