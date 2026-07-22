@@ -481,17 +481,73 @@ export function createBoardEngine() {
 		await rollPickedDice(chosen);
 	}
 
+	// Tumble the given dice's cube nodes in place on the 2D isometric grid: a quick spin
+	// that eases to a stop paired with a couple of decaying vertical hops, so the picked
+	// dice visibly roll where they sit before they leave the pool (rather than blinking out).
+	// Resolves once the tumble settles the cubes back flat. Reads diceNodeById as it stands
+	// right now, so it must run before any state change repaints (and destroys) the layer.
+	function animateDiceRollInPlace(ids: string[]): Promise<void> {
+		const nodes = ids
+			.map((id) => diceNodeById.get(id))
+			.filter((n): n is Container => n !== undefined);
+		if (nodes.length === 0) return Promise.resolve();
+
+		const ms = 650;
+		const spins = 2; // full turns the cube spins through over the roll
+		const hops = 3; // vertical bounces, amplitude decaying to a flat landing
+		const hopAmp = MATCH_DIE_SIZE * 0.55;
+
+		return new Promise((resolve) => {
+			const start = performance.now();
+			const tick = (ticker: Ticker) => {
+				void ticker;
+				const t = Math.min(1, (performance.now() - start) / ms);
+				// easeOutCubic so the spin whips up then settles gently onto its final facing.
+				const ease = 1 - Math.pow(1 - t, 3);
+				const rot = spins * Math.PI * 2 * ease;
+				// Bounces that shrink to nothing by the end, so the die lands flush in its slot.
+				const bounce = Math.abs(Math.sin(hops * Math.PI * t)) * hopAmp * (1 - t);
+				// A subtle squash on each bounce, fading out with the hops.
+				const squash = 1 + 0.1 * Math.sin(hops * Math.PI * 2 * t) * (1 - t);
+				for (const node of nodes) {
+					node.rotation = rot;
+					node.y = -bounce;
+					node.scale.set(squash, squash);
+				}
+				if (t >= 1) {
+					for (const node of nodes) {
+						node.rotation = 0;
+						node.y = 0;
+						node.scale.set(1, 1);
+					}
+					app.ticker.remove(tick);
+					resolve();
+				}
+			};
+			app.ticker.add(tick);
+		});
+	}
+
 	// Roll the dice the player chose (or the whole pool when there was no choice),
 	// banking their energy below the player's red origin hearts, then consuming the
 	// rolled dice from the player's match pool. Ends the pick phase.
 	async function rollPickedDice(dice: SpawnedDie[]) {
 		if (rolling) return;
+		const picked = dice.slice(0, 3);
+		// First tumble the picked dice in place on the 2D grid so they visibly roll where they
+		// sit. Lock the board for the tumble (it happens before the 3D throw sets `rolling`),
+		// and hold off the pick-phase teardown/pool consumption until it finishes, so the cube
+		// nodes survive the animation instead of being destroyed by an early repaint.
+		rolling = true;
+		try {
+			await animateDiceRollInPlace(picked.map((d) => d.id));
+		} finally {
+			rolling = false;
+		}
 		pickingDice = false;
 		dicePick = [];
-		const picked = dice.slice(0, 3);
-		// Pull the picked dice out of the pool up front so they vanish from the grid the
-		// moment Roll is hit (leaving their slots empty); the throw then plays out with them
-		// already gone, and we still await it before banking the energy.
+		// Pull the picked dice out of the pool now the in-place tumble is done so they leave the
+		// grid (their slots go empty); the 3D throw then plays out and we await it before banking.
 		playerDice = consumeDice(playerDice, picked);
 		// Throw the picked dice in the 3D roller just past the pool's down-right (+uHat) end —
 		// its bottom-right corner, toward the grid's bottom corner — at the row band's mid-
@@ -1149,6 +1205,12 @@ let energyLabelLayer: Container | undefined;
 // clickable during the turn-start pick (the on-canvas replacement for the old dice modal).
 let diceDisplayLayer: Container | undefined;
 let diceDisplayToken = 0;
+
+// The player's currently-drawn cube nodes, keyed by die id, so the turn-start roll can
+// tumble the picked dice in place on the 2D grid before they leave the pool. Rebuilt every
+// renderDiceDisplay pass (the layer's children are destroyed and re-created each time), so
+// callers must read it right after a render and never hold a node across one.
+let diceNodeById = new Map<string, Container>();
 
 // The battery-pack icon (the same /assets/icons/sbed/battery-pack.svg the sidebar's
 // on-board read-out masks) loaded once in init and tinted per side for that read-out.
@@ -1844,6 +1906,9 @@ async function renderDiceDisplay() {
 	const texByKey = new Map(texEntries);
 
 	for (const child of diceDisplayLayer.removeChildren()) child.destroy();
+	// The old cube nodes were just destroyed; start a fresh id→node map for this pass so the
+	// in-place roll animation only ever sees live nodes from the current render.
+	diceNodeById = new Map();
 
 	for (const side of sides) {
 		const { uHat, vHat, mid } = side.axes;
@@ -1876,15 +1941,18 @@ async function renderDiceDisplay() {
 				wrap.addChild(ring);
 			}
 
-			wrap.addChild(
-				buildStaticDie(pixi, {
-					topTexture: texByKey.get(`${die.id}-${f.top}`) ?? null,
-					leftTexture: texByKey.get(`${die.id}-${f.left}`) ?? null,
-					rightTexture: texByKey.get(`${die.id}-${f.right}`) ?? null,
-					color: side.color,
-					size: MATCH_DIE_SIZE
-				})
-			);
+			const cube = buildStaticDie(pixi, {
+				topTexture: texByKey.get(`${die.id}-${f.top}`) ?? null,
+				leftTexture: texByKey.get(`${die.id}-${f.left}`) ?? null,
+				rightTexture: texByKey.get(`${die.id}-${f.right}`) ?? null,
+				color: side.color,
+				size: MATCH_DIE_SIZE
+			});
+			wrap.addChild(cube);
+
+			// Remember the player's cube so the turn-start roll can tumble it in place before it
+			// leaves the pool (the animation transforms the cube, leaving its wrap/ring put).
+			if (side.interactive) diceNodeById.set(die.id, cube);
 
 			// Only the player's dice, and only while the pick is open, take clicks.
 			if (side.interactive && pickingDice) {
