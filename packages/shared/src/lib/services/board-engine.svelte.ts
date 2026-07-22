@@ -1917,52 +1917,58 @@ function rolledDieCenter(k: number, n: number): { x: number; y: number } {
 	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
 }
 
-// The parked-die face read-out: for each parked die, its three shown faces (top / left /
-// right) listed upright — the face's own SVG icon with its number beside it — so the roll
-// reads plainly, "properly viewed", rather than only as skewed art on the isometric cube.
-const FACE_LEGEND_ICON = 18; // drawn height (px) of a legend icon
-const FACE_LEGEND_ROW_H = 22; // vertical step between the three rows
-const FACE_LEGEND_GAP = 5; // gap from a row's icon to its number
-const FACE_LEGEND_HALF_W = 16; // half the row's width, to centre the stack over the die
-const FACE_LEGEND_LIFT = MATCH_DIE_SIZE * 0.95; // how far above the cube centre the stack sits
+// The parked-die marker row: one flat icon+number per parked die, laid out as an extra row
+// in the isometric block's own layout — a step further out (vHat) than the parked dice — so
+// it reads as a new row of dice rather than sitting on the cubes. Each marker uses the die's
+// crowning face (the one on top of the cube): its SVG icon (the same role art the admin dice
+// page shows) with its number beside it, drawn upright with no isometric tilt.
+const FACE_MARKER_ICON = 22; // drawn height (px) of a marker icon
+const FACE_MARKER_GAP = 5; // gap from the marker's icon to its number
+const FACE_MARKER_OUT = MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE * 0.5; // outward step to the new row
 
-// Build the upright icon+number read-out for one die's three shown faces. Screen-aligned
-// (no isometric skew) so the icons read straight; the caller pins it above the die using the
-// isometric layout, so the board's alignment is kept while the content stays properly viewed.
-// Centred on its own origin (middle row at y=0) so it hangs symmetrically above the cube.
-function buildFaceLegend(
-	die: SpawnedDie,
-	iconTexByUrl: Map<string, Texture | null>
-): Container {
+// World centre of the k-th (of n) parked die's marker: the parked-dice row shifted one row
+// further out along vHat, each marker sharing its die's along-uHat position, so the markers
+// line up as a fresh isometric row directly past the dice.
+function rolledMarkerCenter(k: number, n: number): { x: number; y: number } {
+	const { uHat, vHat } = playerDiceAxes();
+	const anchor = rollSpotAnchor();
+	const along = (k - (n - 1) / 2) * MATCH_DIE_COL_STEP;
+	return {
+		x: anchor.x + uHat.x * along + vHat.x * FACE_MARKER_OUT,
+		y: anchor.y + uHat.y * along + vHat.y * FACE_MARKER_OUT
+	};
+}
+
+// Build one die's flat marker: its crowning face's icon with the face number beside it,
+// centred on its own origin (so the caller pins it straight onto the iso row position).
+// Drawn upright — only the row's position comes from the isometric layout, not any tilt.
+function buildFaceMarker(die: SpawnedDie, iconTexByUrl: Map<string, Texture | null>): Container {
 	const group = new Container();
-	const shown = dieCubeFaces(die);
-	[shown.top, shown.left, shown.right].forEach((idx, i) => {
-		const face = die.faces[idx - 1];
-		if (!face) return;
+	const face = die.faces[dieCubeFaces(die).top - 1];
+	if (!face) return group;
 
-		const row = new Container();
-		row.position.set(-FACE_LEGEND_HALF_W, (i - 1) * FACE_LEGEND_ROW_H);
+	let iconW = 0;
+	const tex = iconTexByUrl.get(face.icon);
+	if (tex) {
+		const icon = new Sprite(tex);
+		icon.anchor.set(0, 0.5);
+		icon.scale.set(FACE_MARKER_ICON / (tex.height || 1));
+		icon.tint = 0xffffff;
+		group.addChild(icon);
+		iconW = icon.width;
+	}
 
-		const tex = iconTexByUrl.get(face.icon);
-		if (tex) {
-			const icon = new Sprite(tex);
-			icon.anchor.set(0, 0.5);
-			icon.scale.set(FACE_LEGEND_ICON / (tex.height || 1));
-			icon.tint = 0xffffff;
-			row.addChild(icon);
-		}
-
-		const num = new Text({
-			text: face.value,
-			style: { fill: 0xffffff, fontSize: 16, fontWeight: 'bold' },
-			resolution: LABEL_RESOLUTION
-		});
-		num.anchor.set(0, 0.5);
-		num.position.set(FACE_LEGEND_ICON + FACE_LEGEND_GAP, 0);
-		row.addChild(num);
-
-		group.addChild(row);
+	const num = new Text({
+		text: face.value,
+		style: { fill: 0xffffff, fontSize: 20, fontWeight: 'bold' },
+		resolution: LABEL_RESOLUTION
 	});
+	num.anchor.set(0, 0.5);
+	num.position.set(iconW + FACE_MARKER_GAP, 0);
+	group.addChild(num);
+
+	// Centre the whole icon+number pair on the marker position.
+	group.pivot.set((iconW + FACE_MARKER_GAP + num.width) / 2, 0);
 	return group;
 }
 
@@ -1994,15 +2000,14 @@ async function renderDiceDisplay() {
 		needed.add(`${die.id}-${f.right}`);
 	}
 
-	// The parked dice also get an upright icon+number read-out of those same three faces, so
-	// preload each face's role SVG (the icon painted on that face; the same art the admin dice
-	// page shows). Only the three role icons ever recur, so this set stays tiny.
+	// Each parked die also gets a flat marker showing its crowning face's icon — the SVG the
+	// admin dice page paints on that face — so preload those icons. Only the three role icons
+	// ever recur, so this set stays tiny.
 	const iconUrls = new Set<string>();
-	for (const die of rolledTurnDice)
-		for (const idx of Object.values(dieCubeFaces(die))) {
-			const url = die.faces[idx - 1]?.icon;
-			if (url) iconUrls.add(url);
-		}
+	for (const die of rolledTurnDice) {
+		const url = die.faces[dieCubeFaces(die).top - 1]?.icon;
+		if (url) iconUrls.add(url);
+	}
 
 	const [texEntries, iconEntries] = await Promise.all([
 		Promise.all(
@@ -2124,14 +2129,13 @@ async function renderDiceDisplay() {
 	});
 	parked.sort((a, b) => a.cy - b.cy).forEach(({ node }) => diceDisplayLayer!.addChild(node));
 
-	// Above each parked die, its three shown faces as an upright icon+number read-out, added
-	// after all the cubes so the read-outs stay on top. Iso layout places them; the content is
-	// drawn screen-upright so the icons read properly rather than skewed onto the cube.
+	// One flat marker per parked die, laid out as a new isometric row a step past the dice:
+	// the die's crowning-face icon and number, drawn upright (iso positioning only, no tilt).
 	rolledTurnDice.forEach((die, i) => {
-		const { x, y } = rolledDieCenter(i, rolledTurnDice.length);
-		const legend = buildFaceLegend(die, iconTexByUrl);
-		legend.position.set(x, y - FACE_LEGEND_LIFT);
-		diceDisplayLayer!.addChild(legend);
+		const { x, y } = rolledMarkerCenter(i, rolledTurnDice.length);
+		const marker = buildFaceMarker(die, iconTexByUrl);
+		marker.position.set(x, y);
+		diceDisplayLayer!.addChild(marker);
 	});
 }
 
@@ -2189,8 +2193,9 @@ function playAreaPoints(): { x: number; y: number }[] {
 			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
 			pts.push({ x: cx + MATCH_DIE_SIZE, y: cy + MATCH_DIE_SIZE });
 		}
-		// The Roll button hangs one row past the block; keep its reach in bounds too.
-		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
+		// The Roll button (and, after a roll, the parked dice) hang one row past the block, and
+		// the parked dice's marker row hangs one further out again; keep both reaches in bounds.
+		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 2) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
 		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
 	}
 
