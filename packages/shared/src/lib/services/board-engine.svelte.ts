@@ -1917,6 +1917,55 @@ function rolledDieCenter(k: number, n: number): { x: number; y: number } {
 	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
 }
 
+// The parked-die face read-out: for each parked die, its three shown faces (top / left /
+// right) listed upright — the face's own SVG icon with its number beside it — so the roll
+// reads plainly, "properly viewed", rather than only as skewed art on the isometric cube.
+const FACE_LEGEND_ICON = 18; // drawn height (px) of a legend icon
+const FACE_LEGEND_ROW_H = 22; // vertical step between the three rows
+const FACE_LEGEND_GAP = 5; // gap from a row's icon to its number
+const FACE_LEGEND_HALF_W = 16; // half the row's width, to centre the stack over the die
+const FACE_LEGEND_LIFT = MATCH_DIE_SIZE * 0.95; // how far above the cube centre the stack sits
+
+// Build the upright icon+number read-out for one die's three shown faces. Screen-aligned
+// (no isometric skew) so the icons read straight; the caller pins it above the die using the
+// isometric layout, so the board's alignment is kept while the content stays properly viewed.
+// Centred on its own origin (middle row at y=0) so it hangs symmetrically above the cube.
+function buildFaceLegend(
+	die: SpawnedDie,
+	iconTexByUrl: Map<string, Texture | null>
+): Container {
+	const group = new Container();
+	const shown = dieCubeFaces(die);
+	[shown.top, shown.left, shown.right].forEach((idx, i) => {
+		const face = die.faces[idx - 1];
+		if (!face) return;
+
+		const row = new Container();
+		row.position.set(-FACE_LEGEND_HALF_W, (i - 1) * FACE_LEGEND_ROW_H);
+
+		const tex = iconTexByUrl.get(face.icon);
+		if (tex) {
+			const icon = new Sprite(tex);
+			icon.anchor.set(0, 0.5);
+			icon.scale.set(FACE_LEGEND_ICON / (tex.height || 1));
+			icon.tint = 0xffffff;
+			row.addChild(icon);
+		}
+
+		const num = new Text({
+			text: face.value,
+			style: { fill: 0xffffff, fontSize: 16, fontWeight: 'bold' },
+			resolution: LABEL_RESOLUTION
+		});
+		num.anchor.set(0, 0.5);
+		num.position.set(FACE_LEGEND_ICON + FACE_LEGEND_GAP, 0);
+		row.addChild(num);
+
+		group.addChild(row);
+	});
+	return group;
+}
+
 // (Re)draw both sides' remaining match dice past their plaques, plus the player's parked
 // roll-spot dice. Preloads only the three visible faces of every die (cached by Assets), then
 // rebuilds the layer in one pass with a token guard so a superseded render (a roll consuming
@@ -1945,16 +1994,34 @@ async function renderDiceDisplay() {
 		needed.add(`${die.id}-${f.right}`);
 	}
 
-	const texEntries = await Promise.all(
-		[...needed].map(
-			async (key) =>
-				[key, await Assets.load<Texture>(`${FACE_SRC_BASE}/${key}.png`).catch(() => null)] as const
+	// The parked dice also get an upright icon+number read-out of those same three faces, so
+	// preload each face's role SVG (the icon painted on that face; the same art the admin dice
+	// page shows). Only the three role icons ever recur, so this set stays tiny.
+	const iconUrls = new Set<string>();
+	for (const die of rolledTurnDice)
+		for (const idx of Object.values(dieCubeFaces(die))) {
+			const url = die.faces[idx - 1]?.icon;
+			if (url) iconUrls.add(url);
+		}
+
+	const [texEntries, iconEntries] = await Promise.all([
+		Promise.all(
+			[...needed].map(
+				async (key) =>
+					[key, await Assets.load<Texture>(`${FACE_SRC_BASE}/${key}.png`).catch(() => null)] as const
+			)
+		),
+		Promise.all(
+			[...iconUrls].map(
+				async (url) => [url, await Assets.load<Texture>(url).catch(() => null)] as const
+			)
 		)
-	);
+	]);
 
 	// A newer render superseded this one while the faces loaded — drop it wholesale.
 	if (token !== diceDisplayToken || !diceDisplayLayer) return;
 	const texByKey = new Map(texEntries);
+	const iconTexByUrl = new Map(iconEntries);
 
 	for (const child of diceDisplayLayer.removeChildren()) child.destroy();
 	// The old cube nodes were just destroyed; start a fresh id→node map for this pass so the
@@ -2056,6 +2123,16 @@ async function renderDiceDisplay() {
 		parked.push({ node: wrap, cy: y });
 	});
 	parked.sort((a, b) => a.cy - b.cy).forEach(({ node }) => diceDisplayLayer!.addChild(node));
+
+	// Above each parked die, its three shown faces as an upright icon+number read-out, added
+	// after all the cubes so the read-outs stay on top. Iso layout places them; the content is
+	// drawn screen-upright so the icons read properly rather than skewed onto the cube.
+	rolledTurnDice.forEach((die, i) => {
+		const { x, y } = rolledDieCenter(i, rolledTurnDice.length);
+		const legend = buildFaceLegend(die, iconTexByUrl);
+		legend.position.set(x, y - FACE_LEGEND_LIFT);
+		diceDisplayLayer!.addChild(legend);
+	});
 }
 
 // Repaint the dice display whenever either pool changes (a roll consumed dice), the pick
