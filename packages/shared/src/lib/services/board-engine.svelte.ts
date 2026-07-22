@@ -714,7 +714,9 @@ export function createBoardEngine() {
 	// has already summoned, its energy for the current rival turn, and a flag
 	// that's true while the rival is taking its turn (blocks player input).
 	let cpuDeck: IGameCreature[] = [];
-	let cpuHand: IGameCreature[] = [];
+	// $state so the on-canvas rival hand (rendered as face-down card backs, see renderCpuHand)
+	// repaints as the rival draws and summons — the mirror of the player's reactive `hand`.
+	let cpuHand = $state<IGameCreature[]>([]);
 
 	// Refill the rival's hand from the top of its deck to HAND_SIZE at the start of
 	// each rival turn (the mirror of the player's drawPlayerHand).
@@ -1229,6 +1231,16 @@ const HAND_OUT_GAP = 28;
 let handLayer: Container | undefined;
 let handToken = 0;
 
+// The rival's hand row: the mirror of `handLayer` on the board's top-left end, drawn as
+// face-down card backs (the rival's cards stay hidden). Built in init inside `camera` so it
+// pans and zooms with the board; its own token guards a superseded card-back load.
+let cpuHandLayer: Container | undefined;
+let cpuHandToken = 0;
+
+// The face-down card back (/assets/card-back.png), loaded once in init and reused for every
+// rival hand card. $state so renderCpuHand's $effect repaints the backs once the art lands.
+let cardBackTexture: Texture | null = $state(null);
+
 // The card viewer: the id of whichever card the pointer is hovering on the canvas (a
 // hand card, a played plaque card, or an on-board creature), or null when nothing is
 // hovered. The in-canvas hover handlers set it via showCardPreview; the board page reads
@@ -1508,6 +1520,87 @@ $effect(() => {
 	void specialCard;
 	void specialPhase;
 	renderHand();
+});
+
+// Draw one rival hand card as a face-down card back at world (x, y) (its top-left), the same
+// HAND_CARD_W × HAND_CARD_H box the player's cards use so both hands read at the same size.
+// Passive: the rival's cards are hidden, so there are no click / hover / summon affordances —
+// just the back art (or a plain placeholder if it hasn't loaded).
+function addCpuHandCard(x: number, y: number, texture: Texture | null) {
+	if (!cpuHandLayer) return;
+
+	const cardContainer = new Container();
+	cardContainer.position.set(x, y);
+	cardContainer.eventMode = 'none';
+
+	if (texture) {
+		const sprite = new Sprite(texture);
+		sprite.width = HAND_CARD_W;
+		sprite.height = HAND_CARD_H;
+		cardContainer.addChild(sprite);
+	} else {
+		const box = new Graphics()
+			.rect(0, 0, HAND_CARD_W, HAND_CARD_H)
+			.fill({ color: 0x1b1b3a, alpha: 0.85 })
+			.stroke({ width: 1, color: 0xffffff, alpha: 0.4 });
+		cardContainer.addChild(box);
+	}
+
+	cpuHandLayer.addChild(cardContainer);
+}
+
+// (Re)draw the rival's hand as a single row of face-down card backs, mirroring the player's
+// renderHand but on the board's opposite (top-left) end: laid along the rival plaque's outer
+// edge from its ground matrix, so the row tracks the grid as the camera pans/zooms. Upright like
+// the player's cards, but lifted by a card height so the standing backs rise up-left away from
+// the grid (the player's hang down-right) — the true mirror of the player's fan. Reactive to
+// `cpuHand`; a no-op until the container exists. Loads the shared back texture (cached by Assets)
+// before the atomic redraw, with a token guard so a superseded render is dropped wholesale.
+async function renderCpuHand() {
+	if (!cpuHandLayer) return;
+	const token = ++cpuHandToken;
+
+	if (!cpuHand.length) {
+		for (const child of cpuHandLayer.removeChildren()) child.destroy();
+		return;
+	}
+
+	// The rival plaque's outer edge (diceBlockAxes on its ground matrix): mid at the edge
+	// midpoint, uHat along its length, vHat pointing outward (up-left, away from the grid) — the
+	// point-reflection of the axes the player's hand uses.
+	const { uHat, vHat, mid } = diceBlockAxes(RIVAL_BOARD_MATRIX);
+	const edgeSlope = uHat.y / uHat.x;
+	// Push the anchor line outward past the plaque, then lift it by a full card height so the
+	// upright backs stand ABOVE the line (rising away from the grid) instead of hanging onto it.
+	const anchorX = mid.x + vHat.x * HAND_OUT_GAP;
+	const anchorY = mid.y + vHat.y * HAND_OUT_GAP - HAND_CARD_H;
+
+	// A row stepped in x and centred on the plaque's length, each back's top-left riding the
+	// anchor line (its y follows the edge slope) — the same layout as the player's hand.
+	const step = HAND_CARD_W + HAND_CARD_GAP;
+	const startX = anchorX - ((cpuHand.length - 1) * step) / 2 - HAND_CARD_W / 2;
+
+	const placements = cpuHand.map((_, i) => {
+		const x = startX + i * step;
+		const y = anchorY + edgeSlope * (x - anchorX);
+		return { x, y };
+	});
+
+	const texture = await Assets.load<Texture>('/assets/card-back.png').catch(() => null);
+
+	// A newer render superseded this one while the back loaded — drop it wholesale.
+	if (token !== cpuHandToken || !cpuHandLayer) return;
+
+	for (const child of cpuHandLayer.removeChildren()) child.destroy();
+	placements.forEach((p) => addCpuHandCard(p.x, p.y, texture));
+}
+
+// Repaint the rival's hand whenever it changes (a draw at turn start or a summon spending a
+// card) or the back texture finishes loading. Guarded until the container exists.
+$effect(() => {
+	void cpuHand;
+	void cardBackTexture;
+	renderCpuHand();
 });
 
 // The theme colors for a canvas action button: DaisyUI's primary (blue), error (red)
@@ -4773,6 +4866,14 @@ handLayer = new Container();
 handLayer.eventMode = 'passive';
 camera.addChild(handLayer);
 
+// World-space row for the rival's hand (face-down card backs just outside the grid's
+// top-right edge), the mirror of the player's hand layer. 'none' — the rival's cards are
+// hidden and inert, so nothing in this layer is ever hit-tested. Painted by renderCpuHand
+// (reactive to `cpuHand`).
+cpuHandLayer = new Container();
+cpuHandLayer.eventMode = 'none';
+camera.addChild(cpuHandLayer);
+
 // The world-space action-button column (Move/Combat/Unfold/End Turn), under the
 // player's red dice row. 'passive' like the hand layer so its interactive button
 // children still receive clicks. Painted by renderActionButtons (reactive).
@@ -4836,6 +4937,10 @@ hpDice = new Dice3D({
 			// drawn, summoned, and as the energy pool changes.
 			renderHand();
 
+			// Paint the (initially empty) rival hand row of face-down backs; its $effect
+			// repaints it as the rival draws and summons.
+			renderCpuHand();
+
 			// Paint each side's match-dice display past its plaque; its $effect repaints as
 			// dice are rolled and consumed and as the player's turn-start pick changes. Both
 			// pools are seeded once the template config loads (seedMatchDice), which also
@@ -4855,6 +4960,10 @@ hpDice = new Dice3D({
 			// Load the broadsword icon (the cards' ATK stat glyph) so it can be floated
 			// over each combat target as its clickable attack handle.
 			swordTexture = await Assets.load('/assets/icons/lorc/broadsword.svg');
+
+			// Load the face-down card back used for the rival's hand. Assigning it re-runs
+			// renderCpuHand's effect so the backs paint once the art lands.
+			cardBackTexture = await Assets.load('/assets/card-back.png');
 
 			// Each origin cell starts with 3 life points, shown as a stack of hearts.
 			// Kept as destroyable OriginCells so combat can whittle their life down.
