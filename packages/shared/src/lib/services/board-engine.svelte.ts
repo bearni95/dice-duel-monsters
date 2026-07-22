@@ -1917,25 +1917,26 @@ function rolledDieCenter(k: number, n: number): { x: number; y: number } {
 	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
 }
 
-// The parked-die marker row: one flat icon+number per parked die, laid out as an extra row
-// in the isometric block's own layout — a step further out (vHat) than the parked dice — so
-// it reads as a new row of dice rather than sitting on the cubes. Each marker uses the die's
-// crowning face (the one on top of the cube): its SVG icon (the same role art the admin dice
-// page shows) with its number beside it, drawn upright with no isometric tilt.
+// The parked-die marker line: one flat icon+number per parked die, laid out as another row of
+// the dice pool — one pool row-step toward the pool (−vHat) from the parked dice, so it reads
+// as if it were the next rarity row against the block rather than sitting on the cubes or
+// hanging off the far side. Each marker uses the die's crowning face (the one on top of the
+// cube): its SVG icon (the same role art the admin dice page shows) with its number beside it,
+// drawn upright with no isometric tilt.
 const FACE_MARKER_ICON = 22; // drawn height (px) of a marker icon
 const FACE_MARKER_GAP = 5; // gap from the marker's icon to its number
-const FACE_MARKER_OUT = MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE * 0.5; // outward step to the new row
+const FACE_MARKER_OUT = MATCH_DIE_ROW_STEP; // one pool row-step, on the pool side of the dice
 
-// World centre of the k-th (of n) parked die's marker: the parked-dice row shifted one row
-// further out along vHat, each marker sharing its die's along-uHat position, so the markers
-// line up as a fresh isometric row directly past the dice.
+// World centre of the k-th (of n) parked die's marker: the parked-dice row shifted one pool
+// row-step toward the pool along −vHat, each marker sharing its die's along-uHat position, so
+// the markers line up as a fresh pool row on the same side as the block.
 function rolledMarkerCenter(k: number, n: number): { x: number; y: number } {
 	const { uHat, vHat } = playerDiceAxes();
 	const anchor = rollSpotAnchor();
 	const along = (k - (n - 1) / 2) * MATCH_DIE_COL_STEP;
 	return {
-		x: anchor.x + uHat.x * along + vHat.x * FACE_MARKER_OUT,
-		y: anchor.y + uHat.y * along + vHat.y * FACE_MARKER_OUT
+		x: anchor.x + uHat.x * along - vHat.x * FACE_MARKER_OUT,
+		y: anchor.y + uHat.y * along - vHat.y * FACE_MARKER_OUT
 	};
 }
 
@@ -2193,9 +2194,10 @@ function playAreaPoints(): { x: number; y: number }[] {
 			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
 			pts.push({ x: cx + MATCH_DIE_SIZE, y: cy + MATCH_DIE_SIZE });
 		}
-		// The Roll button (and, after a roll, the parked dice) hang one row past the block, and
-		// the parked dice's marker row hangs one further out again; keep both reaches in bounds.
-		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 2) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE;
+		// The Roll button (and, after a roll, the parked dice) hang one row past the block; keep
+		// their reach in bounds too. The parked dice's marker row sits on the pool side, inward
+		// of this, so it needs no extra reservation.
+		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
 		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
 	}
 
