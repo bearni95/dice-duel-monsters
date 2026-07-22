@@ -1917,20 +1917,20 @@ function rolledDieCenter(k: number, n: number): { x: number; y: number } {
 	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
 }
 
-// The parked-die marker column: one flat icon+number per rolled die, laid out as one more
-// column of the dice pool — a single column-step to the right of the pool's last (highest-
-// rarity) column, stacked down the pool's own depth rows — so it reads as an extra rarity
-// column against the block rather than sitting on the dice or off by the rolled-dice area.
-// Each marker uses the die's crowning face (the one on top of the cube): its SVG icon (the
-// same role art the admin dice page shows) with its number beside it, drawn upright, no tilt.
-const FACE_MARKER_ICON = 22; // drawn height (px) of a marker icon
-const FACE_MARKER_GAP = 5; // gap from the marker's icon to its number
+// The role-energy counters beside the pool: one per role (summon / move / attack), laid out as
+// one more column of the dice pool — a single column-step to the right of the pool's last
+// (highest-rarity) column, stacked down the pool's own depth rows — so they read as an extra
+// column against the block. Each counter is the role's SVG face icon with its running energy
+// total stacked directly beneath it, drawn upright (iso positioning only, no tilt). Always
+// shown — at page start every total reads 0.
+const ROLE_COUNTER_ICON = 26; // drawn height (px) of a counter icon
+const ROLE_COUNTER_GAP = 3; // vertical gap between the icon and its value
 
-// World centre of the k-th rolled-die marker: fixed one column past the block's last column
+// World centre of the k-th role counter: fixed one column past the block's last column
 // (full-width row centring puts the last column at +((COLS-1)/2) steps, so the next column is
 // one COL_STEP further along uHat), stepped down the pool's depth rows (vHat) by k so the
-// markers stack alongside the block like an extra rarity column.
-function rolledMarkerCenter(k: number): { x: number; y: number } {
+// counters stack alongside the block like an extra rarity column.
+function roleCounterCenter(k: number): { x: number; y: number } {
 	const { uHat, vHat, mid } = playerDiceAxes();
 	const along = (MATCH_DIE_COLS - (MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP;
 	const out = MATCH_DIE_OUT_GAP + k * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
@@ -1940,36 +1940,30 @@ function rolledMarkerCenter(k: number): { x: number; y: number } {
 	};
 }
 
-// Build one die's flat marker: its crowning face's icon with the face number beside it,
-// centred on its own origin (so the caller pins it straight onto the iso row position).
-// Drawn upright — only the row's position comes from the isometric layout, not any tilt.
-function buildFaceMarker(die: SpawnedDie, iconTexByUrl: Map<string, Texture | null>): Container {
+// Build one role counter: its icon with the value stacked directly under it, both centred on
+// the counter's origin (so the caller pins it straight onto the iso column position). Drawn
+// upright — only the column's position comes from the isometric layout, not any tilt.
+function buildRoleCounter(tex: Texture | null, value: number): Container {
 	const group = new Container();
-	const face = die.faces[dieCubeFaces(die).top - 1];
-	if (!face) return group;
 
-	let iconW = 0;
-	const tex = iconTexByUrl.get(face.icon);
 	if (tex) {
 		const icon = new Sprite(tex);
-		icon.anchor.set(0, 0.5);
-		icon.scale.set(FACE_MARKER_ICON / (tex.height || 1));
+		icon.anchor.set(0.5, 1); // bottom-centre, so it sits just above the value
+		icon.scale.set(ROLE_COUNTER_ICON / (tex.height || 1));
 		icon.tint = 0xffffff;
+		icon.position.set(0, -ROLE_COUNTER_GAP);
 		group.addChild(icon);
-		iconW = icon.width;
 	}
 
 	const num = new Text({
-		text: face.value,
+		text: String(value),
 		style: { fill: 0xffffff, fontSize: 20, fontWeight: 'bold' },
 		resolution: LABEL_RESOLUTION
 	});
-	num.anchor.set(0, 0.5);
-	num.position.set(iconW + FACE_MARKER_GAP, 0);
+	num.anchor.set(0.5, 0); // top-centre, directly below the icon
+	num.position.set(0, ROLE_COUNTER_GAP);
 	group.addChild(num);
 
-	// Centre the whole icon+number pair on the marker position.
-	group.pivot.set((iconW + FACE_MARKER_GAP + num.width) / 2, 0);
 	return group;
 }
 
@@ -2001,14 +1995,15 @@ async function renderDiceDisplay() {
 		needed.add(`${die.id}-${f.right}`);
 	}
 
-	// Each parked die also gets a flat marker showing its crowning face's icon — the SVG the
-	// admin dice page paints on that face — so preload those icons. Only the three role icons
-	// ever recur, so this set stays tiny.
+	// The three role counters beside the pool need each role's SVG icon (the same face art the
+	// admin dice page paints — plain-arrow / pentacle / battle-axe). Preloaded once the config
+	// is in; only three icons ever recur, so this set stays tiny.
 	const iconUrls = new Set<string>();
-	for (const die of rolledTurnDice) {
-		const url = die.faces[dieCubeFaces(die).top - 1]?.icon;
-		if (url) iconUrls.add(url);
-	}
+	if (diceConfig)
+		for (const { role } of ENERGY_ROWS) {
+			const url = diceConfig.roles[role]?.icon;
+			if (url) iconUrls.add(url);
+		}
 
 	const [texEntries, iconEntries] = await Promise.all([
 		Promise.all(
@@ -2130,26 +2125,36 @@ async function renderDiceDisplay() {
 	});
 	parked.sort((a, b) => a.cy - b.cy).forEach(({ node }) => diceDisplayLayer!.addChild(node));
 
-	// One flat marker per rolled die, laid out as an extra pool column right of the last one:
-	// the die's crowning-face icon and number, drawn upright (iso positioning only, no tilt).
-	rolledTurnDice.forEach((die, i) => {
-		const { x, y } = rolledMarkerCenter(i);
-		const marker = buildFaceMarker(die, iconTexByUrl);
-		marker.position.set(x, y);
-		diceDisplayLayer!.addChild(marker);
-	});
+	// The three role-energy counters, laid out as an extra pool column right of the last one:
+	// each role's face icon with its running energy total stacked beneath it. Always drawn (a
+	// fresh match reads 0 on each) once the config's role icons are known.
+	if (diceConfig) {
+		ENERGY_ROWS.forEach(({ role }, k) => {
+			const url = diceConfig!.roles[role]?.icon;
+			const tex = url ? (iconTexByUrl.get(url) ?? null) : null;
+			const { x, y } = roleCounterCenter(k);
+			const counter = buildRoleCounter(tex, energy[role]);
+			counter.position.set(x, y);
+			diceDisplayLayer!.addChild(counter);
+		});
+	}
 }
 
 // Repaint the dice display whenever either pool changes (a roll consumed dice), the pick
 // phase opens or closes, the player's selection changes (to re-draw the rings and the Roll
-// button's count), or the parked roll-spot dice appear/clear. Guarded until the layer exists
-// (init triggers the first render).
+// button's count), the parked roll-spot dice appear/clear, the config's role icons land, or
+// the player's energy totals change (the role counters beside the pool track them). Guarded
+// until the layer exists (init triggers the first render).
 $effect(() => {
 	void playerDice;
 	void rivalDice;
 	void pickingDice;
 	void dicePick;
 	void rolledTurnDice;
+	void diceConfig;
+	void energy.summon;
+	void energy.move;
+	void energy.attack;
 	renderDiceDisplay();
 });
 
