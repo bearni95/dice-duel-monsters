@@ -368,14 +368,25 @@ export function createBoardEngine() {
 		}
 	}
 
+	// Order a freshly spawned pool so its rows read in the same role order as the energy
+	// counters beside the block (ENERGY_ROWS: summon, then move, then attack). spawnAll emits
+	// each template's six rarities contiguously — exactly one row of MATCH_DIE_COLS — and every
+	// die in that run shares the template's role, so a stable sort by role rank keeps each row
+	// intact while floating the summon rows nearest the grid and sinking the attack rows furthest
+	// out, matching the counters' summon→attack stacking.
+	function sortDiceByRole(dice: SpawnedDie[]): SpawnedDie[] {
+		const rank = new Map(ENERGY_ROWS.map(({ role }, i) => [role, i]));
+		return [...dice].sort((a, b) => (rank.get(a.role) ?? 0) - (rank.get(b.role) ?? 0));
+	}
+
 	// Seed both sides' match dice pools with the full dice matrix — one copy of every
 	// die the game can produce (each template crossed with every rarity). Called once
 	// the template config lands; a no-op until then. Each side gets its own independent
 	// copy, which its turn-start rolls then draw from and consume over the match.
 	function seedMatchDice() {
 		if (!diceConfig) return;
-		playerDice = diceAdapter.spawnAll(diceConfig);
-		rivalDice = diceAdapter.spawnAll(diceConfig);
+		playerDice = sortDiceByRole(diceAdapter.spawnAll(diceConfig));
+		rivalDice = sortDiceByRole(diceAdapter.spawnAll(diceConfig));
 		// Pin each die to a fixed grid slot for the whole match. Both sides seed the same
 		// full matrix in the same order, so one id→slot map serves both. The dice display
 		// lays each die out by its slot (against this fixed total) instead of its live array
