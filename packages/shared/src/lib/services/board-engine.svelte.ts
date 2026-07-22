@@ -214,8 +214,8 @@ export function createBoardEngine() {
 	// The rival's just-rolled turn-start dice: the mirror of `rolledTurnDice` for the CPU. The
 	// rival's block now sits at the opposite end of the grid and rolls in the same 2D isometric
 	// way (see rollRivalEnergy) — the picked cubes sink, re-emerge and tumble at the rival's roll
-	// spot, then park there. Populated when the rival rolls on its turn and cleared the next time
-	// it rolls, so its last roll stays read-able through the player's turn.
+	// spot, then park there. Populated when the rival rolls on its turn and cleared when that turn
+	// ends (see runCpuTurn), exactly as the player's parked dice clear in endTurn.
 	let rivalRolledTurnDice = $state<SpawnedDie[]>([]);
 
 	// Fixed grid slot (0-based) each match die occupies, and the slot count of a full
@@ -610,10 +610,6 @@ export function createBoardEngine() {
 		cpuEnergy.summon = 0;
 		cpuEnergy.move = 0;
 		cpuEnergy.attack = 0;
-
-		// Clear last turn's parked rival dice — they lived through the player's turn as a read-out
-		// and now make way for this turn's roll.
-		rivalRolledTurnDice = [];
 
 		if (rivalDice.length === 0) {
 			bankNoDiceBonus(cpuEnergy);
@@ -4352,6 +4348,9 @@ async function runCpuTurn() {
 		}
 	} finally {
 		rivalThinking = false;
+		// The rival's turn is over — clear its parked roll-spot dice, the mirror of endTurn
+		// dropping the player's `rolledTurnDice` when the player's turn ends.
+		rivalRolledTurnDice = [];
 		// Both sides have now acted on this turn; advance the shared turn number.
 		turnNumber += 1;
 		// The player's next turn begins now — refill their hand from the deck up to
