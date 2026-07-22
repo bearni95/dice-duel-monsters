@@ -2468,11 +2468,41 @@ $effect(() => {
 	renderDiceDisplay();
 });
 
+// Every corner of a side's upright hand row, laid out at full HAND_SIZE, so the bounds
+// reserve room for a full hand even before any card is drawn or spent. Reproduces the
+// layout renderHand / renderCpuHand use: cards stepped along the plaque's outer edge
+// (from diceBlockAxes) and pushed one HAND_OUT_GAP outward, each card's top-left riding
+// that anchor line with its HAND_CARD_W × HAND_CARD_H body hanging off it. `lift` matches
+// the rival's upward shift (a full card height) that stands its backs above the line;
+// the player passes 0.
+function handCardCorners(matrix: Matrix, lift: number): { x: number; y: number }[] {
+	const { uHat, vHat, mid } = diceBlockAxes(matrix);
+	const edgeSlope = uHat.y / uHat.x;
+	const anchorX = mid.x + vHat.x * HAND_OUT_GAP;
+	const anchorY = mid.y + vHat.y * HAND_OUT_GAP - lift;
+	const step = HAND_CARD_W + HAND_CARD_GAP;
+	const startX = anchorX - ((HAND_SIZE - 1) * step) / 2 - HAND_CARD_W / 2;
+
+	const pts: { x: number; y: number }[] = [];
+	for (let i = 0; i < HAND_SIZE; i++) {
+		const x = startX + i * step;
+		const y = anchorY + edgeSlope * (x - anchorX);
+		pts.push(
+			{ x, y },
+			{ x: x + HAND_CARD_W, y },
+			{ x: x + HAND_CARD_W, y: y + HAND_CARD_H },
+			{ x, y: y + HAND_CARD_H }
+		);
+	}
+	return pts;
+}
+
 // Every world-space point the play area must enclose: the isometric grid, both card
-// plaques flanking it at opposite corners, and — reserved at full size — each side's
-// match-dice block laid past its plaque. Shared by frameBoard (the opening camera fit)
-// and drawBoardFrame (the yellow reference outline) so both bound the same region and
-// the dice never fall outside the framed view.
+// plaques flanking it at opposite corners, — reserved at full size — each side's
+// match-dice block laid past its plaque, and each side's full-size hand row. Shared by
+// frameBoard (the opening camera fit) and drawBoardFrame (the yellow reference outline)
+// so both bound the same region and neither the dice nor the hands fall outside the
+// framed view.
 function playAreaPoints(): { x: number; y: number }[] {
 	const pts: { x: number; y: number }[] = [];
 
@@ -2526,6 +2556,13 @@ function playAreaPoints(): { x: number; y: number }[] {
 			y: mid.y + uHat.y * along + vHat.y * counterOut + MATCH_DIE_SIZE
 		});
 	}
+
+	// Each side's full-size hand row: the player's cards hang down-right off the plaque
+	// edge (no lift), the rival's stand up-left above it (lifted a full card height), the
+	// same shifts renderHand / renderCpuHand apply. Adding both keeps the whole hand inside
+	// the framed view instead of overflowing the yellow outline below and above it.
+	pts.push(...handCardCorners(PLAYER_BOARD_MATRIX, 0));
+	pts.push(...handCardCorners(RIVAL_BOARD_MATRIX, HAND_CARD_H));
 
 	return pts;
 }
