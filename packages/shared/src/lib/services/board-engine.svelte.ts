@@ -1917,26 +1917,26 @@ function rolledDieCenter(k: number, n: number): { x: number; y: number } {
 	return { x: anchor.x + uHat.x * along, y: anchor.y + uHat.y * along };
 }
 
-// The parked-die marker line: one flat icon+number per parked die, laid out as another row of
-// the dice pool — one pool row-step toward the pool (−vHat) from the parked dice, so it reads
-// as if it were the next rarity row against the block rather than sitting on the cubes or
-// hanging off the far side. Each marker uses the die's crowning face (the one on top of the
-// cube): its SVG icon (the same role art the admin dice page shows) with its number beside it,
-// drawn upright with no isometric tilt.
+// The parked-die marker column: one flat icon+number per rolled die, laid out as one more
+// column of the dice pool — a single column-step to the right of the pool's last (highest-
+// rarity) column, stacked down the pool's own depth rows — so it reads as an extra rarity
+// column against the block rather than sitting on the dice or off by the rolled-dice area.
+// Each marker uses the die's crowning face (the one on top of the cube): its SVG icon (the
+// same role art the admin dice page shows) with its number beside it, drawn upright, no tilt.
 const FACE_MARKER_ICON = 22; // drawn height (px) of a marker icon
 const FACE_MARKER_GAP = 5; // gap from the marker's icon to its number
-const FACE_MARKER_OUT = MATCH_DIE_ROW_STEP; // one pool row-step, on the pool side of the dice
 
-// World centre of the k-th (of n) parked die's marker: the parked-dice row shifted one pool
-// row-step toward the pool along −vHat, each marker sharing its die's along-uHat position, so
-// the markers line up as a fresh pool row on the same side as the block.
-function rolledMarkerCenter(k: number, n: number): { x: number; y: number } {
-	const { uHat, vHat } = playerDiceAxes();
-	const anchor = rollSpotAnchor();
-	const along = (k - (n - 1) / 2) * MATCH_DIE_COL_STEP;
+// World centre of the k-th rolled-die marker: fixed one column past the block's last column
+// (full-width row centring puts the last column at +((COLS-1)/2) steps, so the next column is
+// one COL_STEP further along uHat), stepped down the pool's depth rows (vHat) by k so the
+// markers stack alongside the block like an extra rarity column.
+function rolledMarkerCenter(k: number): { x: number; y: number } {
+	const { uHat, vHat, mid } = playerDiceAxes();
+	const along = (MATCH_DIE_COLS - (MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP;
+	const out = MATCH_DIE_OUT_GAP + k * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
 	return {
-		x: anchor.x + uHat.x * along - vHat.x * FACE_MARKER_OUT,
-		y: anchor.y + uHat.y * along - vHat.y * FACE_MARKER_OUT
+		x: mid.x + uHat.x * along + vHat.x * out,
+		y: mid.y + uHat.y * along + vHat.y * out
 	};
 }
 
@@ -2130,10 +2130,10 @@ async function renderDiceDisplay() {
 	});
 	parked.sort((a, b) => a.cy - b.cy).forEach(({ node }) => diceDisplayLayer!.addChild(node));
 
-	// One flat marker per parked die, laid out as a new isometric row a step past the dice:
+	// One flat marker per rolled die, laid out as an extra pool column right of the last one:
 	// the die's crowning-face icon and number, drawn upright (iso positioning only, no tilt).
 	rolledTurnDice.forEach((die, i) => {
-		const { x, y } = rolledMarkerCenter(i, rolledTurnDice.length);
+		const { x, y } = rolledMarkerCenter(i);
 		const marker = buildFaceMarker(die, iconTexByUrl);
 		marker.position.set(x, y);
 		diceDisplayLayer!.addChild(marker);
@@ -2199,6 +2199,18 @@ function playAreaPoints(): { x: number; y: number }[] {
 		// of this, so it needs no extra reservation.
 		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
 		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
+	}
+
+	// The player's rolled-die markers sit one column past the block's last column; keep that
+	// extra column's reach in bounds so the opening zoom leaves room for it.
+	{
+		const { uHat, vHat, mid } = playerDiceAxes();
+		const along = (MATCH_DIE_COLS - (MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP;
+		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS - 1) * MATCH_DIE_ROW_STEP + MATCH_DIE_SIZE / 2;
+		pts.push({
+			x: mid.x + uHat.x * along + vHat.x * out + MATCH_DIE_SIZE,
+			y: mid.y + uHat.y * along + vHat.y * out + MATCH_DIE_SIZE
+		});
 	}
 
 	return pts;
