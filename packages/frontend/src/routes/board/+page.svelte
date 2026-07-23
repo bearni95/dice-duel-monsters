@@ -7,12 +7,12 @@
 	// so there is no DOM sidebar — the canvas fills the whole area below the navbar.
 	import { onMount } from 'svelte';
 	import { createBoardEngine } from '$services/board-engine.svelte';
+	import BoardFramePanel from '$components/board/BoardFramePanel.svelte';
 	import CombatHitMarkers from '$components/board/CombatHitMarkers.svelte';
 	import CombatResultCard from '$components/board/CombatResultCard.svelte';
 	import CombatResultToast from '$components/board/CombatResultToast.svelte';
 	import RivalTurnBadge from '$components/board/RivalTurnBadge.svelte';
 	import GameOverModal from '$components/board/GameOverModal.svelte';
-	import DicePicker from '$components/board/DicePicker.svelte';
 
 	const engine = createBoardEngine();
 
@@ -46,6 +46,9 @@
 			bind:this={leftPanel}
 			class="absolute top-0 left-0 z-10 flex max-h-full flex-col gap-2 overflow-auto p-2"
 		>
+			<!-- Board options panel: toggles the yellow play-area outline on the canvas. -->
+			<BoardFramePanel visible={engine.boardFrameVisible} ontoggle={engine.toggleBoardFrame} />
+
 			{#if engine.combatResult}
 				<CombatResultCard result={engine.combatResult} />
 			{/if}
@@ -65,14 +68,6 @@
 		{/if}
 	</div>
 </div>
-
-{#if engine.pickingDice}
-	<DicePicker
-		pool={engine.dicePool}
-		pickCount={engine.dicePickCount}
-		onconfirm={(dice) => engine.confirmDicePick(dice)}
-	/>
-{/if}
 
 {#if engine.rivalThinking}
 	<RivalTurnBadge />

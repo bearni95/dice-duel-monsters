@@ -2612,6 +2612,16 @@ function frameBoard() {
 // side's match-dice block past its plaque. Lives inside `camera`, so it pans and zooms
 // with the board. Purely a visual guide.
 let boardFrame: Graphics | undefined;
+
+// Whether the yellow outline is shown. Driven by the page's top-left panel toggle:
+// drawBoardFrame honors it when (re)building the outline, and toggleBoardFrame flips
+// the live graphic in place. $state so the panel's toggle reflects the current value.
+let boardFrameVisible = $state(true);
+function toggleBoardFrame() {
+	boardFrameVisible = !boardFrameVisible;
+	if (boardFrame) boardFrame.visible = boardFrameVisible;
+}
+
 function drawBoardFrame() {
 	if (!camera) return;
 
@@ -2628,6 +2638,7 @@ function drawBoardFrame() {
 		.rect(minX, minY, maxX - minX, maxY - minY)
 		.stroke({ width: 3, color: 0xffff00 });
 	boardFrame.eventMode = 'none';
+	boardFrame.visible = boardFrameVisible;
 	camera.addChild(boardFrame);
 }
 
@@ -5689,6 +5700,11 @@ tile.on('pointerout', () => {
 		get previewCardSrc() {
 			return previewCardId != null ? `/cards/generated/${previewCardId}.png` : null;
 		},
+		// Whether the yellow play-area outline is drawn; the page's top-left panel reads
+		// it and flips it via toggleBoardFrame.
+		get boardFrameVisible() {
+			return boardFrameVisible;
+		},
 
 		// The player's commands, driven by the sidebar buttons and hand tiles. Move and
 		// Combat are now started from the on-board hover buttons (they need the specific
@@ -5701,7 +5717,8 @@ tile.on('pointerout', () => {
 		cancelCombat,
 		startUnfold,
 		endTurn,
-		confirmDicePick
+		confirmDicePick,
+		toggleBoardFrame
 	};
 }
 
