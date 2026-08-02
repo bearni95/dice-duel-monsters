@@ -1,7 +1,7 @@
 import { AdapterClass } from './classes/adapter.class';
-import type { PlayerProfile, ProfileRow, PlayerDieRow, PlayerCardRow } from '$types/player.type';
+import type { PlayerProfile, ProfileRow, PlayerCardRow } from '$types/player.type';
 
-// Transforms Supabase `profiles` / `player_dice` rows into the shapes the app
+// Transforms Supabase `profiles` / `player_cards` rows into the shapes the app
 // works with, and back. All row-shaping lives here so the service stays a thin
 // data-access layer and the page stays UI-only.
 export class PlayerAdapter extends AdapterClass {
@@ -28,20 +28,9 @@ export class PlayerAdapter extends AdapterClass {
 		};
 	}
 
-	// Expand quantity-per-id `player_dice` rows into a flat list of owned die ids
-	// (one entry per copy), which is what the dice adapter and inventory UI expect.
-	// Rows with a non-positive quantity contribute nothing.
-	diceFromRows(rows: PlayerDieRow[]): string[] {
-		const out: string[] = [];
-		for (const row of rows) {
-			for (let i = 0; i < row.quantity; i++) out.push(row.die_id);
-		}
-		return out;
-	}
-
 	// Expand quantity-per-id `player_cards` rows into a flat list of owned card ids
-	// (one entry per copy), mirroring `diceFromRows`. Rows with a non-positive
-	// quantity contribute nothing.
+	// (one entry per copy), which is what the collection UI expects. Rows with a
+	// non-positive quantity contribute nothing.
 	cardsFromRows(rows: PlayerCardRow[]): number[] {
 		const out: number[] = [];
 		for (const row of rows) {

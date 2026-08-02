@@ -1,7 +1,7 @@
 /**
  * A player's profile, keyed to their Supabase auth user id. Persisted in the
  * `profiles` table (see the supabase package migrations) — no longer local to a
- * single browser, so name/avatar/dice follow the signed-in Discord account.
+ * single browser, so name/avatar follow the signed-in Discord account.
  */
 export interface PlayerProfile {
 	/** Supabase auth user id (uuid). Matches `AuthUser.id`. */
@@ -21,22 +21,15 @@ export interface PlayerState {
 	/** The signed-in player's profile, or `null` when signed out / not yet loaded. */
 	profile: PlayerProfile | null;
 	/**
-	 * The dice the player owns, each referenced by its spawned-die id (e.g.
-	 * `move-r3`). Stored in the `player_dice` table as a quantity per id and
-	 * expanded here into a flat list (one entry per copy) so the dice adapter and
-	 * UI keep working on a plain `string[]`.
-	 */
-	dice: string[];
-	/**
 	 * The cards the player owns, each referenced by its numeric card id (the
 	 * Yu-Gi-Oh! passcode). Stored in the `player_cards` table as a quantity per id
 	 * and expanded here into a flat list (one entry per copy) so the collection UI
-	 * can tally copies the same way the dice list does.
+	 * can tally copies.
 	 */
 	cards: number[];
-	/** `true` while the profile + dice are being loaded from Supabase. */
+	/** `true` while the profile + cards are being loaded from Supabase. */
 	loading: boolean;
-	/** `true` while a profile save or dice grant is in flight. */
+	/** `true` while a profile save or card grant is in flight. */
 	saving: boolean;
 }
 
@@ -45,12 +38,6 @@ export interface ProfileRow {
 	id: string;
 	name: string;
 	avatar: string | null;
-}
-
-/** A row of the `player_dice` table, as returned by the Supabase client. */
-export interface PlayerDieRow {
-	die_id: string;
-	quantity: number;
 }
 
 /** A row of the `player_cards` table, as returned by the Supabase client. */

@@ -9,7 +9,6 @@ import {
 	type DiceTemplate,
 	type DiceTemplateConfig,
 	type DistinctFace,
-	type OwnedDiceGrid,
 	type SpawnedDie
 } from '$types/dice.type';
 
@@ -138,70 +137,6 @@ export class DiceAdapter extends AdapterClass {
 		return out;
 	}
 
-	// --- Player-owned dice -----------------------------------------------------
-
-	// Resolve a list of owned spawned-die ids (as stored on the player) into the
-	// concrete SpawnedDie definitions, in the same order. Unknown ids are skipped.
-	// Duplicates are preserved, since a player may own the same die many times.
-	resolveOwned(config: DiceTemplateConfig, ownedIds: string[]): SpawnedDie[] {
-		const byId = new Map(this.spawnAll(config).map((die) => [die.id, die]));
-		return ownedIds.map((id) => byId.get(id)).filter((die): die is SpawnedDie => die != null);
-	}
-
-	// The distinct dice a player owns: one entry per (template, rarity) combination
-	// actually held, each with how many copies. Ordered by rarity then template so a
-	// gallery reads level by level.
-	ownedUnique(
-		config: DiceTemplateConfig,
-		ownedIds: string[]
-	): { die: SpawnedDie; count: number }[] {
-		const counts = ownedIds.reduce<Record<string, number>>((acc, id) => {
-			acc[id] = (acc[id] ?? 0) + 1;
-			return acc;
-		}, {});
-		const out: { die: SpawnedDie; count: number }[] = [];
-		for (const rarity of DICE_RARITY_LEVELS) {
-			for (const template of config.templates) {
-				const die = this.spawn(config, template, rarity);
-				const count = counts[die.id] ?? 0;
-				if (count > 0) out.push({ die, count });
-			}
-		}
-		return out;
-	}
-
-	// Tally a player's owned die ids into a rarity-by-type grid (rows = rarity 1..6,
-	// columns = templates) for the inventory table. Each cell spawns its concrete die
-	// so it can carry the owned count and the die's distinct faces alongside it.
-	ownedGrid(config: DiceTemplateConfig, ownedIds: string[]): OwnedDiceGrid {
-		const counts = ownedIds.reduce<Record<string, number>>((acc, id) => {
-			acc[id] = (acc[id] ?? 0) + 1;
-			return acc;
-		}, {});
-		const templates = config.templates;
-		const rarities = [...DICE_RARITY_LEVELS];
-		const rows = rarities.map((rarity) => ({
-			rarity,
-			cells: templates.map((template) => {
-				const die = this.spawn(config, template, rarity);
-				return {
-					dieId: die.id,
-					count: counts[die.id] ?? 0,
-					faces: this.distinctFaces(die)
-				};
-			})
-		}));
-		return { templates, rarities, rows };
-	}
-
-	// Pick `count` random dice from every die the game can produce, returning their
-	// ids (with repeats allowed) so they can be appended to the player's collection.
-	randomDiceIds(config: DiceTemplateConfig, count: number): string[] {
-		const all = this.spawnAll(config);
-		if (all.length === 0) return [];
-		return Array.from({ length: count }, () => all[Math.floor(Math.random() * all.length)].id);
-	}
-
 	// --- Energy dice (turn-start rolls on the board) ---------------------------
 
 	// An icon→role lookup for the config, so a landed face can be traced back to the
@@ -234,19 +169,6 @@ export class DiceAdapter extends AdapterClass {
 		return { role, value: Number.isNaN(value) ? 0 : value };
 	}
 
-	// The fallback dice a side rolls when it owns none: one rarity-1 die of each of
-	// the first three templates (Move / Summon / Attack), so energy still splits
-	// across the three pools and each die carries real baked face art.
-	starterDice(config: DiceTemplateConfig): SpawnedDie[] {
-		return config.templates.slice(0, 3).map((t) => this.spawn(config, t, 1));
-	}
-
-	// Pick `count` dice at random (with repeats) from a resolved list — the rival's
-	// turn-start pick from the player's owned dice.
-	randomDice(dice: SpawnedDie[], count: number): SpawnedDie[] {
-		if (dice.length === 0) return [];
-		return Array.from({ length: count }, () => dice[Math.floor(Math.random() * dice.length)]);
-	}
 }
 
 export const diceAdapter = new DiceAdapter();

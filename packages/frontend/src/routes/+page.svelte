@@ -4,22 +4,16 @@
 	import { playerService } from '$services/player.service';
 	import { authService } from '$services/auth.service';
 	import { characters } from '$data/characters';
-	import { diceAdapter } from '$adapters/dice.adapter';
-	import type { DiceTemplateConfig } from '$types/dice.type';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
-	import DiceCollectionCanvas3D, {
-		type DieSpec
-	} from '$components/dice/DiceCollectionCanvas3D.svelte';
-	import DiceDistinctFaces from '$components/dice/DiceDistinctFaces.svelte';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
 	// signed-in account (`authService.configured` must be true and a user present).
 	const auth = authService.store;
 
-	// The player's profile and dice, backed by Supabase via `playerService`. It
-	// loads on sign-in and clears on sign-out, so name/avatar/dice follow the
+	// The player's profile and cards, backed by Supabase via `playerService`. It
+	// loads on sign-in and clears on sign-out, so name/avatar/cards follow the
 	// Discord account across devices rather than living in one browser.
 	const player = playerService.store;
 
@@ -48,17 +42,6 @@
 	let selectedCharacter = $derived(characters.find((c) => c.slug === avatar) ?? null);
 	let canSave = $derived(name.trim().length > 0 && avatar !== null);
 
-	// The dice template config, loaded once, so the player's owned die ids can be
-	// resolved into concrete dice and rendered in the same 3D canvas the admin uses.
-	let diceConfig = $state<DiceTemplateConfig | null>(null);
-
-	// The raw list of owned die ids (duplicates kept), and the total copy count.
-	let ownedIds = $derived($player.dice);
-
-	// One entry per distinct (type, rarity) the player owns, each with its copy
-	// count. This drives both the tumbling-dice gallery and its underneath labels.
-	let ownedDice = $derived(diceConfig ? diceAdapter.ownedUnique(diceConfig, ownedIds) : []);
-
 	async function save() {
 		if (!canSave) return;
 		await playerService.saveProfile(name.trim(), avatar);
@@ -69,29 +52,6 @@
 		name = profile?.name ?? '';
 		avatar = profile?.avatar ?? null;
 		editing = true;
-	}
-
-	// The distinct owned dice as canvas specs — one shared WebGL canvas tumbles them
-	// all, in the same order as `ownedDice` so the count labels line up underneath.
-	// Each die's faces come from its baked PNGs, so the id (and body tint) is all the
-	// canvas needs.
-	let diceSpecs = $derived<DieSpec[]>(
-		ownedDice.map(({ die }) => ({
-			id: die.id,
-			color: diceAdapter.colorNumber(die)
-		}))
-	);
-
-	// The owned dice tallied into a rarity-by-type grid (rows = rarity, columns =
-	// die type) for the inventory table below the canvas.
-	let diceGrid = $derived(diceConfig ? diceAdapter.ownedGrid(diceConfig, ownedIds) : null);
-
-	// Grant three random dice (from every die the game can produce) and persist them
-	// to the player's Supabase-backed collection.
-	async function giveRandomDice() {
-		if (!diceConfig) return;
-		const granted = diceAdapter.randomDiceIds(diceConfig, 3);
-		await playerService.grantDice(granted);
 	}
 
 	// The pool of cards made available into the game — the same monster cards the
@@ -130,7 +90,6 @@
 	}
 
 	onMount(async () => {
-		diceConfig = await diceAdapter.loadTemplates();
 		availableCards = await cardApiAdapter.loadAvailableCards();
 	});
 </script>
@@ -238,78 +197,6 @@
 				<p class="truncate text-2xl font-bold">{profile?.name}</p>
 			</div>
 			<button class="btn btn-ghost btn-sm" onclick={edit}>Edit</button>
-		</section>
-
-		<section class="space-y-4" aria-label="Your dice">
-			<div class="flex items-center justify-between gap-4">
-				<div>
-					<h2 class="text-xl font-bold">Your dice</h2>
-					<p class="text-base-content/60 text-sm">
-						{ownedIds.length}
-						{ownedIds.length === 1 ? 'die' : 'dice'} owned
-					</p>
-				</div>
-				<button
-					class="btn btn-primary btn-sm"
-					disabled={!diceConfig || $player.saving}
-					onclick={giveRandomDice}
-				>
-					Give 3 random dice
-				</button>
-			</div>
-
-			{#if ownedDice.length > 0}
-				<!-- One shared WebGL canvas tumbles every distinct die in a strip; a
-				     matching row of 88px-wide cells shows each die's copy count directly
-				     underneath it (tile width matches the canvas `tileSize`). -->
-				<div class="card overflow-x-auto bg-base-200 p-4">
-					<div class="inline-block">
-						<DiceCollectionCanvas3D dice={diceSpecs} tileSize={88} />
-						<div class="flex">
-							{#each ownedDice as { die, count } (die.id)}
-								<span class="w-[88px] shrink-0 text-center text-sm font-medium">×{count}</span>
-							{/each}
-						</div>
-					</div>
-				</div>
-
-				{#if diceGrid}
-					<!-- Inventory breakdown: rows are rarity levels, columns are die types.
-					     Each cell shows how many of that die the player owns and the four
-					     distinct faces it rolls, badging the faces that appear twice. -->
-					<div class="overflow-x-auto">
-						<table class="table table-sm">
-							<thead>
-								<tr>
-									<th>Rarity</th>
-									{#each diceGrid.templates as template (template.id)}
-										<th class="text-center">{template.name}</th>
-									{/each}
-								</tr>
-							</thead>
-							<tbody>
-								{#each diceGrid.rows as row (row.rarity)}
-									<tr>
-										<th>Rarity {row.rarity}</th>
-										{#each row.cells as cell (cell.dieId)}
-											<td class={classNames('align-top', { 'opacity-40': cell.count === 0 })}>
-												<div class="text-base-content/70 mb-1 text-center text-xs font-medium">
-													×{cell.count} owned
-												</div>
-												<DiceDistinctFaces dieId={cell.dieId} faces={cell.faces} classes="mx-auto" />
-											</td>
-										{/each}
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-			{:else}
-				<div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center text-sm">
-					You don't own any dice yet. Grab some to get started.
-				</div>
-			{/if}
 		</section>
 
 		<section class="space-y-4" aria-label="Your cards">

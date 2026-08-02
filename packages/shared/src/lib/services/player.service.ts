@@ -2,19 +2,19 @@ import { get, writable, type Writable } from 'svelte/store';
 import { authService } from '$services/auth.service';
 import { getSupabaseClient } from '$utils/supabase/client';
 import { playerAdapter } from '$adapters/player.adapter';
-import type { PlayerState, ProfileRow, PlayerDieRow, PlayerCardRow } from '$types/player.type';
+import type { PlayerState, ProfileRow, PlayerCardRow } from '$types/player.type';
 
-const EMPTY: PlayerState = { profile: null, dice: [], cards: [], loading: false, saving: false };
+const EMPTY: PlayerState = { profile: null, cards: [], loading: false, saving: false };
 
 /**
- * Owns the signed-in player's profile and dice, backed by Supabase (the
- * `profiles` and `player_dice` tables) rather than localStorage. It follows the
+ * Owns the signed-in player's profile and cards, backed by Supabase (the
+ * `profiles` and `player_cards` tables) rather than localStorage. It follows the
  * auth session: loading the player's data when they sign in and clearing it when
  * they sign out, so ownership is tied to the Discord account and shared across
  * devices.
  *
  * Components read `playerService.store` reactively and call `saveProfile` /
- * `grantDice`; they never touch the Supabase client directly.
+ * `grantCards`; they never touch the Supabase client directly.
  */
 class PlayerService {
 	store: Writable<PlayerState>;
@@ -37,16 +37,15 @@ class PlayerService {
 		});
 	}
 
-	// Load the profile and owned dice for a user from Supabase in one shot.
+	// Load the profile and owned cards for a user from Supabase in one shot.
 	private async load(userId: string): Promise<void> {
 		const client = getSupabaseClient();
 		if (!client) return;
 
 		this.store.set({ ...EMPTY, loading: true });
 
-		const [profileRes, diceRes, cardsRes] = await Promise.all([
+		const [profileRes, cardsRes] = await Promise.all([
 			client.from('profiles').select('id,name,avatar').eq('id', userId).maybeSingle(),
-			client.from('player_dice').select('die_id,quantity').eq('player_id', userId).gt('quantity', 0),
 			client.from('player_cards').select('card_id,quantity').eq('player_id', userId).gt('quantity', 0)
 		]);
 
@@ -54,7 +53,6 @@ class PlayerService {
 		if (this.currentUserId !== userId) return;
 
 		if (profileRes.error) throw profileRes.error;
-		if (diceRes.error) throw diceRes.error;
 		if (cardsRes.error) throw cardsRes.error;
 
 		const profileRow = profileRes.data as ProfileRow | null;
@@ -62,7 +60,6 @@ class PlayerService {
 			profile: profileRow
 				? playerAdapter.fromProfileRow(profileRow)
 				: { id: userId, name: '', avatar: null },
-			dice: playerAdapter.diceFromRows((diceRes.data ?? []) as PlayerDieRow[]),
 			cards: playerAdapter.cardsFromRows((cardsRes.data ?? []) as PlayerCardRow[]),
 			loading: false,
 			saving: false
@@ -93,45 +90,9 @@ class PlayerService {
 	}
 
 	/**
-	 * Grant the given spawned-die ids to the player (duplicates allowed), then
-	 * refresh the owned dice from the server so the store reflects the new totals.
-	 */
-	async grantDice(dieIds: string[]): Promise<void> {
-		const userId = this.currentUserId;
-		const client = getSupabaseClient();
-		if (!userId || !client || dieIds.length === 0) return;
-
-		this.store.update((s) => ({ ...s, saving: true }));
-
-		const { error } = await client.rpc('grant_dice', { die_ids: dieIds });
-		if (error) {
-			this.store.update((s) => ({ ...s, saving: false }));
-			throw error;
-		}
-
-		const { data, error: readError } = await client
-			.from('player_dice')
-			.select('die_id,quantity')
-			.eq('player_id', userId)
-			.gt('quantity', 0);
-
-		if (readError) {
-			this.store.update((s) => ({ ...s, saving: false }));
-			throw readError;
-		}
-
-		if (this.currentUserId !== userId) return;
-		this.store.update((s) => ({
-			...s,
-			dice: playerAdapter.diceFromRows((data ?? []) as PlayerDieRow[]),
-			saving: false
-		}));
-	}
-
-	/**
 	 * Grant the given card ids to the player (duplicates allowed), then refresh the
-	 * owned cards from the server so the store reflects the new totals. Mirrors
-	 * `grantDice` against the `player_cards` table / `grant_cards` RPC.
+	 * owned cards from the server so the store reflects the new totals, via the
+	 * `player_cards` table / `grant_cards` RPC.
 	 */
 	async grantCards(cardIds: number[]): Promise<void> {
 		const userId = this.currentUserId;

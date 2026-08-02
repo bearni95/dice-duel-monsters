@@ -98,20 +98,3 @@ export interface DistinctFace {
 	count: number;
 }
 
-// One cell of the inventory grid: a concrete die (type × rarity), how many copies
-// the player owns, and the distinct faces that die rolls.
-export interface OwnedDiceCell {
-	dieId: string;
-	count: number;
-	faces: DistinctFace[];
-}
-
-// A player's owned dice tallied into a rarity-by-type grid for the inventory
-// table: `templates` are the columns, `rarities` the rows, and `rows[i].cells[j]`
-// is the die (with its owned count and distinct faces) for `templates[j]` at
-// `rarities[i]`.
-export interface OwnedDiceGrid {
-	templates: DiceTemplate[];
-	rarities: number[];
-	rows: { rarity: number; cells: OwnedDiceCell[] }[];
-}
