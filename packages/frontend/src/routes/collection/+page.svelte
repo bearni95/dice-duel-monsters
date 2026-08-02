@@ -6,7 +6,6 @@
 	// behind every page. The counts come from the same store that feeds it, so the
 	// numbers here always describe exactly what's on screen.
 	const auth = authService.store;
-	const player = playerService.store;
 	const collection = collectionService.store;
 </script>
 
