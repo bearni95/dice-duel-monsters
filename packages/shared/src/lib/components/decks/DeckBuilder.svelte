@@ -230,6 +230,24 @@
 				>
 					New deck
 				</button>
+
+				{#if deck}
+					<!-- How full the open deck is, and the way to be rid of it, at the foot
+					     of the column so the destructive button is nowhere near the ones
+					     used while building. -->
+					<div class="mt-auto flex items-center justify-between gap-2">
+						<span class="label-text">Cards</span>
+						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
+					</div>
+
+					<button
+						class="btn btn-ghost btn-sm text-error"
+						disabled={saving}
+						on:click={() => deck && dispatch('deleteDeck', { deck })}
+					>
+						Delete
+					</button>
+				{/if}
 			</div>
 		</div>
 
@@ -239,25 +257,6 @@
 			class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
 			aria-label="Your decks"
 		>
-			<div class="flex flex-wrap items-center gap-2">
-				{#if deck}
-					<!-- How full the open deck is, and the one thing done to it as a whole
-					     that isn't up beside the card viewer. -->
-					<div class="flex items-center gap-2">
-						<span class="label-text">Cards</span>
-						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
-					</div>
-
-					<button
-						class="btn btn-ghost btn-sm text-error ml-auto"
-						disabled={saving}
-						on:click={() => deck && dispatch('deleteDeck', { deck })}
-					>
-						Delete
-					</button>
-				{/if}
-			</div>
-
 			{#if error}
 				<div class="alert alert-error text-sm" role="alert">{error}</div>
 			{/if}
