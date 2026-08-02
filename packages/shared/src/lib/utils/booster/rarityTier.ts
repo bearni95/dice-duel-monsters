@@ -23,15 +23,6 @@ export const RARITY_LABEL: Record<BoosterRarity, string> = {
 	secret: 'Secret Rare'
 };
 
-/** Foil tint drawn around a pulled card in the opener canvas. */
-export const RARITY_COLOR: Record<BoosterRarity, number> = {
-	common: 0xcbd5e1,
-	rare: 0x0ea5e9,
-	super: 0xa855f7,
-	ultra: 0xf59e0b,
-	secret: 0xec4899
-};
-
 // Cards that cost a summon to put on the board (fusions, rituals and the rest of
 // the extra deck) start a tier up, the same way the printed sets treat them.
 const SUMMON_COST_TYPES = /Fusion|Ritual|Synchro|XYZ|Link/i;

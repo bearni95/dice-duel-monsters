@@ -1,14 +1,13 @@
 /**
  * RevealCardSprite
  *
- * A single revealed card in the pack-opening canvas: the baked card PNG over a
- * placeholder, ringed in its rarity colour so the good pulls read at a glance.
- * Purely visual — the scene drives every position, scale and rotation tween.
+ * A single revealed card in the pack-opening canvas: the baked card PNG, which
+ * already carries its own frame and border, drawn over a placeholder and nothing
+ * else. Purely visual — the scene drives every position, scale and rotation tween.
  */
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { PackPull } from '$types/booster.type';
-import { RARITY_COLOR } from '$utils/booster/rarityTier';
 import { cachedTexture, cardArtUrl, loadTexture } from '$utils/booster/packTextures';
 
 export interface RevealCardSpriteOptions {
@@ -43,15 +42,6 @@ export class RevealCardSprite extends Container {
 		this.artSprite.height = this.cardHeight;
 		this.artSprite.tint = 0x1f2937;
 		this.addChild(this.artSprite);
-
-		const ring = new Graphics();
-		ring.roundRect(0, 0, this.cardWidth, this.cardHeight, CORNER_RADIUS);
-		ring.stroke({
-			width: opts.pull.rarity === 'common' ? 2 : 3,
-			color: RARITY_COLOR[opts.pull.rarity],
-			alpha: opts.pull.rarity === 'common' ? 0.5 : 1
-		});
-		this.addChild(ring);
 
 		const url = cardArtUrl(opts.pull.card.id);
 		const cached = cachedTexture(url);
