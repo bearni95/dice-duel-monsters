@@ -188,9 +188,23 @@
 			</div>
 
 			<div class="flex min-w-0 flex-col gap-2">
-				{#if decks.length > 0}
-					<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
-				{/if}
+				<!-- Picking a deck and starting one are the same decision, so they share a
+				     row; the button is a plus rather than a label to leave the picker the
+				     width it needs. -->
+				<div class="flex min-w-0 items-center gap-2">
+					{#if decks.length > 0}
+						<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
+					{/if}
+					<button
+						class="btn btn-primary btn-square btn-sm shrink-0"
+						disabled={collection.length === 0 || saving}
+						aria-label="New deck"
+						title="Start a new deck"
+						on:click={() => dispatch('create')}
+					>
+						+
+					</button>
+				</div>
 
 				{#if deck}
 					<!-- One deck is active at a time: switching this on stands down whichever
@@ -221,17 +235,7 @@
 						on:input={onNameInput}
 						on:blur={flushRename}
 					/>
-				{/if}
 
-				<button
-					class="btn btn-primary btn-sm"
-					disabled={collection.length === 0 || saving}
-					on:click={() => dispatch('create')}
-				>
-					New deck
-				</button>
-
-				{#if deck}
 					<!-- How full the open deck is, and the way to be rid of it, at the foot
 					     of the column so the destructive button is nowhere near the ones
 					     used while building. -->
