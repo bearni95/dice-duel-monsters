@@ -194,6 +194,31 @@ export function createBoardEngine() {
 	// rollRivalEnergy). Deep `$state` so mutating a single pool stays reactive.
 	let energy = $state<EnergyPools>(emptyEnergyPools());
 
+	// --- Defend: the player's answer to a rival strike --------------------------------
+	//
+	// A creature's defense is the number a d6 must reach to hit it (see applyAttack), so
+	// this is the ceiling the game allows: at 7 nothing could ever land, which would make
+	// the creature unkillable. Defend stacks up to 6 and no further.
+	const MAX_DEF = 6;
+	// How much defense one press of Defend buys, and how long the player has to press it
+	// before the rival's strike resolves (the span the viewer's countdown bar drains over).
+	const DEFEND_STEP = 1;
+	const DEFEND_WINDOW_MS = 3000;
+	// How often the countdown repaints while the window is open.
+	const DEFEND_TICK_MS = 50;
+	// The pool a Defend is paid from. The game's dice carry three roles — summon, move and
+	// attack (see the dice templates) — with no defense pool of its own, so the reaction is
+	// charged to the combat pool. Kept as one constant so re-pointing it is a one-line change.
+	const DEFEND_ROLE: DiceRole = 'attack';
+
+	// The player creature a rival strike is being held open on, the defense it has bought
+	// in that window, and the time left on the countdown. All $state so the viewer's Defend
+	// button and its progressbar follow the window live. `defendUnitId` is null whenever no
+	// strike is being held — which is what closes the window everywhere else.
+	let defendUnitId = $state<number | null>(null);
+	let defendBonus = $state(0);
+	let defendMsLeft = $state(0);
+
 	// The dice template config, loaded on mount, and `iconRoleMap`, the cached
 	// icon→role lookup used to score each landed face.
 	let diceConfig = $state<DiceTemplateConfig | null>(null);
@@ -204,7 +229,8 @@ export function createBoardEngine() {
 	// beside the price: how far a Move carries the creature, how many dice a Combat rolls.
 	const STAT_ICONS: Record<UnitActionStat, string> = {
 		speed: '/assets/icons/lorc/walking-boot.svg',
-		atk: '/assets/icons/lorc/broadsword.svg'
+		atk: '/assets/icons/lorc/broadsword.svg',
+		def: '/assets/icons/lorc/edged-shield.svg'
 	};
 
 	// Each side's remaining match dice. Both players start the match with the full
@@ -1951,6 +1977,26 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 		iconSrc: STAT_ICONS[stat],
 		value
 	});
+
+	// A rival strike held open on this creature takes the row over: only Defend shows,
+	// priced like the other paid actions — the defend pool's glyph with the creature's
+	// cost first, then the shield with the defense the press buys. It stays disabled once
+	// the defense is capped or the pool can't cover another press.
+	if (defendUnitId === unit.unitId) {
+		return [
+			{
+				key: 'defend',
+				label: 'Defend',
+				variant: 'primary',
+				enabled: canDefend(unit),
+				role: DEFEND_ROLE,
+				cost,
+				iconSrc: iconFor(DEFEND_ROLE),
+				effect: effect('def', 'Def', DEFEND_STEP),
+				run: defendUnit
+			}
+		];
+	}
 
 	if (moving && movingUnit === unit) {
 		return [
@@ -4308,6 +4354,68 @@ async function rollCombatDice(count: number): Promise<number[]> {
 	return rollAttackDice(count);
 }
 
+// The defense a unit is hit against right now: its card's printed Def plus whatever it
+// bought in an open Defend window, never past MAX_DEF. Every hit test goes through this,
+// so the bought points count for exactly the strike that opened the window — they are
+// dropped the moment it resolves (see closeDefendWindow).
+function defenseOf(unit: PlacedUnit): number {
+	const bonus = defendUnitId === unit.unitId ? defendBonus : 0;
+	return Math.min(MAX_DEF, unit.creature.def + bonus);
+}
+
+// Whether this creature can buy another point of defense: it has to be the one under the
+// held strike, still short of the cap, with its cost sitting in the defend pool. Drives
+// both the button's enabled flag and the command's own guard.
+function canDefend(unit: PlacedUnit): boolean {
+	return (
+		defendUnitId === unit.unitId &&
+		defenseOf(unit) < MAX_DEF &&
+		energy[DEFEND_ROLE] >= unit.creature.cost
+	);
+}
+
+// Buy one point of defense for the creature under the held strike: charges the creature's
+// cost to the defend pool and raises its defense by DEFEND_STEP. Fired by the viewer's
+// Defend button, and guarded here too so a click that lands as the window closes can't
+// spend energy on a strike that has already resolved. Pressable repeatedly while the
+// window lasts — each press pays again — until the cap or the pool stops it.
+function defendUnit() {
+	if (defendUnitId == null) return;
+	const unit = placedUnits.get(defendUnitId);
+	if (!unit || !canDefend(unit)) return;
+
+	energy[DEFEND_ROLE] -= unit.creature.cost;
+	defendBonus += DEFEND_STEP;
+}
+
+// Hold a rival strike for DEFEND_WINDOW_MS before it lands on one of the player's
+// creatures. The defender's card is pinned in the bottom-left viewer exactly as a click
+// would pin it, so its Defend button and countdown are already on screen, and the bar
+// drains over the window. Resolves when the window closes; the caller then rolls and
+// applies the strike (which reads defenseOf) and calls closeDefendWindow afterwards.
+async function openDefendWindow(unit: PlacedUnit) {
+	defendUnitId = unit.unitId;
+	defendBonus = 0;
+	defendMsLeft = DEFEND_WINDOW_MS;
+
+	selectCard(unitCardKey(unit), unit.creature.id, unit.unitId);
+
+	const end = performance.now() + DEFEND_WINDOW_MS;
+	while (defendMsLeft > 0) {
+		await new Promise((resolve) => setTimeout(resolve, DEFEND_TICK_MS));
+		defendMsLeft = Math.max(0, end - performance.now());
+	}
+}
+
+// Drop the bought defense now that the strike it paid for has resolved, so the creature
+// is back to its printed Def for every later combat, and take the Defend button out of
+// the viewer. A no-op when no window was opened.
+function closeDefendWindow() {
+	defendUnitId = null;
+	defendBonus = 0;
+	defendMsLeft = 0;
+}
+
 // Apply a pre-rolled attack from `attacker` onto whatever stands at (x, y): a
 // rival creature (each die at/above the target's defense costs 1 HP) or the
 // rival's origin cell (any die at/above its remaining LP takes exactly 1 life
@@ -4325,8 +4433,10 @@ function applyAttack(
 	const rivalOrigin = rivalOriginFor(attacker.side);
 
 	if (target && target.side !== attacker.side) {
-		// A die at or above the target's defense is a hit; each hit costs 1 HP.
-		const threshold = target.creature.def;
+		// A die at or above the target's defense is a hit; each hit costs 1 HP. The
+		// defense read here carries any points bought in the target's Defend window, so
+		// the reaction changes the number this very strike has to beat.
+		const threshold = defenseOf(target);
 		const hits = rolls.filter((r) => r >= threshold).length;
 
 		applyDamageToUnit(target, hits);
@@ -4723,9 +4833,18 @@ async function runCpuTurn() {
 				// Record it so it shows in the rival's blue plaque (see renderPlaque).
 				cpuPlayedCards = [...cpuPlayedCards, move.creature];
 			} else if (move.type === 'combat' && move.unit) {
+				// A strike on one of the player's creatures is held open first: the defender's
+				// card is pinned in the viewer with its 3s countdown, and any defense bought
+				// there raises the number this roll has to beat (see defenseOf). Strikes on the
+				// player's origin have no creature to defend, so they land straight away.
+				const defender = unitAt(move.x, move.y);
+				if (defender && defender.side === 'player') await openDefendWindow(defender);
+
 				// The CPU rolls its attack silently (no 3D box) during its turn.
 				const rolls = rollAttackDice(move.unit.creature.atk);
 				const result = applyAttack(move.unit, move.x, move.y, rolls);
+				// The bought defense dies with the strike it paid for.
+				closeDefendWindow();
 				if (result) {
 					showCombatResult(
 						move.unit.creature.name,
@@ -5681,9 +5800,17 @@ tile.on('pointerout', () => {
 			return unitActions(unit);
 		},
 		// Whether the viewer's close button is live: the selection is frozen while a move or
-		// combat is in flight, so the panel holding that unit's Cancel can't be dismissed.
+		// combat is in flight, so the panel holding that unit's Cancel can't be dismissed —
+		// and likewise while a rival strike is held open on the card's creature, so the
+		// Defend button can't be closed away before the window ends.
 		get canCloseCard() {
-			return !moving && !combating;
+			return !moving && !combating && defendUnitId == null;
+		},
+		// The held strike's countdown, for the bar the viewer draws over the Defend button:
+		// how much of the window is left against its full span, or null when no strike is
+		// being held.
+		get defendCountdown() {
+			return defendUnitId == null ? null : { msLeft: defendMsLeft, totalMs: DEFEND_WINDOW_MS };
 		},
 		// The player's commands, driven by the sidebar buttons and hand tiles. Move and
 		// Combat are started from the card viewer's own button row (previewUnitActions

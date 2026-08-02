@@ -59,6 +59,7 @@
 				src={engine.previewCardSrc}
 				actions={engine.previewUnitActions}
 				canClose={engine.canCloseCard}
+				countdown={engine.defendCountdown}
 				onclose={engine.clearCardSelection}
 			/>
 		{/if}
