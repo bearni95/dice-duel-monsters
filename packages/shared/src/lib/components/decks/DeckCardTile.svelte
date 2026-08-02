@@ -45,7 +45,11 @@
 	// why this tracks `canAdd` rather than what the deck holds.
 	$: tileClasses = classNames(
 		'relative rounded transition-opacity',
-		{ 'opacity-50': controls === 'row' && !canAdd },
+		{
+			'opacity-50': controls === 'row' && !canAdd,
+			// Hovering (or tabbing into) a copy is what reveals its remove button.
+			group: controls === 'remove'
+		},
 		classes
 	);
 
@@ -108,9 +112,11 @@
 	{:else}
 		<GeneratedCardImage id={card.id} name={card.name} />
 
+		<!-- Over the middle of the art, and only once the copy is pointed at or
+		     tabbed into, so a deck full of cards reads as cards rather than buttons. -->
 		<button
 			type="button"
-			class="btn btn-error btn-xs mt-1 w-full"
+			class="btn btn-error btn-xs absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
 			disabled={!canRemove}
 			aria-label={`Remove a copy of ${card.name} from the deck`}
 			title={`Remove a copy of ${card.name}`}
