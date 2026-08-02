@@ -45,6 +45,6 @@
 
 	<div class="drawer-side z-50">
 		<label for="admin-drawer" class="drawer-overlay" aria-label="Close menu"></label>
-		<Navbar on:navigate={() => (menuOpen = false)} />
+		<Navbar title="Admin" on:navigate={() => (menuOpen = false)} />
 	</div>
 </div>
