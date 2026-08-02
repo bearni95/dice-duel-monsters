@@ -5224,25 +5224,26 @@ function clearPreview() {
 }
 
 // --- In-canvas dice-net picker ------------------------------------------------
-// A right-triangle panel tucked under the grid's south-west edge: its hypotenuse runs
-// along that edge from the grid's leftmost point to its bottommost point, and the right
-// angle sits at the bottom-left corner of the board's bounding box. It shows all 11
+// A right-triangle panel tucked against the grid's north-west edge: its hypotenuse runs
+// along that edge from the grid's topmost point to its leftmost point, and the right
+// angle sits at the top-left corner of the board's bounding box. It shows all 11
 // unique ways a d6 unfolds; clicking one makes that net the shape every following
 // summon / Unfold lays. Only visible while the player is choosing a placement (a
 // creature selected, or Unfold mode). It lives in `camera`, so it stays glued to those
-// grid corners as the board pans and zooms.
+// grid corners at whatever scale the board is fitted to.
 let netPanel: Container | undefined;
 type NetThumb = { container: Container; bg: Graphics; glyph: Graphics; index: number };
 let netThumbs: NetThumb[] = [];
 
 // Inset from the triangle's edges, and how many thumbnails sit in each row from top to
-// bottom — rows widen toward the bottom to match the triangle (1 + 2 + 3 + 5 = 11). The
-// left leg and bottom leg use half the margin so the thumbnails hug the right-angle
-// corner, while the top vertex and the hypotenuse keep the fuller inset.
+// bottom — rows narrow toward the bottom to match the triangle, which is widest along its
+// top leg and tapers to the grid's left vertex (5 + 3 + 2 + 1 = 11). The left leg and top
+// leg use half the margin so the thumbnails hug the right-angle corner, while the bottom
+// vertex and the hypotenuse keep the fuller inset.
 const NET_PANEL_MARGIN = 16;
 const NET_PANEL_MARGIN_LEFT = NET_PANEL_MARGIN / 2;
-const NET_PANEL_MARGIN_BOTTOM = NET_PANEL_MARGIN / 2;
-const NET_PANEL_ROWS = [1, 2, 3, 5];
+const NET_PANEL_MARGIN_TOP = NET_PANEL_MARGIN / 2;
+const NET_PANEL_ROWS = [5, 3, 2, 1];
 const NET_THUMB_SIZE = 34;
 
 // Build the picker once: the translucent triangle backdrop plus the 11 net thumbnails,
@@ -5256,53 +5257,57 @@ function buildNetPanel() {
 	panel.eventMode = 'passive';
 	panel.visible = false;
 
-	// The triangle's three corners in world space. The grid's leftmost / bottommost
+	// The triangle's three corners in world space. The grid's topmost / leftmost
 	// diamond vertices are a half-tile out from those corner cells' centers; the right
-	// angle is the bottom-left of the board's bounding box.
+	// angle is the top-left of the board's bounding box.
+	const top = {
+		x: isoPosOf(0, 0).x,
+		y: isoPosOf(0, 0).y - TILE_HEIGHT / 2
+	};
 	const left = {
 		x: isoPosOf(0, GRID_HEIGHT - 1).x - TILE_WIDTH / 2,
 		y: isoPosOf(0, GRID_HEIGHT - 1).y
 	};
-	const bottom = {
-		x: isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1).x,
-		y: isoPosOf(GRID_WIDTH - 1, GRID_HEIGHT - 1).y + TILE_HEIGHT / 2
-	};
-	const corner = { x: left.x, y: bottom.y };
+	const corner = { x: left.x, y: top.y };
 
 	// Filled triangle with a faint red edge, matching the player's red network.
 	const bg = new Graphics();
-	bg.moveTo(corner.x, corner.y).lineTo(left.x, left.y).lineTo(bottom.x, bottom.y).closePath();
+	bg.moveTo(corner.x, corner.y).lineTo(top.x, top.y).lineTo(left.x, left.y).closePath();
 	bg.fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1.5, color: CELL_RED, alpha: 0.7 });
 	bg.eventMode = 'none';
 	panel.addChild(bg);
 
 	// A thumbnail is a square, so keeping its whole box inside the triangle — not just
-	// its center — is what stops it poking past the diagonal. The binding corner is the
-	// top-right one (largest x, smallest y): the hypotenuse is furthest left there, so
-	// the right bound is measured at the thumbnail's top edge, inset by a half-size.
+	// its center — is what stops it poking past the diagonal. The hypotenuse now falls away
+	// to the left as it descends, so the binding corner is the bottom-right one (largest x,
+	// largest y): the right bound is measured at the thumbnail's bottom edge, inset by a
+	// half-size.
 	const half = NET_THUMB_SIZE / 2;
-	const slope = (bottom.x - left.x) / (bottom.y - left.y);
-	const hypX = (y: number) => left.x + (y - left.y) * slope;
+	const slope = (left.x - top.x) / (left.y - top.y);
+	const hypX = (y: number) => top.x + (y - top.y) * slope;
 
 	// The left edge of every row: hard against the vertical leg (plus its margin).
 	const rowLeftCenter = corner.x + NET_PANEL_MARGIN_LEFT + half;
 	// The rightmost a thumbnail's center may sit at a given row height and still keep its
-	// top-right corner off the hypotenuse.
-	const rowRightCenter = (cy: number) => hypX(cy - half) - NET_PANEL_MARGIN - half;
+	// bottom-right corner off the hypotenuse.
+	const rowRightCenter = (cy: number) => hypX(cy + half) - NET_PANEL_MARGIN - half;
 
-	// Row heights. The top row must drop low enough that even a single thumbnail clears
-	// the narrow apex (where rowRightCenter first reaches rowLeftCenter); the bottom row's
-	// lower edge must clear the bottom leg. Rows are then spread evenly between the two.
-	const cyBottom = bottom.y - NET_PANEL_MARGIN_BOTTOM - half;
-	const cyTop = left.y + half + (rowLeftCenter - left.x + NET_PANEL_MARGIN + half) / slope;
+	// Row heights. The top row's upper edge must clear the top leg; the bottom row must sit
+	// high enough that even a single thumbnail clears the narrow apex at the grid's left
+	// vertex (where rowRightCenter falls back to rowLeftCenter). Rows are then spread evenly
+	// between the two.
+	const cyTop = top.y + NET_PANEL_MARGIN_TOP + half;
+	const cyBottom = top.y - half + (rowLeftCenter + NET_PANEL_MARGIN + half - top.x) / slope;
 	const rowStep = NET_PANEL_ROWS.length > 1 ? (cyBottom - cyTop) / (NET_PANEL_ROWS.length - 1) : 0;
 
-	// Shared column grid: the widest (bottom) row spans the left leg to the hypotenuse and
-	// fixes the x of every column, so upper rows drop into the same columns and line up
-	// vertically instead of each row spreading on its own. Upper rows are narrower, so they
-	// only fill the leftmost columns — which are the ones that clear the hypotenuse there.
+	// Shared column grid: the widest row (the top one, against the horizontal leg) spans the
+	// left leg to the hypotenuse and fixes the x of every column, so the rows below drop into
+	// the same columns and line up vertically instead of each row spreading on its own. Those
+	// rows are narrower, so they only fill the leftmost columns — which are the ones that
+	// clear the hypotenuse at their height.
 	const maxCount = Math.max(...NET_PANEL_ROWS);
-	const colStep = maxCount > 1 ? (rowRightCenter(cyBottom) - rowLeftCenter) / (maxCount - 1) : 0;
+	const cyWidest = cyTop + rowStep * NET_PANEL_ROWS.indexOf(maxCount);
+	const colStep = maxCount > 1 ? (rowRightCenter(cyWidest) - rowLeftCenter) / (maxCount - 1) : 0;
 
 	netThumbs = [];
 	let index = 0;
