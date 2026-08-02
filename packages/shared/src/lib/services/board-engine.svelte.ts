@@ -2878,13 +2878,7 @@ function frameBoard() {
 	const centerX = (minX + maxX) / 2;
 	const centerY = (minY + maxY) / 2;
 
-	// A small margin keeps the outline itself (and its 3px stroke) off the canvas edges
-	// rather than flush against them.
-	const MARGIN = 0.94;
-	const scale = Math.min(
-		(app.screen.width / boxW) * MARGIN,
-		(app.screen.height / boxH) * MARGIN
-	);
+	const scale = Math.min(app.screen.width / boxW, app.screen.height / boxH);
 	camera.scale.set(scale);
 
 	// Centre the play area's bounding box on the canvas, on both axes.
@@ -2894,8 +2888,8 @@ function frameBoard() {
 
 // A yellow reference outline framing the whole play area: the isometric grid, the red
 // (player) and blue (rival) card plaques flanking it at opposite corners, and each
-// side's match-dice block past its plaque. Lives inside `camera`, so it pans and zooms
-// with the board. Purely a visual guide.
+// side's match-dice block past its plaque. Lives inside `camera`, so it takes the fit's
+// scale along with the board. Purely a visual guide.
 let boardFrame: Graphics | undefined;
 
 // Whether the yellow outline is shown. Driven by the page's top-left panel toggle:
