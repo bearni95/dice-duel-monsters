@@ -162,18 +162,24 @@
 
 	<!-- The right column: the card being pointed at on top, the decks under it. -->
 	<div class="flex min-w-0 flex-col gap-4 lg:col-span-1 lg:min-h-0">
-		<!-- The viewer holds a card's shape whether or not one has been hovered yet,
-		     so nothing below it jumps the first time a card lands here. -->
-		<div class="w-full shrink-0">
-			{#if hovered}
-				<GeneratedCardImage id={hovered.id} name={hovered.name} />
-			{:else}
-				<div
-					class="border-base-300 text-base-content/60 flex aspect-[1080/1415] w-full items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
-				>
-					Point at a card to see it here.
-				</div>
-			{/if}
+		<!-- The hovered card in the first of two columns, the second left empty for
+		     what will read beside it. The viewer holds a card's shape whether or not
+		     one has been hovered yet, so nothing below it jumps the first time a card
+		     lands here. -->
+		<div class="grid shrink-0 grid-cols-2 gap-4">
+			<div class="min-w-0">
+				{#if hovered}
+					<GeneratedCardImage id={hovered.id} name={hovered.name} />
+				{:else}
+					<div
+						class="border-base-300 text-base-content/60 flex aspect-[1080/1415] w-full items-center justify-center rounded-lg border border-dashed p-2 text-center text-xs"
+					>
+						Point at a card to see it here.
+					</div>
+				{/if}
+			</div>
+
+			<div></div>
 		</div>
 
 		<!-- The decks: which one is open is a picker rather than a list, so the panel
