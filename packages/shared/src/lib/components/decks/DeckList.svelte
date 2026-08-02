@@ -36,10 +36,12 @@
 {#if decks.length > 0}
 	<ul class="space-y-2">
 		{#each decks as deck (deck.id)}
+			<!-- Rows are drawn with borders rather than fills so whatever sits behind
+			     the list shows through it; the active one is tinted, not filled. -->
 			<li
-				class={classNames('flex items-center gap-3 rounded-lg px-3 py-2', {
-					'bg-primary/10 border-primary border': playerDeckAdapter.isEnabled(deck, decks),
-					'bg-base-200 border border-transparent': !playerDeckAdapter.isEnabled(deck, decks)
+				class={classNames('flex items-center gap-3 rounded-lg border px-3 py-2', {
+					'bg-primary/10 border-primary': playerDeckAdapter.isEnabled(deck, decks),
+					'border-base-300': !playerDeckAdapter.isEnabled(deck, decks)
 				})}
 			>
 				<div class="min-w-0 flex-1">

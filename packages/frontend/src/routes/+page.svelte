@@ -69,7 +69,9 @@
 	<title>Dice Guardians</title>
 </svelte:head>
 
-<main class="w-full p-4 sm:p-6 lg:p-8">
+<!-- The page fills the viewport and grows past it rather than being capped to it,
+     so a long column scrolls the page instead of being clipped. -->
+<main class="flex min-h-dvh w-full flex-col p-4 sm:p-6 lg:p-8">
 	{#if !authService.configured}
 		<section class="mx-auto max-w-2xl space-y-2 py-8 text-center" aria-label="Sign in required">
 			<h1 class="text-2xl font-bold">Dice Guardians</h1>
@@ -95,11 +97,13 @@
 		<!-- The signed-in page as four columns: who is playing in the first, the decks
 		     they play with in the second, and two columns held for what comes next.
 		     Below `xl` they fall back to two columns and then to one, since neither
-		     panel survives being a quarter of a narrow window. -->
-		<div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+		     panel survives being a quarter of a narrow window. `flex-1` stretches the
+		     grid over the whole viewport height; nothing here paints a background, so
+		     the layout's card backdrop shows through it. -->
+		<div class="grid flex-1 grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
 			<div class="min-w-0 space-y-6">
 				<section
-					class="bg-base-200 flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+					class="border-base-300 flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
 					aria-label="Signed in"
 				>
 					<div class="flex min-w-0 items-center gap-2">
