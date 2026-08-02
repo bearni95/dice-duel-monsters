@@ -1,6 +1,7 @@
 import { get, writable, type Writable } from 'svelte/store';
 import { authService } from '$services/auth.service';
 import { getSupabaseClient } from '$utils/supabase/client';
+import { waitForStore } from '$utils/store/waitForStore';
 import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 import type {
 	PlayerDeck,
@@ -71,7 +72,7 @@ class PlayerDeckService {
 		const [deckRes, cardRes] = await Promise.all([
 			client
 				.from('player_decks')
-				.select('id,name')
+				.select('id,name,enabled')
 				.eq('player_id', userId)
 				.order('created_at', { ascending: true }),
 			client.from('player_deck_cards').select('deck_id,card_id,quantity').eq('player_id', userId)
@@ -101,7 +102,7 @@ class PlayerDeckService {
 		const [deckRes, cardRes] = await Promise.all([
 			client
 				.from('player_decks')
-				.select('id,name')
+				.select('id,name,enabled')
 				.eq('player_id', userId)
 				.order('created_at', { ascending: true }),
 			client.from('player_deck_cards').select('deck_id,card_id,quantity').eq('player_id', userId)
@@ -145,9 +146,11 @@ class PlayerDeckService {
 
 		// Appended rather than re-read: decks are ordered by creation, so a new one
 		// belongs at the end, and this keeps creating a deck to a single round trip.
+		// It starts disabled, matching the column default — though a player creating
+		// their first deck still plays it, since a lone deck is enabled by rule.
 		this.store.update((s) => ({
 			...s,
-			decks: [...s.decks, { id, name: name.trim(), cards: [] }],
+			decks: [...s.decks, { id, name: name.trim(), cards: [], enabled: false }],
 			saving: this.writing.size > 0
 		}));
 
@@ -221,6 +224,38 @@ class PlayerDeckService {
 	}
 
 	/**
+	 * Enable or disable a deck — whether the board deals from it (see
+	 * `playerDeckAdapter.activeDeck`). Written straight to the deck row rather
+	 * than through `save_player_deck`, which replaces a deck's name and contents
+	 * wholesale and has no business rewriting 30 card rows because a switch was
+	 * flipped. RLS scopes the update to the owner.
+	 *
+	 * Optimistic like `update`, but not coalesced: a flag is one round trip either
+	 * way. A refused write puts the flag back where it was, so the switch can
+	 * never show a state the database didn't accept.
+	 */
+	async setEnabled(deckId: string, enabled: boolean): Promise<void> {
+		const userId = this.currentUserId;
+		const client = getSupabaseClient();
+		const current = get(this.store).decks.find((deck) => deck.id === deckId);
+		if (!userId || !client || !current) return;
+		if (current.enabled === enabled) return;
+
+		const applyFlag = (value: boolean, error: string | null) =>
+			this.store.update((s) => ({
+				...s,
+				error,
+				decks: s.decks.map((deck) => (deck.id === deckId ? { ...deck, enabled: value } : deck))
+			}));
+
+		applyFlag(enabled, null);
+
+		const { error } = await client.from('player_decks').update({ enabled }).eq('id', deckId);
+
+		if (error && this.currentUserId === userId) applyFlag(current.enabled, error.message);
+	}
+
+	/**
 	 * Delete a deck. Its contents go with it via the deck-cards foreign key's
 	 * cascade; the player's card ownership is untouched.
 	 */
@@ -250,6 +285,25 @@ class PlayerDeckService {
 	/** The current deck state snapshot. */
 	get(): PlayerDeckState {
 		return get(this.store);
+	}
+
+	/**
+	 * The decks once they reflect the session, for callers that read them once
+	 * instead of subscribing — the board, which needs the player's deck before it
+	 * can deal a hand, and boots while the session is still resolving.
+	 *
+	 * Waits for auth to settle first: until it does, "no decks" only means the
+	 * session hasn't come back yet, and the board would deal from an empty
+	 * collection every reload. A signed-out player (or a build with no Supabase)
+	 * resolves immediately with the empty state.
+	 */
+	async ready(): Promise<PlayerDeckState> {
+		if (!authService.configured) return get(this.store);
+
+		const auth = await waitForStore(authService.store, (state) => !state.loading);
+		if (!auth.user) return get(this.store);
+
+		return waitForStore(this.store, (state) => !state.loading);
 	}
 }
 

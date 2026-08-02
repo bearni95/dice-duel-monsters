@@ -26,9 +26,14 @@ const mocks = vi.hoisted(() => {
 
 	// What the fake database hands back when the service (re)reads the decks.
 	const server = {
-		decks: [] as { id: string; name: string }[],
+		decks: [] as { id: string; name: string; enabled: boolean }[],
 		cards: [] as { deck_id: string; card_id: number; quantity: number }[]
 	};
+
+	// Row updates the service writes directly (the enabled flag), and what the
+	// database says about them — a test sets `updateError` to have one refused.
+	const updates: { table: string; values: Record<string, unknown>; id: unknown }[] = [];
+	const updateError = { message: null as string | null };
 
 	const client = {
 		rpc,
@@ -42,12 +47,20 @@ const mocks = vi.hoisted(() => {
 						return Object.assign(result, { order: () => result });
 					}
 				}),
+				update: (values: Record<string, unknown>) => ({
+					eq: (_column: string, id: unknown) => {
+						updates.push({ table, values, id });
+						return Promise.resolve({
+							error: updateError.message ? { message: updateError.message } : null
+						});
+					}
+				}),
 				delete: () => ({ eq: () => Promise.resolve({ error: null }) })
 			};
 		}
 	};
 
-	return { authStore, rpcCalls, rpc, server, client };
+	return { authStore, rpcCalls, rpc, server, client, updates, updateError };
 });
 
 vi.mock('$services/auth.service', () => ({
@@ -94,6 +107,8 @@ describe('playerDeckService', () => {
 		mocks.rpc.mockClear();
 		mocks.server.decks = [];
 		mocks.server.cards = [];
+		mocks.updates.length = 0;
+		mocks.updateError.message = null;
 		playerDeckService.store.set({ decks: [], loading: false, saving: false, error: null });
 	});
 
@@ -110,7 +125,9 @@ describe('playerDeckService', () => {
 			await settleWrite('deck-1');
 
 			expect(await created).toBe('deck-1');
-			expect(get(playerDeckService.store).decks).toEqual([{ id: 'deck-1', name: '', cards: [] }]);
+			expect(get(playerDeckService.store).decks).toEqual([
+				{ id: 'deck-1', name: '', cards: [], enabled: false }
+			]);
 		});
 
 		it('reports a refused creation on the store rather than throwing', async () => {
@@ -127,7 +144,7 @@ describe('playerDeckService', () => {
 	describe('update', () => {
 		beforeEach(() => {
 			playerDeckService.store.set({
-				decks: [{ id: 'deck-1', name: 'Draft', cards: [] }],
+				decks: [{ id: 'deck-1', name: 'Draft', cards: [], enabled: false }],
 				loading: false,
 				saving: false,
 				error: null
@@ -168,7 +185,7 @@ describe('playerDeckService', () => {
 		});
 
 		it('resyncs from the server and reports the reason when a write is refused', async () => {
-			mocks.server.decks = [{ id: 'deck-1', name: 'Draft' }];
+			mocks.server.decks = [{ id: 'deck-1', name: 'Draft', enabled: false }];
 			mocks.server.cards = [{ deck_id: 'deck-1', card_id: 10, quantity: 1 }];
 
 			playerDeckService.update('deck-1', { cards: [{ cardId: 10, quantity: 3 }] });
@@ -178,13 +195,13 @@ describe('playerDeckService', () => {
 			const state = get(playerDeckService.store);
 			expect(state.error).toBe('a deck cannot hold more copies of a card than you own');
 			expect(state.decks).toEqual([
-				{ id: 'deck-1', name: 'Draft', cards: [{ cardId: 10, quantity: 1 }] }
+				{ id: 'deck-1', name: 'Draft', cards: [{ cardId: 10, quantity: 1 }], enabled: false }
 			]);
 			expect(state.saving).toBe(false);
 		});
 
 		it('drops edits queued behind a refused write instead of writing over it', async () => {
-			mocks.server.decks = [{ id: 'deck-1', name: 'Draft' }];
+			mocks.server.decks = [{ id: 'deck-1', name: 'Draft', enabled: false }];
 
 			playerDeckService.update('deck-1', { cards: [{ cardId: 10, quantity: 1 }] });
 			await flush();
@@ -201,6 +218,57 @@ describe('playerDeckService', () => {
 
 			expect(mocks.rpc).not.toHaveBeenCalled();
 			expect(get(playerDeckService.store).decks).toHaveLength(1);
+		});
+	});
+
+	describe('setEnabled', () => {
+		beforeEach(() => {
+			playerDeckService.store.set({
+				decks: [
+					{ id: 'deck-1', name: 'Burn', cards: [], enabled: true },
+					{ id: 'deck-2', name: 'Control', cards: [], enabled: false }
+				],
+				loading: false,
+				saving: false,
+				error: null
+			});
+		});
+
+		it('flips the flag on the store and writes it to the deck row', async () => {
+			const done = playerDeckService.setEnabled('deck-2', true);
+
+			// Applied before the write lands, so the switch never lags the click.
+			expect(get(playerDeckService.store).decks[1].enabled).toBe(true);
+
+			await done;
+
+			expect(mocks.updates).toEqual([
+				{ table: 'player_decks', values: { enabled: true }, id: 'deck-2' }
+			]);
+			// The flag is its own row update; a deck's 30 cards aren't rewritten for it.
+			expect(mocks.rpc).not.toHaveBeenCalled();
+		});
+
+		it('leaves the other decks alone', async () => {
+			await playerDeckService.setEnabled('deck-2', true);
+
+			expect(get(playerDeckService.store).decks[0].enabled).toBe(true);
+		});
+
+		it('puts the flag back and reports the reason when the write is refused', async () => {
+			mocks.updateError.message = 'permission denied';
+
+			await playerDeckService.setEnabled('deck-2', true);
+
+			const state = get(playerDeckService.store);
+			expect(state.decks[1].enabled).toBe(false);
+			expect(state.error).toBe('permission denied');
+		});
+
+		it('writes nothing when the flag already has the requested value', async () => {
+			await playerDeckService.setEnabled('deck-1', true);
+
+			expect(mocks.updates).toEqual([]);
 		});
 	});
 });
