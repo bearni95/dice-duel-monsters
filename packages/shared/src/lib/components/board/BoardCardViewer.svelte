@@ -14,18 +14,8 @@
 		src,
 		actions = [],
 		canClose = true,
-		countdown = null,
 		onclose
-	}: {
-		src: string;
-		actions?: UnitAction[];
-		canClose?: boolean;
-		// The rival strike being held open on this card's creature, while the player answers
-		// it with Defend: the milliseconds left against the window's full span. Null the rest
-		// of the time, when no bar is drawn.
-		countdown?: { msLeft: number; totalMs: number } | null;
-		onclose: () => void;
-	} = $props();
+	}: { src: string; actions?: UnitAction[]; canClose?: boolean; onclose: () => void } = $props();
 
 	const variantClasses: Record<UnitAction['variant'], string> = {
 		primary: 'btn-primary',
@@ -36,17 +26,6 @@
 <!-- pointer-events-none on the frame and the art so the viewer never intercepts board
      interaction; only the button row takes the pointer back. -->
 <div class="pointer-events-none fixed bottom-4 left-4 z-20 flex w-[300px] flex-col gap-2">
-	<!-- The countdown on a held rival strike: it drains over the window the player has to
-	     press Defend, straight above that button. -->
-	{#if countdown}
-		<progress
-			class="progress progress-warning pointer-events-auto h-2 w-full"
-			value={countdown.msLeft}
-			max={countdown.totalMs}
-			aria-label="Time left to defend"
-		></progress>
-	{/if}
-
 	<!-- The button row above the art: the clicked unit's actions, when it has any, and the
 	     close button that unpins the card. -->
 	<div class="pointer-events-auto flex items-start gap-2">
