@@ -55,10 +55,11 @@
 		</aside>
 
 		<!-- The card viewer: a DOM element pinned to the page's bottom-left, showing the
-		     full art of whichever card the pointer is hovering on the canvas (a hand card,
-		     a played plaque card, or an on-board creature). Fixed 300px wide; the in-canvas
-		     hover handlers drive engine.previewCardSrc. pointer-events-none so it never
-		     intercepts board interaction. -->
+		     full art of the card the pointer last hovered on the canvas (a hand card, a
+		     played plaque card, or an on-board creature). It is sticky — leaving a card
+		     leaves its art on show until another card is hovered. Fixed 300px wide; the
+		     in-canvas hover handlers drive engine.previewCardSrc. pointer-events-none so
+		     it never intercepts board interaction. -->
 		{#if engine.previewCardSrc}
 			<img
 				src={engine.previewCardSrc}

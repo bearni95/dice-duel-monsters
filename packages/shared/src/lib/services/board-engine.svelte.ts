@@ -1177,14 +1177,13 @@ async function addPlaqueCard(
 		sprite.width = PB_CARD_W;
 		sprite.height = PB_CARD_H;
 		sprite.position.set(x, y);
-		// Hovering a played card floats the fixed card viewer over it, exactly like the
-		// hand cards — so both the player's and the rival's out-of-grid plaque cards can
-		// be read at full size. The panel is pinned to this sprite's on-screen box, so it
-		// tracks the plaque through the board's pan/zoom.
+		// Hovering a played card shows it in the fixed card viewer, exactly like the hand
+		// cards — so both the player's and the rival's out-of-grid plaque cards can be read
+		// at full size. The viewer is pinned to the page's bottom-left and keeps the last
+		// hovered card, so there is nothing to tear down on pointerleave.
 		sprite.eventMode = 'static';
 		sprite.cursor = 'pointer';
 		sprite.on('pointerenter', () => showCardPreview(card.id));
-		sprite.on('pointerleave', () => showCardPreview(null));
 		plaque.container.addChild(sprite);
 		return;
 	}
@@ -1222,10 +1221,6 @@ const PB_CORNER_RADIUS = 12;
 async function renderPlaque(plaque: CardPlaque, cards: IGameCreature[]) {
 	if (!plaque.container) return;
 	const token = ++plaque.token;
-
-	// A hovered plaque card's sprite is about to be destroyed, so its pointerleave never
-	// fires — drop the viewer up front so it can't strand a preview of a vanishing card.
-	showCardPreview(null);
 
 	for (const child of plaque.container.removeChildren()) child.destroy();
 	plaque.container.mask = null;
@@ -1303,11 +1298,13 @@ let cpuHandToken = 0;
 // rival hand card. $state so renderCpuHand's $effect repaints the backs once the art lands.
 let cardBackTexture: Texture | null = $state(null);
 
-// The card viewer: the id of whichever card the pointer is hovering on the canvas (a
-// hand card, a played plaque card, or an on-board creature), or null when nothing is
-// hovered. The in-canvas hover handlers set it via showCardPreview; the board page reads
-// previewCardSrc and renders it as a fixed 300px <img> pinned to the page's bottom-left
-// (so the viewer is a DOM element, immune to the board's pan/zoom). $state so the img reacts.
+// The card viewer: the id of whichever card the pointer last hovered on the canvas (a
+// hand card, a played plaque card, or an on-board creature), or null until the first hover.
+// The viewer is sticky — leaving a card leaves its art on show, so the last card visited
+// stays readable while the pointer is back on the board. The in-canvas hover handlers set
+// it via showCardPreview; the board page reads previewCardSrc and renders it as a fixed
+// 300px <img> pinned to the page's bottom-left (so the viewer is a DOM element, immune to
+// the board's pan/zoom). $state so the img reacts.
 let previewCardId = $state<IGameCreature['id'] | null>(null);
 
 // The world-space column of turn/unit action buttons (Move/Combat/Unfold/End Turn),
@@ -1473,29 +1470,25 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	cardContainer.addChild(hover);
 
 	// On hover, reveal the in-card Summon overlay AND show this card's full art in the
-	// bottom-left DOM viewer (only when its art actually loaded); leaving tears both down.
+	// bottom-left DOM viewer (only when its art actually loaded). Leaving hides the overlay
+	// but leaves the viewer showing this card, until another card is hovered.
 	cardContainer.on('pointerenter', () => {
 		hover.visible = true;
-		showCardPreview(texture ? card.id : null);
+		if (texture) showCardPreview(card.id);
 	});
 	cardContainer.on('pointerleave', () => {
 		hover.visible = false;
-		showCardPreview(null);
 	});
 
 	handLayer.addChild(cardContainer);
 }
 
-// Pin the card viewer just above the hovered hand card, horizontally centered on it, so
-// the card itself stays fully visible below the enlarged preview. The card lives in the
-// zoomable world, so we read its on-screen box (getBounds is in screen space, since the
-// viewer's stage parent carries no transform) and place the panel relative to that: it
-// floats above the card, dropping below instead when there isn't room above, and its x
-// Set (or clear, with null) the card the DOM viewer previews. The single entry point the
-// in-canvas hover handlers call — hovering a hand card, a played plaque card, or an
-// on-board creature sets its id here; leaving clears it. The board page reactively renders
-// previewCardSrc as the fixed bottom-left viewer, so positioning is pure CSS.
-function showCardPreview(cardId: IGameCreature['id'] | null) {
+// Set the card the DOM viewer shows. The single entry point the in-canvas hover handlers
+// call — hovering a hand card, a played plaque card, or an on-board creature sets its id
+// here. There is no clear: the viewer holds the last hovered card until another one
+// replaces it. The board page reactively renders previewCardSrc as the fixed bottom-left
+// viewer, so positioning is pure CSS.
+function showCardPreview(cardId: IGameCreature['id']) {
 	previewCardId = cardId;
 }
 
@@ -1515,11 +1508,6 @@ function showCardPreview(cardId: IGameCreature['id'] | null) {
 async function renderHand() {
 	if (!handLayer) return;
 	const token = ++handToken;
-
-	// Clearing the old cards destroys their containers, so a card hovered at the moment
-	// of a re-render never fires its pointerleave — drop the viewer up front so it can't
-	// strand a preview of a card that's about to disappear.
-	showCardPreview(null);
 
 	if (!hand.length) {
 		for (const child of handLayer.removeChildren()) child.destroy();
@@ -3520,12 +3508,12 @@ async function placeMonster(
 	// Hovering an on-board creature shows its card in the bottom-left DOM viewer, and —
 	// for the player's own units — unfolds the Move / Combat action buttons beneath it
 	// (the group's own hover handlers keep them open once the pointer slides onto them).
+	// Leaving folds the buttons back; the viewer keeps the card until another is hovered.
 	sprite.on('pointerenter', () => {
 		showCardPreview(creature.id);
 		if (unit.side === 'player' && !moving && !combating) hoveredActionUnitId = unit.unitId;
 	});
 	sprite.on('pointerleave', () => {
-		showCardPreview(null);
 		if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
 	});
 
