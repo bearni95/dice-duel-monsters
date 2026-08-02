@@ -36,7 +36,10 @@ export interface ScatterLayoutOptions {
 export const SCATTER_DEFAULTS = {
 	/** Height follows from the art's aspect, and the grid steps off this too. */
 	cardWidth: 210,
-	maxCards: 200,
+	// Slots scale with the square of the card width, so this cap is the 200 that
+	// filled a 1080p screen at 140px divided by 1.5² — about one card per slot,
+	// which is enough to cover the viewport without stacking copies pointlessly.
+	maxCards: 90,
 	maxRotationDeg: 35
 } as const;
 
