@@ -161,9 +161,10 @@
 			</button>
 
 			{#if deck}
-				<!-- The two things done to a deck as a whole rather than to its contents.
-				     A player's only deck is played whether or not its flag was ever set,
-				     so its switch reads on and can't be turned off. -->
+				<!-- Everything that acts on the open deck as a whole rather than on its
+				     contents, on one line. A player's only deck is played whether or not
+				     its flag was ever set, so its switch reads on and can't be turned
+				     off. -->
 				<label class="label ml-auto cursor-pointer gap-2">
 					<span class="label-text">Enabled</span>
 					<input
@@ -178,6 +179,23 @@
 							deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
 					/>
 				</label>
+
+				<input
+					class="input input-bordered input-sm w-48"
+					type="text"
+					placeholder="Name your deck"
+					maxlength="40"
+					aria-label="Deck name"
+					bind:value={name}
+					on:input={onNameInput}
+					on:blur={flushRename}
+				/>
+
+				<div class="flex items-center gap-2">
+					<span class="label-text">Cards</span>
+					<span class={counterClasses}>{total}/{DECK_SIZE}</span>
+				</div>
+
 				<button
 					class="btn btn-ghost btn-sm text-error"
 					disabled={saving}
@@ -204,26 +222,6 @@
 
 		{#if deck}
 			<div class="space-y-3">
-				<div class="flex flex-wrap items-end justify-between gap-3">
-					<label class="form-control min-w-56 flex-1">
-						<span class="label-text mb-1">Deck name</span>
-						<input
-							class="input input-bordered w-full"
-							type="text"
-							placeholder="Name your deck"
-							maxlength="40"
-							bind:value={name}
-							on:input={onNameInput}
-							on:blur={flushRename}
-						/>
-					</label>
-
-					<div class="flex items-center gap-2">
-						<span class="label-text">Cards</span>
-						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
-					</div>
-				</div>
-
 				<!-- Where a save button used to be. Every edit is already written; this
 				     only reports how that is going. -->
 				{#if !error}
