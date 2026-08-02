@@ -1,25 +1,17 @@
 /**
- * Layout and motion for the scattered-cards backdrop: the player's collection
- * tiled across the viewport at random angles, springing back into place after
- * the cursor pushes it aside.
+ * Layout for the scattered-cards backdrop: the player's collection tiled across
+ * the viewport at random angles.
  *
- * Kept as pure functions so the maths can be tested without a canvas — the
- * component that owns the backdrop only builds the layout, steps it once per
- * frame, and draws the result.
+ * Kept as a pure function so the maths can be tested without a canvas — the
+ * component that owns the backdrop only builds the layout and draws the result.
  */
 
-/** One card in the backdrop: where it belongs, where it is, and how fast. */
+/** One card in the backdrop: which art to draw, and where. */
 export interface ScatteredCard {
 	cardId: number;
-	/** The slot the card springs back to. */
-	homeX: number;
-	homeY: number;
-	/** Current top-left position, in CSS pixels. */
+	/** Top-left position, in CSS pixels. */
 	x: number;
 	y: number;
-	/** Current velocity, in CSS pixels per frame. */
-	vx: number;
-	vy: number;
 	/** Fixed tilt, in degrees. */
 	rotation: number;
 }
@@ -40,31 +32,11 @@ export interface ScatterLayoutOptions {
 	random?: () => number;
 }
 
-export interface ScatterStepOptions {
-	/** Pointer position in CSS pixels; cards within `repelRadius` are pushed away. */
-	pointerX: number;
-	pointerY: number;
-	viewportWidth: number;
-	viewportHeight: number;
-	cardWidth: number;
-	cardAspect: number;
-	repelRadius?: number;
-	repelStrength?: number;
-	/** How hard a card is pulled back to its home slot. */
-	springK?: number;
-	/** Velocity retained each frame; below 1 so the motion settles. */
-	damping?: number;
-}
-
 /** The tuning the backdrop looks right at, shared with the component's props. */
 export const SCATTER_DEFAULTS = {
 	cardWidth: 140,
 	maxCards: 200,
-	maxRotationDeg: 35,
-	repelRadius: 220,
-	repelStrength: 1.4,
-	springK: 0.03,
-	damping: 0.84
+	maxRotationDeg: 35
 } as const;
 
 /**
@@ -122,77 +94,13 @@ export function buildScatterLayout({
 
 	return kept.map((cardId, i) => {
 		const slot = slots[i % slots.length];
-		const x = clamp(slot.x + (random() - 0.5) * 2 * jitter, 0, maxX);
-		const y = clamp(slot.y + (random() - 0.5) * 2 * jitter, 0, maxY);
 		return {
 			cardId,
-			homeX: x,
-			homeY: y,
-			x,
-			y,
-			vx: 0,
-			vy: 0,
+			x: clamp(slot.x + (random() - 0.5) * 2 * jitter, 0, maxX),
+			y: clamp(slot.y + (random() - 0.5) * 2 * jitter, 0, maxY),
 			rotation: (random() - 0.5) * 2 * maxRotationDeg
 		};
 	});
-}
-
-/**
- * Advance the layout one frame: each card is pulled towards its home slot and
- * pushed away from the pointer, then moved by the resulting velocity and kept
- * inside the viewport.
- *
- * Mutates `cards` in place. This runs on every animation frame over a couple of
- * hundred cards, so it deliberately avoids allocating a new array per frame; the
- * caller owns the array and hands the same one back each time.
- *
- * Put the pointer far outside the viewport (or pass `Infinity`) when it has left
- * the page, and the cards simply spring home.
- */
-export function stepScatteredCards(
-	cards: ScatteredCard[],
-	{
-		pointerX,
-		pointerY,
-		viewportWidth,
-		viewportHeight,
-		cardWidth,
-		cardAspect,
-		repelRadius = SCATTER_DEFAULTS.repelRadius,
-		repelStrength = SCATTER_DEFAULTS.repelStrength,
-		springK = SCATTER_DEFAULTS.springK,
-		damping = SCATTER_DEFAULTS.damping
-	}: ScatterStepOptions
-): void {
-	const halfWidth = cardWidth / 2;
-	const halfHeight = (cardWidth * cardAspect) / 2;
-	const maxX = Math.max(0, viewportWidth - cardWidth);
-	const maxY = Math.max(0, viewportHeight - cardWidth * cardAspect);
-	const radiusSq = repelRadius * repelRadius;
-
-	for (const card of cards) {
-		const dx = card.x + halfWidth - pointerX;
-		const dy = card.y + halfHeight - pointerY;
-		const distSq = dx * dx + dy * dy;
-
-		let ax = (card.homeX - card.x) * springK;
-		let ay = (card.homeY - card.y) * springK;
-
-		// Repulsion falls off quadratically to nothing at the edge of the radius,
-		// so cards drift out of the cursor's way rather than snapping.
-		if (distSq < radiusSq && distSq > 0.0001) {
-			const dist = Math.sqrt(distSq);
-			const falloff = 1 - dist / repelRadius;
-			const force = falloff * falloff * repelStrength * repelRadius * 0.05;
-			ax += (dx / dist) * force;
-			ay += (dy / dist) * force;
-		}
-
-		card.vx = (card.vx + ax) * damping;
-		card.vy = (card.vy + ay) * damping;
-		card.x = clamp(card.x + card.vx, 0, maxX);
-		card.y = clamp(card.y + card.vy, 0, maxY);
-	}
 }
 
 function clamp(value: number, min: number, max: number): number {

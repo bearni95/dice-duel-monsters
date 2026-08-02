@@ -9,10 +9,9 @@
 
 	let { children } = $props();
 
-	// The player's collection, tiled behind every page and pushed around by the
-	// cursor. It sits below the app's content (-z-10) and takes no pointer events,
-	// and it's dimmed so page text stays readable over the art rather than
-	// competing with it.
+	// The player's collection, tiled behind every page. It sits below the app's
+	// content (-z-10) and takes no pointer events, and it's dimmed so page text
+	// stays readable over the art rather than competing with it.
 	const collection = collectionService.store;
 
 	// Drives the right-hand menu. The pages own the whole viewport, so the menu
