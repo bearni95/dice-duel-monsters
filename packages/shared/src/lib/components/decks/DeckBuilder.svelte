@@ -3,6 +3,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import DeckCardTile from '$components/decks/DeckCardTile.svelte';
 	import DeckSelect from '$components/decks/DeckSelect.svelte';
+	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
@@ -69,6 +70,12 @@
 	// collection is shown but inert until one is created or picked.
 	$: noDeck = deck === null;
 
+	// The card under the pointer, from either grid, shown full size in the right
+	// column. It is the last card hovered rather than the one hovered right now:
+	// moving off a tile to click something else leaves the card up instead of
+	// blanking the viewer.
+	let hovered: CardAsset | null = null;
+
 	// The collection with the open deck's copies taken out of it: a card whose every
 	// owned copy is already in the deck leaves the grid entirely, so what is shown
 	// is what is still there to be added. Copies come back the moment they are
@@ -134,6 +141,7 @@
 						{deckFull}
 						disabled={noDeck}
 						controls="row"
+						on:hover={() => (hovered = card)}
 						on:add={() => dispatch('add', { cardId: card.id })}
 						on:remove={() => dispatch('remove', { cardId: card.id })}
 					/>
@@ -152,102 +160,120 @@
 		{/if}
 	</div>
 
-	<!-- The decks: which one is open is a picker rather than a list, so the panel
-	     is only ever showing the deck being worked on. -->
-	<aside
-		class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:col-span-1 lg:min-h-0 lg:overflow-y-auto"
-		aria-label="Your decks"
-	>
-		<div class="flex flex-wrap items-center gap-2">
-			{#if decks.length > 0}
-				<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
-			{/if}
-			<button
-				class="btn btn-primary btn-sm"
-				disabled={collection.length === 0 || saving}
-				on:click={() => dispatch('create')}
-			>
-				New deck
-			</button>
-
-			{#if deck}
-				<!-- Everything that acts on the open deck as a whole rather than on its
-				     contents, on one line. A player's only deck is played whether or not
-				     its flag was ever set, so its switch reads on and can't be turned
-				     off. -->
-				<label class="label ml-auto cursor-pointer gap-2">
-					<span class="label-text">Enabled</span>
-					<input
-						type="checkbox"
-						class="toggle toggle-primary toggle-sm"
-						checked={playerDeckAdapter.isEnabled(deck, decks)}
-						disabled={saving || decks.length === 1}
-						title={decks.length === 1
-							? 'Your only deck is always the one you play with.'
-							: 'Take this deck to the board'}
-						on:change={(event) =>
-							deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
-					/>
-				</label>
-
-				<input
-					class="input input-bordered input-sm w-48"
-					type="text"
-					placeholder="Name your deck"
-					maxlength="40"
-					aria-label="Deck name"
-					bind:value={name}
-					on:input={onNameInput}
-					on:blur={flushRename}
-				/>
-
-				<div class="flex items-center gap-2">
-					<span class="label-text">Cards</span>
-					<span class={counterClasses}>{total}/{DECK_SIZE}</span>
-				</div>
-
-				<button
-					class="btn btn-ghost btn-sm text-error"
-					disabled={saving}
-					on:click={() => deck && dispatch('deleteDeck', { deck })}
+	<!-- The right column: the card being pointed at on top, the decks under it. -->
+	<div class="flex min-w-0 flex-col gap-4 lg:col-span-1 lg:min-h-0">
+		<!-- The viewer holds a card's shape whether or not one has been hovered yet,
+		     so nothing below it jumps the first time a card lands here. -->
+		<div class="w-full shrink-0">
+			{#if hovered}
+				<GeneratedCardImage id={hovered.id} name={hovered.name} />
+			{:else}
+				<div
+					class="border-base-300 text-base-content/60 flex aspect-[1080/1415] w-full items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
 				>
-					Delete
-				</button>
+					Point at a card to see it here.
+				</div>
 			{/if}
 		</div>
 
-		{#if error}
-			<div class="alert alert-error text-sm" role="alert">{error}</div>
-		{/if}
-
-		{#if decks.length === 0}
-			<p class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-4 text-sm">
-				{#if collection.length === 0}
-					You need cards before you can build a deck. Grab some on the home page first.
-				{:else}
-					No decks yet. Start one, then click cards from your collection to fill it.
+		<!-- The decks: which one is open is a picker rather than a list, so the panel
+		     is only ever showing the deck being worked on. -->
+		<aside
+			class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+			aria-label="Your decks"
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				{#if decks.length > 0}
+					<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
 				{/if}
-			</p>
-		{/if}
-
-		{#if deck}
-			{#if deckCopies.length > 0}
-				<div class="grid grid-cols-5 gap-2">
-					{#each deckCopies as { key, card } (key)}
-						<DeckCardTile
-							{card}
-							controls="remove"
-							on:remove={() => dispatch('remove', { cardId: card.id })}
-						/>
-					{/each}
-				</div>
-			{:else}
-				<div
-					class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={collection.length === 0 || saving}
+					on:click={() => dispatch('create')}
 				>
-					Empty. Pick cards from your collection.
-				</div>
+					New deck
+				</button>
+
+				{#if deck}
+					<!-- Everything that acts on the open deck as a whole rather than on its
+					     contents, on one line. A player's only deck is played whether or not
+					     its flag was ever set, so its switch reads on and can't be turned
+					     off. -->
+					<label class="label ml-auto cursor-pointer gap-2">
+						<span class="label-text">Enabled</span>
+						<input
+							type="checkbox"
+							class="toggle toggle-primary toggle-sm"
+							checked={playerDeckAdapter.isEnabled(deck, decks)}
+							disabled={saving || decks.length === 1}
+							title={decks.length === 1
+								? 'Your only deck is always the one you play with.'
+								: 'Take this deck to the board'}
+							on:change={(event) =>
+								deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
+						/>
+					</label>
+
+					<input
+						class="input input-bordered input-sm w-48"
+						type="text"
+						placeholder="Name your deck"
+						maxlength="40"
+						aria-label="Deck name"
+						bind:value={name}
+						on:input={onNameInput}
+						on:blur={flushRename}
+					/>
+
+					<div class="flex items-center gap-2">
+						<span class="label-text">Cards</span>
+						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
+					</div>
+
+					<button
+						class="btn btn-ghost btn-sm text-error"
+						disabled={saving}
+						on:click={() => deck && dispatch('deleteDeck', { deck })}
+					>
+						Delete
+					</button>
+				{/if}
+			</div>
+
+			{#if error}
+				<div class="alert alert-error text-sm" role="alert">{error}</div>
 			{/if}
-		{/if}
-	</aside>
+
+			{#if decks.length === 0}
+				<p class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-4 text-sm">
+					{#if collection.length === 0}
+						You need cards before you can build a deck. Grab some on the home page first.
+					{:else}
+						No decks yet. Start one, then click cards from your collection to fill it.
+					{/if}
+				</p>
+			{/if}
+
+			{#if deck}
+				{#if deckCopies.length > 0}
+					<div class="grid grid-cols-5 gap-2">
+						{#each deckCopies as { key, card } (key)}
+							<DeckCardTile
+								{card}
+								controls="remove"
+								on:hover={() => (hovered = card)}
+								on:remove={() => dispatch('remove', { cardId: card.id })}
+							/>
+						{/each}
+					</div>
+				{:else}
+					<div
+						class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+					>
+						Empty. Pick cards from your collection.
+					</div>
+				{/if}
+			{/if}
+		</aside>
+	</div>
 </section>

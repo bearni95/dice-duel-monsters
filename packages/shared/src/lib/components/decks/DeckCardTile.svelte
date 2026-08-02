@@ -26,7 +26,7 @@
 	export let controls: 'row' | 'remove' = 'row';
 	export let classes: string = '';
 
-	const dispatch = createEventDispatcher<{ add: void; remove: void }>();
+	const dispatch = createEventDispatcher<{ add: void; remove: void; hover: void }>();
 
 	$: canAdd = !disabled && !deckFull && inDeck < max;
 	$: canRemove = controls === 'remove' ? !disabled : !disabled && inDeck > 0;
@@ -55,7 +55,15 @@
 	});
 </script>
 
-<div class={tileClasses}>
+<!-- Pointing at a tile — or tabbing onto one of its buttons — is what puts the card
+     in the page's viewer. Nothing is dispatched on the way out: the viewer keeps
+     the last card looked at rather than blanking between tiles. -->
+<div
+	class={tileClasses}
+	role="presentation"
+	on:mouseenter={() => dispatch('hover')}
+	on:focusin={() => dispatch('hover')}
+>
 	{#if controls === 'row'}
 		<!-- The art doubles as the add button: clicking a card puts a copy in the
 		     deck, which is the action wanted almost every time. -->
