@@ -152,13 +152,6 @@ export function createBoardEngine() {
 	// range — computed on click to drive the Combat button (inspectedUnit isn't
 	// reactive on its own).
 	let inspectedCanCombat = $state(false);
-	// The id of the player unit whose on-board Move / Combat buttons are currently
-	// unfolded beneath it — set while the pointer hovers the creature (or the buttons
-	// themselves), cleared when it leaves both, and forced to the acting unit while a
-	// move / combat is in flight. Stored as an id (not the PlacedUnit) so it can be
-	// reactive without wrapping the unit's live Pixi objects in a proxy; the unit is
-	// looked up from placedUnits when the buttons repaint (see renderUnitActions).
-	let hoveredActionUnitId = $state<number | null>(null);
 	// Highlight color for attackable target tiles during combat targeting.
 	const COMBAT_TARGET_COLOR = 0xff3344;
 	// Last combat outcome (dice faces + hit tally), shown as a brief toast. Null
@@ -206,14 +199,6 @@ export function createBoardEngine() {
 	let diceConfig = $state<DiceTemplateConfig | null>(null);
 	let iconRoleMap: Map<string, DiceRole> | null = null;
 
-	// The role face icons (the same summon / move / attack glyphs the energy counters
-	// beside each dice pool show), cached once the dice config loads so a creature's
-	// on-board Move / Combat buttons can print each action's cost beside its element
-	// icon. Kept in a plain map — Textures must not be wrapped in a $state proxy — with
-	// `roleIconsReady` bumped when they land so the action-button $effect repaints.
-	const roleIconTex: Partial<Record<DiceRole, Texture | null>> = {};
-	let roleIconsReady = $state(0);
-
 	// The card stat each action plays out with, and the icon the card prints that stat
 	// under (see GameCard's Atk / SPD cells) — so an action button can show the payoff
 	// beside the price: how far a Move carries the creature, how many dice a Combat rolls.
@@ -221,24 +206,6 @@ export function createBoardEngine() {
 		speed: '/assets/icons/lorc/walking-boot.svg',
 		atk: '/assets/icons/lorc/broadsword.svg'
 	};
-
-	// The stat glyphs, cached beside the role icons (same plain map — Textures must not be
-	// wrapped in a $state proxy — under the same `roleIconsReady` bump) so the on-board
-	// buttons can draw them once they land.
-	const statIconTex: Partial<Record<UnitActionStat, Texture | null>> = {};
-
-	async function loadRoleIcons(cfg: DiceTemplateConfig) {
-		await Promise.all([
-			...(['summon', 'move', 'attack'] as DiceRole[]).map(async (role) => {
-				const url = cfg.roles[role]?.icon;
-				roleIconTex[role] = url ? await Assets.load<Texture>(url).catch(() => null) : null;
-			}),
-			...(Object.keys(STAT_ICONS) as UnitActionStat[]).map(async (stat) => {
-				statIconTex[stat] = await Assets.load<Texture>(STAT_ICONS[stat]).catch(() => null);
-			})
-		]);
-		roleIconsReady++;
-	}
 
 	// Each side's remaining match dice. Both players start the match with the full
 	// dice matrix — one copy of every die the game can produce (spawnAll) — seeded the
@@ -1361,10 +1328,10 @@ let cardBackTexture: Texture | null = $state(null);
 let previewCardId = $state<IGameCreature['id'] | null>(null);
 
 // The placed unit the viewer's card belongs to, when it was clicked on the board (null
-// when the card came from the hand or a plaque, so it isn't a unit that can act). Kept
-// as an id, like hoveredActionUnitId, so it stays reactive without wrapping the unit's
-// live Pixi objects in a proxy — it's what previewUnitActions looks the unit up from, to
-// give the DOM viewer the same Move / Combat buttons the creature unfolds on the board.
+// when the card came from the hand or a plaque, so it isn't a unit that can act). Kept as
+// an id so it stays reactive without wrapping the unit's live Pixi objects in a proxy —
+// it's what previewUnitActions looks the unit up from, to give the viewer's button row the
+// clicked creature's Move / Combat actions.
 let previewUnitId = $state<number | null>(null);
 
 // Which thing on the canvas carries the viewer's card, as a selection key (see
@@ -1922,9 +1889,9 @@ function renderActionButtons() {
 		return;
 	}
 
-	// The per-unit Move / Combat actions now unfold beneath the hovered creature on
-	// the board (see renderUnitActions), so this off-board column carries only the
-	// turn actions: Unfold and End Turn.
+	// The per-unit Move / Combat actions live in the bottom-left card viewer's button row
+	// (see previewUnitActions), so this off-board column carries only the turn actions:
+	// Unfold and End Turn.
 	const rows: Container[] = [];
 	rows.push(
 		buildActionButton(
@@ -1949,7 +1916,7 @@ function renderActionButtons() {
 
 // Repaint the off-board turn-action column whenever any state feeding a button's label
 // or enabled flag changes: the summon energy pool and whether it's been rolled, and the
-// unfold/roll/rival/special flags. (Move / Combat moved to the on-board hover buttons.)
+// unfold/roll/rival/special flags. (Move / Combat live in the DOM card viewer's row.)
 $effect(() => {
 	void energy.summon;
 	void energyRolled;
@@ -1962,124 +1929,6 @@ $effect(() => {
 	void specialPrompt;
 	renderActionButtons();
 });
-
-// The layout of the Move / Combat buttons that unfold beneath a hovered player creature.
-// Sized in world units — they live in the `overlays` layer alongside the HP bars, so they
-// read at a constant board size through pan and zoom. The column is wide enough for each
-// label plus its parenthesized cost + effect cluster; its top sits HP_BAR_GAP below the
-// creature's feet, mirroring the gap the HP bar floats above the creature's top edge.
-const UNIT_ACTION_BTN_W = CELL_WIDTH * 2.6;
-const UNIT_ACTION_BTN_H = 15;
-const UNIT_ACTION_BTN_GAP = 3;
-const UNIT_ACTION_ICON = 11; // drawn height (world px) of a cost / effect icon
-
-// Build one line of the cluster: an icon (skipped until its texture lands) followed by
-// its value, laid left to right from `x` and vertically centered in the button. Returns
-// the x the next part starts at.
-function addClusterPair(into: Container, tex: Texture | null | undefined, value: string, x: number) {
-	const mid = UNIT_ACTION_BTN_H / 2;
-	let cursor = x;
-
-	if (tex) {
-		const icon = new Sprite(tex);
-		icon.anchor.set(0, 0.5);
-		icon.scale.set(UNIT_ACTION_ICON / (tex.height || 1));
-		icon.position.set(cursor, mid);
-		into.addChild(icon);
-		cursor += icon.width + 1;
-	}
-
-	const text = new Text({
-		text: value,
-		style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
-		resolution: LABEL_RESOLUTION
-	});
-	text.anchor.set(0, 0.5);
-	text.position.set(cursor, mid);
-	into.addChild(text);
-
-	return cursor + text.width;
-}
-
-// The parenthesized cluster that follows a paid action's label: what the click spends
-// (the role glyph the energy counters show + the cost) and what the creature does with it
-// (the SPD boot + its speed for a move, the Atk sword + its attack for a combat — the same
-// glyphs the card prints under its art), so price and payoff both read before clicking.
-// Laid out left to right from its own origin; the caller positions the container.
-function buildActionStatCluster(action: UnitAction): Container {
-	const cluster = new Container();
-	const mid = UNIT_ACTION_BTN_H / 2;
-
-	const paren = (char: string, x: number) => {
-		const text = new Text({
-			text: char,
-			style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
-			resolution: LABEL_RESOLUTION
-		});
-		text.anchor.set(0, 0.5);
-		text.position.set(x, mid);
-		cluster.addChild(text);
-		return x + text.width;
-	};
-
-	let x = paren('(', 0);
-	x = addClusterPair(cluster, action.role ? roleIconTex[action.role] : null, String(action.cost), x);
-	if (action.effect) {
-		x = addClusterPair(cluster, statIconTex[action.effect.stat], String(action.effect.value), x + 4);
-	}
-	paren(')', x + 1);
-
-	return cluster;
-}
-
-// One on-board action button beneath a creature: a filled rounded rect with a left-aligned
-// label and, for the paid actions (Move / Combat), the cost + effect cluster printed at the
-// right (see buildActionStatCluster). A Cancel carries no role, so its label simply centers.
-// Sized in world units; the caller positions it.
-function buildUnitActionButton(action: UnitAction): Container {
-	const btn = new Container();
-	btn.alpha = action.enabled ? 1 : 0.45;
-
-	const bg = new Graphics()
-		.roundRect(0, 0, UNIT_ACTION_BTN_W, UNIT_ACTION_BTN_H, 4)
-		.fill({ color: ACTION_VARIANTS[action.variant] });
-	btn.addChild(bg);
-
-	const padX = 6;
-	const text = new Text({
-		text: action.label,
-		style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
-		resolution: LABEL_RESOLUTION
-	});
-
-	if (action.role) {
-		// Label on the left, cost + effect cluster on the right.
-		text.anchor.set(0, 0.5);
-		text.position.set(padX, UNIT_ACTION_BTN_H / 2);
-		btn.addChild(text);
-
-		const cluster = buildActionStatCluster(action);
-		cluster.position.x = UNIT_ACTION_BTN_W - padX - cluster.width;
-		btn.addChild(cluster);
-	} else {
-		text.anchor.set(0.5);
-		text.position.set(UNIT_ACTION_BTN_W / 2, UNIT_ACTION_BTN_H / 2);
-		btn.addChild(text);
-	}
-
-	if (action.enabled) {
-		btn.eventMode = 'static';
-		btn.cursor = 'pointer';
-		// stopPropagation so the tap that fires the action doesn't also fall through to
-		// the tile beneath the button.
-		btn.on('pointertap', (e) => {
-			e.stopPropagation();
-			action.run();
-		});
-	}
-
-	return btn;
-}
 
 // The Move / Combat actions available to a player unit right now, mirroring the old
 // off-board column's enablement: Move needs its cost in the move pool, Combat needs its
@@ -2162,117 +2011,6 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 		}
 	];
 }
-
-// Draw a unit's current actions as the stacked on-board buttons that unfold beneath it.
-// These unfold on hover, so they can be clicked without ever clicking the creature — each
-// one therefore selects its own unit before acting, keeping the viewer on the card whose
-// action is playing out. The DOM row's buttons already belong to the selected unit, so
-// they run the same action untouched.
-function buildUnitActionRows(unit: PlacedUnit): Container[] {
-	return unitActions(unit).map((action) =>
-		buildUnitActionButton({
-			...action,
-			run: () => {
-				selectCard(unitCardKey(unit), unit.creature.id, unit.unitId);
-				action.run();
-			}
-		})
-	);
-}
-
-// Give a unit its (empty, hidden) action group, parented in `overlays` so it renders above
-// the sprites and never dims with the creature. The group keeps its own pointer handlers so
-// sliding the pointer off the sprite onto the buttons doesn't close them; an invisible
-// backdrop (added in renderUnitActions) bridges the gap up to the creature's feet.
-function ensureActionGroup(unit: PlacedUnit) {
-	if (unit.actionGroup) return;
-	const group = new Container();
-	group.visible = false;
-	group.eventMode = 'static';
-	group.on('pointerenter', () => {
-		hoveredActionUnitId = unit.unitId;
-	});
-	group.on('pointerleave', () => {
-		if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
-	});
-	overlays.addChild(group);
-	unit.actionGroup = group;
-	positionUnitActions(unit);
-}
-
-// Pin a unit's action group to the world point HP_BAR_GAP below the creature's feet
-// (sprite.y is the feet — anchor.y = 1), mirroring the HP bar's gap above the sprite's top
-// edge. Its rows lay out downward from that origin.
-function positionUnitActions(unit: PlacedUnit) {
-	if (!unit.actionGroup) return;
-	unit.actionGroup.position.set(unit.sprite.x, unit.sprite.y + HP_BAR_GAP);
-}
-
-// Repaint the on-board action buttons: unfold the Move / Combat pair (or a Cancel) beneath
-// whichever player unit is the current focus — the one being moved or attacked with (so its
-// Cancel stays reachable after the pointer leaves it to pick a destination), else the hovered
-// one — and hide every other unit's group.
-function renderUnitActions() {
-	let focus: PlacedUnit | null = null;
-	if (moving && movingUnit) focus = movingUnit;
-	else if (combating && attackingUnit) focus = attackingUnit;
-	else if (hoveredActionUnitId != null) focus = placedUnits.get(hoveredActionUnitId) ?? null;
-
-	// Only the player's own creatures get action buttons.
-	if (focus && focus.side !== 'player') focus = null;
-
-	for (const unit of placedUnits.values()) {
-		const group = unit.actionGroup;
-		if (!group) continue;
-
-		if (unit !== focus) {
-			if (group.visible) {
-				for (const child of group.removeChildren()) child.destroy();
-				group.visible = false;
-			}
-			continue;
-		}
-
-		for (const child of group.removeChildren()) child.destroy();
-		const rows = buildUnitActionRows(unit);
-
-		// An invisible, interactive backdrop spanning from the creature's feet down past the
-		// buttons, so the pointer crossing the HP_BAR_GAP gap between the sprite and the
-		// buttons stays "inside" the group and keeps them open.
-		const totalH = HP_BAR_GAP + rows.length * (UNIT_ACTION_BTN_H + UNIT_ACTION_BTN_GAP);
-		const backdrop = new Graphics()
-			.rect(-UNIT_ACTION_BTN_W / 2, -HP_BAR_GAP, UNIT_ACTION_BTN_W, totalH)
-			.fill({ color: 0x000000, alpha: 0.001 });
-		backdrop.eventMode = 'static';
-		group.addChild(backdrop);
-
-		let y = 0;
-		for (const row of rows) {
-			row.position.set(-UNIT_ACTION_BTN_W / 2, y);
-			group.addChild(row);
-			y += UNIT_ACTION_BTN_H + UNIT_ACTION_BTN_GAP;
-		}
-
-		group.visible = true;
-		positionUnitActions(unit);
-	}
-}
-
-// Repaint the on-board action buttons whenever the hovered/acting unit or any state feeding
-// a button's label or enabled flag changes (the move/attack energy pools, the move/combat
-// flags, the rival/summon/special-summon locks) or the cost icons finish loading.
-$effect(() => {
-	void hoveredActionUnitId;
-	void energy.move;
-	void energy.attack;
-	void moving;
-	void combating;
-	void rivalThinking;
-	void summoning;
-	void specialPhase;
-	void roleIconsReady;
-	renderUnitActions();
-});
 
 // The three energy pools in the order they read on the board (summon, move, attack). The
 // role counters beside each side's dice pool (see renderDiceDisplay) and sortDiceByRole
@@ -3833,21 +3571,7 @@ async function placeMonster(
 		selectCard(unitCardKey(unit), creature.id, unit.unitId);
 	});
 
-	// Hovering one of the player's own creatures unfolds its Move / Combat action buttons
-	// beneath it (the group's own hover handlers keep them open once the pointer slides onto
-	// them); leaving folds them back. The card viewer is click-driven, so hovering leaves it
-	// alone.
-	sprite.on('pointerenter', () => {
-		if (unit.side === 'player' && !moving && !combating) hoveredActionUnitId = unit.unitId;
-	});
-	sprite.on('pointerleave', () => {
-		if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
-	});
-
 	placedUnits.set(unit.unitId, unit);
-
-	// Give the unit its (hidden) on-board action buttons, pinned beneath the sprite.
-	ensureActionGroup(unit);
 
 	// Stage 3 — show the empty (textless) HP bar and roll the creature's HP dice pool
 	// over it. Both sides' summons roll their HP dice floating just above the bar so the
@@ -4225,7 +3949,7 @@ function cancelSpecialSummon() {
 	exitSpecialFocus();
 }
 
-// Enter move mode for a unit (fired by its on-board Move button): highlight every
+// Enter move mode for a unit (fired by the viewer's Move button): highlight every
 // reachable painted tile and keep this unit the action focus until the move completes
 // or is canceled.
 function startMove(unit: PlacedUnit) {
@@ -4284,9 +4008,6 @@ function exitMoveFocus() {
 	}
 
 	restoreUnitInteractivity();
-	// The pointer is off on a destination tile now, not the creature, so drop the
-	// hover focus — the action buttons reappear only when a creature is hovered again.
-	hoveredActionUnitId = null;
 }
 
 // Drop the green move-target overlays, leaving the floor tiles beneath exactly as
@@ -4317,12 +4038,11 @@ function relocateUnit(unit: PlacedUnit, x: number, y: number) {
 	unit.x = x;
 	unit.y = y;
 
-	// Keep the shadow, cell square, HP bar, action buttons and — when this is the selected
-	// creature — its yellow frame aligned with the sprite's new tile.
+	// Keep the shadow, cell square, HP bar and — when this is the selected creature — its
+	// yellow frame aligned with the sprite's new tile.
 	positionShadow(unit);
 	positionCellSquare(unit);
 	positionHealthBar(unit);
-	positionUnitActions(unit);
 	renderUnitSelection();
 }
 
@@ -4389,7 +4109,7 @@ function combatTargetsFor(unit: PlacedUnit): string[] {
 	return targets;
 }
 
-// Enter combat mode for a unit (fired by its on-board Combat button): highlight every
+// Enter combat mode for a unit (fired by the viewer's Combat button): highlight every
 // rival target in range and keep this attacker the action focus until combat resolves
 // or is canceled.
 function startCombat(unit: PlacedUnit) {
@@ -4442,9 +4162,6 @@ function exitCombatFocus() {
 	}
 
 	restoreUnitInteractivity();
-	// Drop the hover focus — the pointer left the attacker to pick a target, so the
-	// buttons should reappear only on a fresh hover.
-	hoveredActionUnitId = null;
 }
 
 // The size a target's sword icon is scaled to: it fits inside the unit's purple
@@ -4576,8 +4293,6 @@ function removeUnit(unit: PlacedUnit) {
 	unit.shadow.destroy();
 	unit.cellSquare.destroy();
 	unit.healthBar.destroy();
-	unit.actionGroup?.destroy();
-	if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
 	// The viewer keeps showing this creature's card (it holds the last card clicked), but a
 	// destroyed unit can no longer act — drop its actions, and its frame, with the creature.
 	if (previewUnitId === unit.unitId) previewUnitId = null;
@@ -5419,7 +5134,6 @@ $effect(() => {
 		const diceReady = diceAdapter.loadTemplates().then((cfg) => {
 			diceConfig = cfg;
 			iconRoleMap = diceAdapter.roleByIcon(cfg);
-			void loadRoleIcons(cfg);
 			seedMatchDice();
 		});
 
@@ -6009,8 +5723,8 @@ tile.on('pointerout', () => {
 			return !moving && !combating;
 		},
 		// The player's commands, driven by the sidebar buttons and hand tiles. Move and
-		// Combat are now started from the on-board hover buttons (they need the specific
-		// PlacedUnit), so they're no longer part of the external command surface.
+		// Combat are started from the card viewer's own button row (previewUnitActions
+		// carries their run callbacks), so they're not part of this command surface.
 		canSummon,
 		toggleSort,
 		inspectCard,
