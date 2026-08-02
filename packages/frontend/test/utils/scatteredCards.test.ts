@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildScatterLayout } from '$utils/cards/scatteredCards';
+import {
+	buildScatterLayout,
+	CARDINAL_EDGES,
+	diffCardIds,
+	throwOrigin
+} from '$utils/cards/scatteredCards';
 
 const VIEWPORT = { viewportWidth: 1000, viewportHeight: 800 };
 const CARD = { cardWidth: 140, cardAspect: 1415 / 1080 };
@@ -86,5 +91,74 @@ describe('buildScatterLayout', () => {
 		expect(layout([])).toEqual([]);
 		expect(layout([1, 2], { viewportWidth: 0 })).toEqual([]);
 		expect(layout([1, 2], { viewportHeight: 0 })).toEqual([]);
+	});
+});
+
+describe('diffCardIds', () => {
+	it('reports nothing for an unchanged collection', () => {
+		expect(diffCardIds([1, 2, 2, 3], [1, 2, 2, 3])).toEqual({ added: [], removed: [] });
+	});
+
+	it('reports a new copy of an already-owned card as one addition', () => {
+		// The expanded collection groups copies together, so the second 2 arrives in
+		// the middle of the list rather than at its end — a positional diff would
+		// call that three changes.
+		const { added, removed } = diffCardIds([1, 2, 3], [1, 2, 2, 3]);
+
+		expect(added).toEqual([2]);
+		expect(removed).toEqual([]);
+	});
+
+	it('reports the copies that fell off the cap as removals', () => {
+		const { added, removed } = diffCardIds([1, 2, 3], [2, 3, 4, 4]);
+
+		expect(added.sort()).toEqual([4, 4]);
+		expect(removed).toEqual([1]);
+	});
+
+	it('reports a whole collection arriving and leaving', () => {
+		expect(diffCardIds([], [7, 7])).toEqual({ added: [7, 7], removed: [] });
+		expect(diffCardIds([7, 7], [])).toEqual({ added: [], removed: [7, 7] });
+	});
+});
+
+describe('throwOrigin', () => {
+	const THROW = {
+		target: { x: 400, y: 300 },
+		...VIEWPORT,
+		cardWidth: CARD.cardWidth,
+		cardHeight: CARD.cardWidth * CARD.cardAspect
+	};
+
+	it('starts the card fully outside whichever edge it comes from', () => {
+		const random = seeded(7);
+
+		for (let i = 0; i < 200; i++) {
+			const origin = throwOrigin({ ...THROW, random });
+			const outside =
+				origin.x + THROW.cardWidth <= 0 ||
+				origin.y + THROW.cardHeight <= 0 ||
+				origin.x >= VIEWPORT.viewportWidth ||
+				origin.y >= VIEWPORT.viewportHeight;
+
+			expect(outside).toBe(true);
+		}
+	});
+
+	it('throws from all four cardinal edges', () => {
+		const random = seeded(3);
+		const edges = new Set(
+			Array.from({ length: 200 }, () => throwOrigin({ ...THROW, random }).edge)
+		);
+
+		expect(edges).toEqual(new Set(CARDINAL_EDGES));
+	});
+
+	it('spins the card at least a full turn on the way in', () => {
+		const random = seeded(11);
+
+		for (let i = 0; i < 100; i++) {
+			expect(Math.abs(throwOrigin({ ...THROW, random }).spinDeg)).toBeGreaterThanOrEqual(360);
+		}
 	});
 });
