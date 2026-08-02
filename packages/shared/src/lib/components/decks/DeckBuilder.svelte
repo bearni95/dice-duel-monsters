@@ -273,7 +273,7 @@
 
 			{#if deck}
 				{#if deckCopies.length > 0}
-					<div class="grid grid-cols-5 gap-2">
+					<div class="grid grid-cols-6 gap-2">
 						{#each deckCopies as { key, card } (key)}
 							<DeckCardTile
 								{card}
