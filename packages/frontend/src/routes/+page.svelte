@@ -139,7 +139,7 @@
 <main class="flex min-h-dvh w-full flex-col p-4 sm:p-6 lg:p-8">
 	{#if !authService.configured}
 		<section class="mx-auto max-w-2xl space-y-2 py-8 text-center" aria-label="Sign in required">
-			<h1 class="text-2xl font-bold">Dice Guardians</h1>
+			<h1 class="text-2xl font-bold">Dice Duel Monsters</h1>
 			<p class="text-base-content/60 text-sm">
 				Sign-in is required to play, but Supabase isn't configured for this build.
 			</p>
@@ -151,7 +151,7 @@
 	{:else if !$auth.user}
 		<section class="mx-auto max-w-2xl space-y-6 py-8 text-center" aria-label="Sign in">
 			<div class="space-y-2">
-				<h1 class="text-2xl font-bold">Dice Guardians</h1>
+				<h1 class="text-2xl font-bold">Dice Duel Monsters</h1>
 				<p class="text-base-content/60 text-sm">Sign in with Discord to start playing.</p>
 			</div>
 			<button class="btn btn-primary" onclick={() => authService.signInWithDiscord()}>
