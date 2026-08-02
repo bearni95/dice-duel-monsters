@@ -1408,6 +1408,11 @@ const ACTION_BTN_H = 30;
 const ACTION_BTN_GAP = 8;
 const ACTION_DICE_GAP = 28;
 
+// How far inside the yellow play-area outline the action column's bottom edge is kept
+// when the stack has to be lifted to fit (see stackActionRows), so the buttons read as
+// sitting within the frame rather than resting on its stroke.
+const ACTION_FRAME_INSET = 10;
+
 // A pill-shaped "Summon" button centered on a hand card, mirroring the DOM hand
 // tray's Select overlay button. Enabled buttons paint primary-blue; disabled ones
 // (unaffordable card, or a summon/move/combat already in flight) paint gray and take
@@ -1854,11 +1859,24 @@ function buildActionPrompt(text: string): Container {
 // Stack a column of action rows just below the player's red energy-dice row, each
 // row laid out by its own height so a taller prompt plaque doesn't overlap the
 // buttons beneath it.
+//
+// The column is then lifted so its bottom edge stays inside the yellow play-area
+// outline: hanging free below the dice row would drop it past the frame's bottom edge
+// (the dice already sit two rows under the grid's bottom corner), so the whole stack is
+// pulled up by however much it overhangs, plus a small inset off the outline itself.
 function stackActionRows(rows: Container[], diceCenter: { x: number; y: number }) {
 	if (!actionLayer) return;
 	const diceHalf = playerEnergyDice?.diceHalfExtent(3) ?? 0;
 	const leftX = diceCenter.x - ACTION_BTN_W / 2;
 	let y = diceCenter.y + diceHalf + ACTION_DICE_GAP;
+
+	// Total height of the stack (each row's own height plus the gaps between them), so
+	// the overhang past the frame is known before the first row is placed.
+	const stackH =
+		rows.reduce((sum, row) => sum + row.height, 0) + ACTION_BTN_GAP * (rows.length - 1);
+	const maxBottom = playAreaBounds().maxY - ACTION_FRAME_INSET;
+	if (y + stackH > maxBottom) y = maxBottom - stackH;
+
 	for (const row of rows) {
 		row.position.set(leftX, y);
 		actionLayer.addChild(row);
@@ -2810,19 +2828,28 @@ function playAreaPoints(): { x: number; y: number }[] {
 	return pts;
 }
 
+// The world-space bounding box of every play-area point — the exact rectangle the yellow
+// outline traces. Shared by frameBoard (the opening camera fit), drawBoardFrame (the
+// outline itself) and stackActionRows (which keeps the turn-action column inside it).
+function playAreaBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+	const pts = playAreaPoints();
+	const xs = pts.map((p) => p.x);
+	const ys = pts.map((p) => p.y);
+	return {
+		minX: Math.min(...xs),
+		maxX: Math.max(...xs),
+		minY: Math.min(...ys),
+		maxY: Math.max(...ys)
+	};
+}
+
 // Frame the whole play area (grid + plaques + dice blocks) into the horizontal gap the
 // left panel leaves free, centered in that gap and vertically in the canvas. Called
 // once the board is built so the match opens looking at the play area — and, because the
 // dice blocks are part of the bounds, so both sides' dice sit on-screen rather than
 // spilling past the framed corners.
 function frameBoard() {
-	const pts = playAreaPoints();
-	const xs = pts.map((p) => p.x);
-	const ys = pts.map((p) => p.y);
-	const minX = Math.min(...xs);
-	const maxX = Math.max(...xs);
-	const minY = Math.min(...ys);
-	const maxY = Math.max(...ys);
+	const { minX, maxX, minY, maxY } = playAreaBounds();
 	const boxW = Math.max(1, maxX - minX);
 	const boxH = Math.max(1, maxY - minY);
 	const centerX = (minX + maxX) / 2;
@@ -2868,13 +2895,7 @@ function toggleBoardFrame() {
 function drawBoardFrame() {
 	if (!camera) return;
 
-	const pts = playAreaPoints();
-	const xs = pts.map((p) => p.x);
-	const ys = pts.map((p) => p.y);
-	const minX = Math.min(...xs);
-	const maxX = Math.max(...xs);
-	const minY = Math.min(...ys);
-	const maxY = Math.max(...ys);
+	const { minX, maxX, minY, maxY } = playAreaBounds();
 
 	boardFrame?.destroy();
 	boardFrame = new Graphics()
