@@ -1,6 +1,7 @@
 <script lang="ts">
 	import classNames from 'classnames';
 	import { createEventDispatcher } from 'svelte';
+	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import type { PlayerDeck } from '$types/player-deck.type';
 
@@ -18,6 +19,12 @@
 	function label(deck: PlayerDeck): string {
 		return deck.name || 'Untitled deck';
 	}
+
+	// The card standing in for the deck on its row: the first one put into it. A
+	// deck that is still empty has none, and its row closes up around the name.
+	function coverCardId(deck: PlayerDeck): number | null {
+		return deck.cards[0]?.cardId ?? null;
+	}
 </script>
 
 {#if error}
@@ -27,18 +34,26 @@
 {#if decks.length > 0}
 	<ul class="space-y-2">
 		{#each decks as deck (deck.id)}
+			{@const cover = coverCardId(deck)}
 			<!-- Rows are frosted glass rather than solid panels: whatever sits behind
 			     the list still reads through them, blurred back enough that the text on
-			     top stays legible. The active one is tinted the same way. -->
+			     top stays legible. The active one is tinted the same way. The deck's
+			     first card is the row's full height and flush with its edges, so the row
+			     is sized for it and clips it back to the same rounded corners. -->
 			<li
 				class={classNames(
-					'flex items-center gap-3 rounded-lg border px-3 py-2 backdrop-blur-md',
+					'flex h-20 items-center gap-3 overflow-hidden rounded-lg border pr-3 backdrop-blur-md',
 					{
 						'bg-primary/20 border-primary': playerDeckAdapter.isEnabled(deck, decks),
-						'bg-base-100/50 border-base-300': !playerDeckAdapter.isEnabled(deck, decks)
+						'bg-base-100/50 border-base-300': !playerDeckAdapter.isEnabled(deck, decks),
+						'pl-3': cover === null
 					}
 				)}
 			>
+				{#if cover !== null}
+					<GeneratedCardImage id={cover} classes="h-full w-auto shrink-0" />
+				{/if}
+
 				<p class="min-w-0 flex-1 truncate font-medium">{label(deck)}</p>
 
 				<!-- One deck is active at a time: switching this on stands down whichever
