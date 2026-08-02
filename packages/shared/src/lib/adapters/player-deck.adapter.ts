@@ -91,6 +91,16 @@ export class PlayerDeckAdapter extends AdapterClass {
 	}
 
 	/**
+	 * How many copies of a card the player owns that this deck isn't already
+	 * running. Decks reference the collection rather than consume it, so this says
+	 * nothing about what other decks may run — it is only what is left of this
+	 * card to put into this one.
+	 */
+	copiesOutsideDeck(cards: PlayerDeckCard[], cardId: number, ownedCount: number): number {
+		return Math.max(0, ownedCount - this.copiesOf(cards, cardId));
+	}
+
+	/**
 	 * The most copies of a card a deck may run: the 3-copy cap, further limited by
 	 * how many copies the player actually owns. Owning two copies of a card means
 	 * a deck can run two of it — but every deck may run those same two, since

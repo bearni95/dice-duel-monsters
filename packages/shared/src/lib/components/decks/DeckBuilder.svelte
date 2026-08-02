@@ -72,6 +72,14 @@
 	// collection is shown but inert until one is created or picked.
 	$: noDeck = deck === null;
 
+	// The collection with the open deck's copies taken out of it: a card whose every
+	// owned copy is already in the deck leaves the grid entirely, so what is shown
+	// is what is still there to be added. Copies come back the moment they are
+	// removed from the deck, and with no deck open nothing is taken out.
+	$: available = collection.filter(
+		({ card, count }) => playerDeckAdapter.copiesOutsideDeck(cards, card.id, count) > 0
+	);
+
 	// The deck's contents paired with their art, dropping any card that has fallen
 	// out of the collection (nothing removes ownership today, but the deck should
 	// still render rather than break if it ever does).
@@ -111,9 +119,9 @@
      survives being a third of a phone screen. -->
 <section class="grid grid-cols-1 gap-6 lg:h-[calc(100dvh-4rem)] lg:grid-cols-3" aria-label="Decks">
 	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1 lg:col-span-2 lg:h-auto lg:min-h-0">
-		{#if collection.length > 0}
+		{#if available.length > 0}
 			<div class="grid grid-cols-6 gap-3">
-				{#each collection as { card, count } (card.id)}
+				{#each available as { card, count } (card.id)}
 					<DeckCardTile
 						{card}
 						inDeck={playerDeckAdapter.copiesOf(cards, card.id)}
@@ -131,7 +139,11 @@
 			<div
 				class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
 			>
-				You don't own any cards yet. Grab some from the home page first.
+				{#if collection.length === 0}
+					You don't own any cards yet. Grab some from the home page first.
+				{:else}
+					Every card you own is in this deck.
+				{/if}
 			</div>
 		{/if}
 	</div>

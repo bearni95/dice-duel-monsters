@@ -102,6 +102,24 @@ describe('playerDeckAdapter', () => {
 		});
 	});
 
+	describe('copiesOutsideDeck', () => {
+		it('counts the owned copies the deck is not running', () => {
+			expect(playerDeckAdapter.copiesOutsideDeck([{ cardId: 7, quantity: 1 }], 7, 3)).toBe(2);
+		});
+
+		it('counts every copy of a card the deck has none of', () => {
+			expect(playerDeckAdapter.copiesOutsideDeck([{ cardId: 7, quantity: 2 }], 9, 4)).toBe(4);
+		});
+
+		it('is zero once every owned copy is in the deck', () => {
+			expect(playerDeckAdapter.copiesOutsideDeck([{ cardId: 7, quantity: 2 }], 7, 2)).toBe(0);
+		});
+
+		it('never goes negative when a deck holds more than is owned', () => {
+			expect(playerDeckAdapter.copiesOutsideDeck([{ cardId: 7, quantity: 3 }], 7, 1)).toBe(0);
+		});
+	});
+
 	describe('addCopy', () => {
 		it('adds a first copy of an unseen card', () => {
 			expect(playerDeckAdapter.addCopy([], 7, 3)).toEqual([{ cardId: 7, quantity: 1 }]);
