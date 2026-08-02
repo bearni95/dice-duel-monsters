@@ -117,7 +117,8 @@
 	<title>Decks · Dice Guardians</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+<!-- No width cap: the grid inside gets the whole window, however wide it is. -->
+<main class="w-full space-y-6 p-4 sm:p-6 lg:p-8">
 	{#if !authService.configured}
 		<section class="space-y-2 py-8 text-center" aria-label="Sign in required">
 			<h1 class="text-2xl font-bold">Decks</h1>
