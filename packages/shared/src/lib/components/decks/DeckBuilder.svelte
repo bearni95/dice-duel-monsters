@@ -112,17 +112,7 @@
      them and the decks the other two, so building a deck never leaves the cards
      it is built from. -->
 <section class="grid grid-cols-1 items-start gap-6 lg:grid-cols-6" aria-label="Decks">
-	<div class="min-w-0 space-y-2 lg:col-span-4">
-		<h3 class="font-semibold">Your collection</h3>
-		<p class="text-base-content/60 text-sm">
-			{#if noDeck}
-				Start a deck to fill it from these cards — your collection stays available to every deck you
-				build.
-			{:else}
-				Click a card to add a copy. Up to 3 copies per deck, and never more than you own — your
-				cards stay available to every other deck.
-			{/if}
-		</p>
+	<div class="min-w-0 lg:col-span-4">
 		{#if collection.length > 0}
 			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-5">
 				{#each collection as { card, count } (card.id)}
