@@ -2539,6 +2539,74 @@ function buildRoleCounter(tex: Texture | null, value: number): Container {
 	return group;
 }
 
+// The pulsing highlight under the player's dice pool, marking the area as live while the
+// turn-start pick is open (the stretch of the turn where the player has to click dice). It
+// is one flat parallelogram laid in the block's own isometric plane — the two in-plane axes
+// of playerDiceAxes, so it lines up with the rows of cubes rather than sitting square to the
+// screen — covering the block's full footprint (MATCH_DICE_MAX_ROWS rows) plus a margin, so
+// it stays put as the pool is consumed. White, fading between the two alphas below.
+const PICK_GLOW_MIN_ALPHA = 0.15;
+const PICK_GLOW_MAX_ALPHA = 0.5;
+const PICK_GLOW_PERIOD_MS = 1400;
+// Margin past the outermost die centres, so the wash reaches beyond the cubes' own footprint
+// instead of cutting them at their centre row/column.
+const PICK_GLOW_PAD = MATCH_DIE_SIZE * 0.8;
+let dicePickGlow: Graphics | undefined;
+
+// Build the highlight (once, in init): the four in-plane corners of the block's footprint
+// projected to world space. Hidden until the pick opens; the $effect below shows it.
+function buildDicePickGlow() {
+	if (!camera) return;
+
+	const { uHat, vHat, mid } = playerDiceAxes();
+	const along = ((MATCH_DIE_COLS - 1) / 2) * MATCH_DIE_COL_STEP + PICK_GLOW_PAD;
+	const nearOut = MATCH_DIE_OUT_GAP + MATCH_DIE_SIZE / 2 - PICK_GLOW_PAD;
+	const farOut =
+		MATCH_DIE_OUT_GAP +
+		(MATCH_DICE_MAX_ROWS - 1) * MATCH_DIE_ROW_STEP +
+		MATCH_DIE_SIZE / 2 +
+		PICK_GLOW_PAD;
+	const corner = (a: number, o: number) => ({
+		x: mid.x + uHat.x * a + vHat.x * o,
+		y: mid.y + uHat.y * a + vHat.y * o
+	});
+
+	dicePickGlow?.destroy();
+	dicePickGlow = new Graphics()
+		.poly([
+			corner(-along, nearOut),
+			corner(along, nearOut),
+			corner(along, farOut),
+			corner(-along, farOut)
+		])
+		.fill({ color: 0xffffff });
+	// Purely decorative: never hit-tested, so it can't swallow a click meant for a die.
+	dicePickGlow.eventMode = 'none';
+	dicePickGlow.visible = pickingDice && !rolling;
+	dicePickGlow.alpha = PICK_GLOW_MAX_ALPHA;
+	camera.addChild(dicePickGlow);
+}
+
+// Breathe the highlight's alpha between the two bounds while it's on screen. Registered on
+// the ticker once in init; a no-op whenever the pick is closed.
+function pulseDicePickGlow() {
+	if (!dicePickGlow?.visible) return;
+
+	const phase = (performance.now() % PICK_GLOW_PERIOD_MS) / PICK_GLOW_PERIOD_MS;
+	// Cosine wave mapped to 0..1, so the pulse eases at both ends instead of ping-ponging.
+	const wave = (1 - Math.cos(phase * Math.PI * 2)) / 2;
+	dicePickGlow.alpha = PICK_GLOW_MIN_ALPHA + (PICK_GLOW_MAX_ALPHA - PICK_GLOW_MIN_ALPHA) * wave;
+}
+
+// Show the highlight exactly while the player still has dice to click: the pick is open and
+// the roll hasn't started (the picked cubes tumble with `pickingDice` still set, and there is
+// nothing left to choose by then). `open` is computed before the layer guard so the effect
+// always subscribes to both flags, even on the passes that run before init built the graphic.
+$effect(() => {
+	const open = pickingDice && !rolling;
+	if (dicePickGlow) dicePickGlow.visible = open;
+});
+
 // (Re)draw both sides' remaining match dice past their blocks, plus each side's parked roll-spot
 // dice and its role-energy counters. Preloads only the three visible faces of every die (cached
 // by Assets), then rebuilds the layer in one pass with a token guard so a superseded render (a
@@ -5462,6 +5530,11 @@ camera.addChild(actionLayer);
 // isometric cubes laid past its card plaque. 'passive' like the hand/action layers so
 // its interactive children (the player's click-to-pick dice and the Roll button) still
 // receive clicks. Painted by renderDiceDisplay (reactive to each side's pool + the pick).
+// The pulsing wash under the player's pool while the turn-start pick is open. Added
+// before the dice layer so the cubes always draw on top of it.
+buildDicePickGlow();
+app.ticker.add(pulseDicePickGlow);
+
 diceDisplayLayer = new Container();
 diceDisplayLayer.eventMode = 'passive';
 camera.addChild(diceDisplayLayer);
