@@ -5,12 +5,18 @@
 	"type": "module",
 	"bin": {
 		"build-card-catalog": "scripts/build-card-catalog.mjs",
+		"build-grantable-cards": "scripts/build-grantable-cards.mjs",
 		"export-cards-from-db": "scripts/export-cards-from-db.mjs",
 		"sync-served-data": "scripts/sync-served-data.mjs"
 	},
+	"dependencies": {
+		"assets": "workspace:*"
+	},
 	"scripts": {
-		"build": "node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs",
+		"build": "node scripts/export-cards-from-db.mjs && node scripts/build-card-catalog.mjs && node scripts/build-grantable-cards.mjs",
 		"build:catalog": "node scripts/build-card-catalog.mjs",
+		"build:grantable": "node scripts/build-grantable-cards.mjs",
+		"gen:grantable": "node scripts/build-grantable-cards.mjs --migrations ../supabase/supabase/migrations",
 		"export-cards": "node scripts/export-cards-from-db.mjs",
 		"import-assets": "node scripts/import-card-assets.mjs",
 		"import-type-icons": "node scripts/import-type-icons.mjs",

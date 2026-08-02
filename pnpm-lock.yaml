@@ -77,7 +77,11 @@ importers:
 
   packages/assets: {}
 
-  packages/data: {}
+  packages/data:
+    dependencies:
+      assets:
+        specifier: workspace:*
+        version: link:../assets
 
   packages/frontend:
     dependencies:
