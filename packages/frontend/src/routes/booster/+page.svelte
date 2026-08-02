@@ -148,8 +148,12 @@
 				</p>
 			{/if}
 
+			<!-- `btn-warning` rather than `bg-warning text-warning-content`: DaisyUI
+			     puts its disabled styling inside `@layer daisyui`, so a plain colour
+			     utility (which lands in the later `utilities` layer) wins the cascade
+			     and paints the button its live colour even while it is disabled. -->
 			<button
-				class="btn bg-warning text-warning-content hover:bg-warning/80"
+				class="btn btn-warning"
 				disabled={!opened || committing || $player.saving}
 				onclick={roll}
 			>
