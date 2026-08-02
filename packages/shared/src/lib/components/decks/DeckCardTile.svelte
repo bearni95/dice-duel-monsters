@@ -38,12 +38,14 @@
 			? 'The deck is already full'
 			: `You can run at most ${max} of ${card.name}`;
 
-	// Dim collection cards that can't go into the deck at all (owned, but already
-	// maxed out or the deck is full) so the addable ones stand out. A copy already
-	// in the deck is never dimmed — it is there.
+	// Dim every collection card that can't take another copy, whatever the reason:
+	// the deck is full, or this card is at its own cap. Having copies in the deck
+	// already is not one of those reasons — a card with copies still left in the
+	// collection stays lit until something actually stops it being added, which is
+	// why this tracks `canAdd` rather than what the deck holds.
 	$: tileClasses = classNames(
 		'relative rounded transition-opacity',
-		{ 'opacity-50': controls === 'row' && !canAdd && inDeck === 0 },
+		{ 'opacity-50': controls === 'row' && !canAdd },
 		classes
 	);
 
