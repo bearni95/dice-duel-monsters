@@ -2,7 +2,7 @@
 	import classNames from 'classnames';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import DeckCardTile from '$components/decks/DeckCardTile.svelte';
-	import DeckList from '$components/decks/DeckList.svelte';
+	import DeckSelect from '$components/decks/DeckSelect.svelte';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
@@ -138,12 +138,13 @@
 		{/if}
 	</div>
 
-	<!-- The decks — the list, and the contents of whichever one is open. Full width
-	     under the collection, with the list and the open deck side by side inside
-	     it so neither has to be scrolled to. -->
+	<!-- The decks: which one is open is a picker rather than a list, so the panel
+	     is only ever showing the deck being worked on. -->
 	<aside class="bg-base-200 w-full space-y-4 rounded-lg p-4" aria-label="Your decks">
-		<div class="flex items-center justify-between gap-2">
-			<h2 class="font-semibold">Your decks</h2>
+		<div class="flex flex-wrap items-center gap-2">
+			{#if decks.length > 0}
+				<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
+			{/if}
 			<button
 				class="btn btn-primary btn-sm"
 				disabled={collection.length === 0 || saving}
@@ -151,95 +152,107 @@
 			>
 				New deck
 			</button>
+
+			{#if deck}
+				<!-- The two things done to a deck as a whole rather than to its contents.
+				     A player's only deck is played whether or not its flag was ever set,
+				     so its switch reads on and can't be turned off. -->
+				<label class="label ml-auto cursor-pointer gap-2">
+					<span class="label-text">Enabled</span>
+					<input
+						type="checkbox"
+						class="toggle toggle-primary toggle-sm"
+						checked={playerDeckAdapter.isEnabled(deck, decks)}
+						disabled={saving || decks.length === 1}
+						title={decks.length === 1
+							? 'Your only deck is always the one you play with.'
+							: 'Take this deck to the board'}
+						on:change={(event) =>
+							deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
+					/>
+				</label>
+				<button
+					class="btn btn-ghost btn-sm text-error"
+					disabled={saving}
+					on:click={() => deck && dispatch('deleteDeck', { deck })}
+				>
+					Delete
+				</button>
+			{/if}
 		</div>
 
 		{#if error}
 			<div class="alert alert-error text-sm" role="alert">{error}</div>
 		{/if}
 
-		<div class="flex flex-col gap-4 lg:flex-row lg:items-start">
-			<div class="w-full shrink-0 lg:w-80">
-				{#if decks.length > 0}
-					<DeckList
-						{decks}
-						selectedId={deck?.id ?? null}
-						disabled={saving}
-						on:select
-						on:enable
-						on:remove={(event) => dispatch('deleteDeck', event.detail)}
-					/>
+		{#if decks.length === 0}
+			<p class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-4 text-sm">
+				{#if collection.length === 0}
+					You need cards before you can build a deck. Grab some on the home page first.
 				{:else}
-					<p
-						class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-4 text-sm"
-					>
-						{#if collection.length === 0}
-							You need cards before you can build a deck. Grab some on the home page first.
+					No decks yet. Start one, then click cards from your collection to fill it.
+				{/if}
+			</p>
+		{/if}
+
+		{#if deck}
+			<div class="space-y-3">
+				<div class="flex flex-wrap items-end justify-between gap-3">
+					<label class="form-control min-w-56 flex-1">
+						<span class="label-text mb-1">Deck name</span>
+						<input
+							class="input input-bordered w-full"
+							type="text"
+							placeholder="Name your deck"
+							maxlength="40"
+							bind:value={name}
+							on:input={onNameInput}
+							on:blur={flushRename}
+						/>
+					</label>
+
+					<div class="flex items-center gap-2">
+						<span class="label-text">Cards</span>
+						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
+					</div>
+				</div>
+
+				<!-- Where a save button used to be. Every edit is already written; this
+				     only reports how that is going. -->
+				{#if !error}
+					<p class="text-base-content/60 text-sm" aria-live="polite">
+						{#if saving}
+							Saving…
+						{:else if problem}
+							Saved · {problem}
 						{:else}
-							No decks yet. Start one, then click cards from your collection to fill it.
+							Saved · ready to play
 						{/if}
 					</p>
 				{/if}
-			</div>
 
-			{#if deck}
-				<div class="min-w-0 flex-1 space-y-3">
-					<div class="flex flex-wrap items-end justify-between gap-3">
-						<label class="form-control min-w-56 flex-1">
-							<span class="label-text mb-1">Deck name</span>
-							<input
-								class="input input-bordered w-full"
-								type="text"
-								placeholder="Name your deck"
-								maxlength="40"
-								bind:value={name}
-								on:input={onNameInput}
-								on:blur={flushRename}
+				{#if deckTiles.length > 0}
+					<div class="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+						{#each deckTiles as { entry, card } (card.id)}
+							<DeckCardTile
+								{card}
+								inDeck={entry.quantity}
+								owned={owned.get(card.id) ?? 0}
+								max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
+								{deckFull}
+								on:add={() => dispatch('add', { cardId: card.id })}
+								on:remove={() => dispatch('remove', { cardId: card.id })}
 							/>
-						</label>
-
-						<div class="flex items-center gap-2">
-							<span class="label-text">Cards</span>
-							<span class={counterClasses}>{total}/{DECK_SIZE}</span>
-						</div>
+						{/each}
 					</div>
-
-					<!-- Where a save button used to be. Every edit is already written; this
-					     only reports how that is going. -->
-					{#if !error}
-						<p class="text-base-content/60 text-sm" aria-live="polite">
-							{#if saving}
-								Saving…
-							{:else if problem}
-								Saved · {problem}
-							{:else}
-								Saved · ready to play
-							{/if}
-						</p>
-					{/if}
-
-					{#if deckTiles.length > 0}
-						<div class="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-							{#each deckTiles as { entry, card } (card.id)}
-								<DeckCardTile
-									{card}
-									inDeck={entry.quantity}
-									owned={owned.get(card.id) ?? 0}
-									max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
-									{deckFull}
-									on:add={() => dispatch('add', { cardId: card.id })}
-									on:remove={() => dispatch('remove', { cardId: card.id })}
-								/>
-							{/each}
-						</div>
-					{:else}
-						<div
-							class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
-						>
-							Empty. Pick cards from your collection.
-						</div>
-					{/if}
-				</div>
-			{/if}
-		</div>
+				{:else}
+					<div
+						class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+					>
+						Empty. Pick cards from your collection.
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</aside>
 </section>
