@@ -1478,10 +1478,7 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in the
 	// DOM hand tray (both call inspectCard), and loads it into the bottom-left card viewer
 	// as the framed selection.
-	cardContainer.on('pointertap', () => {
-		inspectCard(card);
-		selectCard(handCardKey(card), card.id);
-	});
+	cardContainer.on('pointertap', () => selectHandCard(card));
 
 	if (texture) {
 		const sprite = new Sprite(texture);
@@ -1533,10 +1530,12 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	if (canAct) {
 		button.eventMode = 'static';
 		button.cursor = 'pointer';
-		// Summon selects the card for placement; stopPropagation keeps the same click from
-		// also inspecting the card via the container's handler.
+		// Summon stages the card for placement. stopPropagation keeps the click from also
+		// running the card's own handler underneath (it would double-fire the selection),
+		// so this does both jobs: it selects the card, then stages it.
 		button.on('pointertap', (e) => {
 			e.stopPropagation();
+			selectHandCard(card);
 			selectMonster(card);
 		});
 	}
@@ -1570,10 +1569,25 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 // — it earns the viewer its action buttons; hand and plaque cards pass none. The board page
 // reactively renders previewCardSrc as the fixed bottom-left viewer, so positioning is pure
 // CSS.
+// While a move or combat is in flight the selection is frozen, so both the viewer and the
+// top-right detail panel stay locked to the unit being acted on — and its Cancel button
+// stays reachable — however the pointer wanders. Mirrors inspectCard's own guard, so the
+// two panels can never disagree about which card they're showing.
 function selectCard(key: string, cardId: IGameCreature['id'], unitId: number | null = null) {
+	if (moving || combating) return;
+
 	selectedCardKey = key;
 	previewCardId = cardId;
 	previewUnitId = unitId;
+}
+
+// Clicking a hand card — its art or the Summon button laid over it — loads it into the
+// detail panel and the bottom-left viewer, and frames it as the selection. Shared by both
+// handlers so the summon click, which stops propagation to keep the card's own handler from
+// firing a second time, still stacks the same selection on top of staging the card.
+function selectHandCard(card: IGameCreature) {
+	inspectCard(card);
+	selectCard(handCardKey(card), card.id);
 }
 
 // The selection keys of the three things that can carry a card on the canvas. A hand card
@@ -2050,7 +2064,10 @@ function buildUnitActionButton(action: UnitAction): Container {
 // buttons and the DOM card viewer's button row render the exact same set (see UnitAction).
 function unitActions(unit: PlacedUnit): UnitAction[] {
 	const cost = unit.creature.cost;
-	const controlsDisabled = rivalThinking || summoning;
+	// A staged Fusion / Ritual summon locks these the way it locks the hand: while the
+	// player is picking sacrifices, a stray Move / Combat click would strand the staged
+	// card mid-summon.
+	const controlsDisabled = rivalThinking || summoning || !!specialPhase;
 	const iconFor = (role: DiceRole) => diceConfig?.roles[role]?.icon ?? null;
 	const effect = (stat: UnitActionStat, label: string, value: number): UnitActionEffect => ({
 		stat,
@@ -2120,8 +2137,20 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 }
 
 // Draw a unit's current actions as the stacked on-board buttons that unfold beneath it.
+// These unfold on hover, so they can be clicked without ever clicking the creature — each
+// one therefore selects its own unit before acting, keeping the viewer on the card whose
+// action is playing out. The DOM row's buttons already belong to the selected unit, so
+// they run the same action untouched.
 function buildUnitActionRows(unit: PlacedUnit): Container[] {
-	return unitActions(unit).map(buildUnitActionButton);
+	return unitActions(unit).map((action) =>
+		buildUnitActionButton({
+			...action,
+			run: () => {
+				selectCard(unitCardKey(unit), unit.creature.id, unit.unitId);
+				action.run();
+			}
+		})
+	);
 }
 
 // Give a unit its (empty, hidden) action group, parented in `overlays` so it renders above
@@ -2204,7 +2233,7 @@ function renderUnitActions() {
 
 // Repaint the on-board action buttons whenever the hovered/acting unit or any state feeding
 // a button's label or enabled flag changes (the move/attack energy pools, the move/combat
-// flags, the rival/summon locks) or the cost icons finish loading.
+// flags, the rival/summon/special-summon locks) or the cost icons finish loading.
 $effect(() => {
 	void hoveredActionUnitId;
 	void energy.move;
@@ -2213,6 +2242,7 @@ $effect(() => {
 	void combating;
 	void rivalThinking;
 	void summoning;
+	void specialPhase;
 	void roleIconsReady;
 	renderUnitActions();
 });
@@ -3722,8 +3752,10 @@ async function placeMonster(
 	// unit being acted on.
 	sprite.on('pointertap', () => {
 		// While picking Fusion / Ritual sacrifices, a click toggles this creature in
-		// or out of the material selection instead of inspecting it.
+		// or out of the material selection instead of inspecting it — but it still loads
+		// the creature into the viewer, so the player reads the card they're sacrificing.
 		if (specialPhase === 'materials') {
+			selectCard(unitCardKey(unit), creature.id, unit.unitId);
 			toggleMaterial(unit);
 			return;
 		}

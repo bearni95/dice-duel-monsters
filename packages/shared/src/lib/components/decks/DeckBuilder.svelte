@@ -108,17 +108,13 @@
 	onDestroy(flushRename);
 </script>
 
-<!-- Everything the page has, in one six-column grid: the collection takes four of
-     them and the decks the other two, so building a deck never leaves the cards
-     it is built from. -->
-<section class="grid grid-cols-1 items-start gap-6 lg:grid-cols-6" aria-label="Decks">
-	<!-- The collection scrolls in place rather than growing the page: a big
-	     collection would otherwise push the decks beside it out of reach. -->
-	<div
-		class="min-w-0 lg:sticky lg:top-4 lg:col-span-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1"
-	>
+<!-- The page as two full-width bands: the collection on top, the decks under it.
+     The collection is held to 60vh and scrolls inside that, so the decks stay
+     within reach however many cards are owned. -->
+<section class="space-y-6" aria-label="Decks">
+	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1">
 		{#if collection.length > 0}
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+			<div class="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
 				{#each collection as { card, count } (card.id)}
 					<DeckCardTile
 						{card}
