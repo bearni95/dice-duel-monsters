@@ -126,7 +126,7 @@
 		<div class="grid flex-1 grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
 			<div class="min-w-0 space-y-6">
 				<section
-					class="border-base-300 flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+					class="border-base-300 bg-base-100/50 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 backdrop-blur-md"
 					aria-label="Signed in"
 				>
 					<div class="flex min-w-0 items-center gap-2">
@@ -180,7 +180,7 @@
 										title={character.name}
 										onclick={() => (avatar = character.slug)}
 									>
-										<img src={character.src} alt="" class="h-auto w-full [image-rendering:pixelated]" />
+										<img src={character.src} alt="" class="h-auto w-full" />
 									</button>
 								{/each}
 							</div>
@@ -191,12 +191,15 @@
 						</button>
 					</section>
 				{:else}
-					<section class="flex items-center gap-4" aria-label="Player profile">
+					<section
+						class="border-base-300 bg-base-100/50 flex items-center gap-4 rounded-lg border p-3 backdrop-blur-md"
+						aria-label="Player profile"
+					>
 						{#if selectedCharacter}
 							<img
 								src={selectedCharacter.src}
 								alt={selectedCharacter.name}
-								class="border-primary h-20 w-20 rounded-lg border-2 [image-rendering:pixelated]"
+								class="border-primary h-20 w-20 rounded-lg border-2"
 							/>
 						{/if}
 						<div class="min-w-0 flex-1">

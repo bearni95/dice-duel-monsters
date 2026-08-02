@@ -2,7 +2,7 @@
 	import classNames from 'classnames';
 	import { createEventDispatcher } from 'svelte';
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
-	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
+	import type { PlayerDeck } from '$types/player-deck.type';
 
 	// Every deck the player has saved, one row each.
 	export let decks: PlayerDeck[] = [];
@@ -17,15 +17,6 @@
 	// the row says so rather than reading as broken.
 	function label(deck: PlayerDeck): string {
 		return deck.name || 'Untitled deck';
-	}
-
-	// A deck that isn't full can't be taken to the board, so its row says how far
-	// off it is rather than only how many cards it holds.
-	function countClasses(deck: PlayerDeck): string {
-		return classNames('font-mono text-sm', {
-			'text-success': playerDeckAdapter.totalCards(deck.cards) === DECK_SIZE,
-			'text-base-content/60': playerDeckAdapter.totalCards(deck.cards) !== DECK_SIZE
-		});
 	}
 </script>
 
@@ -48,31 +39,24 @@
 					}
 				)}
 			>
-				<div class="min-w-0 flex-1">
-					<p class="truncate font-medium">{label(deck)}</p>
-					<p class={countClasses(deck)}>
-						{playerDeckAdapter.totalCards(deck.cards)}/{DECK_SIZE}
-					</p>
-				</div>
+				<p class="min-w-0 flex-1 truncate font-medium">{label(deck)}</p>
 
 				<!-- One deck is active at a time: switching this on stands down whichever
 				     deck held it. A player's only deck is played whether or not its flag
-				     was ever set, so its switch reads on and can't be turned off. -->
-				<label class="flex cursor-pointer items-center gap-2">
-					<span class="label-text">Active</span>
-					<input
-						type="checkbox"
-						class="toggle toggle-primary toggle-sm"
-						checked={playerDeckAdapter.isEnabled(deck, decks)}
-						disabled={saving || decks.length === 1}
-						aria-label={`Play with ${label(deck)}`}
-						title={decks.length === 1
-							? 'Your only deck is always the one you play with.'
-							: 'Make this the deck you take to the board'}
-						on:change={(event) =>
-							dispatch('enable', { deck, enabled: event.currentTarget.checked })}
-					/>
-				</label>
+				     was ever set, so its switch reads on and can't be turned off. The
+				     switch carries no visible label — it names itself to assistive tech,
+				     and the row it sits on is the deck it acts on. -->
+				<input
+					type="checkbox"
+					class="toggle toggle-primary toggle-sm shrink-0"
+					checked={playerDeckAdapter.isEnabled(deck, decks)}
+					disabled={saving || decks.length === 1}
+					aria-label={`Play with ${label(deck)}`}
+					title={decks.length === 1
+						? 'Your only deck is always the one you play with.'
+						: 'Make this the deck you take to the board'}
+					on:change={(event) => dispatch('enable', { deck, enabled: event.currentTarget.checked })}
+				/>
 			</li>
 		{/each}
 	</ul>

@@ -27,11 +27,14 @@
 			<li
 				class="border-base-300 bg-base-100/50 flex h-20 items-center gap-3 overflow-hidden rounded-lg border pr-3 backdrop-blur-md"
 			>
+				<!-- The portraits are 240px square and land here at a third of that, so they
+				     are left to the browser's smooth downscaling; `pixelated` decimates
+				     them into a choppy mess at this size. -->
 				<img
 					src={character.src}
 					alt=""
 					loading="lazy"
-					class="h-full w-20 shrink-0 object-cover [image-rendering:pixelated]"
+					class="h-full w-20 shrink-0 object-cover"
 				/>
 				<p class="min-w-0 flex-1 truncate font-medium">{character.name}</p>
 			</li>
