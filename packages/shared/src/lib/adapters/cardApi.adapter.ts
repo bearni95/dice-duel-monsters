@@ -1,6 +1,6 @@
 import type { CardAsset } from "$components/cards/GameCard.svelte";
 import type { CardDetail } from "$types/card.type";
-import { queryCatalog, type CatalogCard, type CardQuery } from "$utils/cards/card-query";
+import { isSystemMonster, queryCatalog, type CatalogCard, type CardQuery } from "$utils/cards/card-query";
 import { ensureDecks } from "$services/deck.service";
 import { enabledCardIds } from "$utils/deck/enabledCardIds";
 import { AdapterClass } from "./classes/adapter.class";
@@ -252,6 +252,21 @@ export class CardApiAdapter extends AdapterClass {
 
         const grantable = await loadGrantableIds();
         return (data.cards as CardAsset[]).filter((card) => grantable.has(card.id));
+    }
+
+    // The pool a booster pack draws from: the available cards, narrowed to the
+    // monster kinds the game's own systems can handle.
+    //
+    // `loadAvailableCards` answers "what is in the game" — deck-derived, playable,
+    // with art committed — which is the set the admin /decks page lists. That
+    // still admits cards the board can never summon: `playable` is earned by
+    // having an effect assigned, and a Synchro or Pendulum monster can be given
+    // one as readily as anything else. A pack is the one place cards enter a
+    // collection unasked, so it draws from the narrower set instead: monsters
+    // only (no spells or traps) and none of the extra-deck varieties.
+    async loadBoosterPool(): Promise<CardAsset[]> {
+        const available = await this.loadAvailableCards();
+        return available.filter(isSystemMonster);
     }
 
     // Distinct owned cards with their copy counts, resolved from the catalog by id.

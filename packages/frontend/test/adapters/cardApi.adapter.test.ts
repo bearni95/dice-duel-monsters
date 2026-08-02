@@ -134,6 +134,61 @@ describe('CardApiAdapter', () => {
 		});
 	});
 
+	describe('loadBoosterPool', () => {
+		function deck(ids: number[], disabled: number[] = []): Deck {
+			return { id: 'd', name: 'D', main: ids, extra: [], side: [], disabled } as unknown as Deck;
+		}
+
+		it('drops the extra-deck monsters the board has no rules for', async () => {
+			// Every one of these is playable, billboarded, in a deck and allow-listed,
+			// so nothing but the booster pool's own rule can exclude them. Fusions and
+			// rituals stay — the game does summon those.
+			decks.push(deck([1, 2, 3, 4, 5, 6]));
+			stubFetch(
+				[
+					monster(1),
+					monster(2, { type: 'Effect Monster' }),
+					monster(3, { type: 'Fusion Monster' }),
+					monster(4, { type: 'Synchro Monster' }),
+					monster(5, { type: 'XYZ Monster' }),
+					monster(6, { type: 'Pendulum Effect Monster' })
+				],
+				[1, 2, 3, 4, 5, 6]
+			);
+
+			const pool = await new CardApiAdapter().loadBoosterPool();
+
+			expect(pool.map((c) => c.id)).toEqual([1, 2, 3]);
+		});
+
+		it('drops spells and traps', async () => {
+			decks.push(deck([1, 2, 3]));
+			stubFetch(
+				[
+					monster(1),
+					{ id: 2, name: 'Spell', type: 'Spell Card', playable: true },
+					{ id: 3, name: 'Trap', type: 'Trap Card', playable: true }
+				],
+				[1, 2, 3]
+			);
+
+			const pool = await new CardApiAdapter().loadBoosterPool();
+
+			expect(pool.map((c) => c.id)).toEqual([1]);
+		});
+
+		it('stays inside the available pool', async () => {
+			// Card 2 is a perfectly ordinary monster that simply isn't allow-listed.
+			// Narrowing by type must not widen anything else.
+			decks.push(deck([1, 2]));
+			stubFetch([monster(1), monster(2)], [1]);
+
+			const pool = await new CardApiAdapter().loadBoosterPool();
+
+			expect(pool.map((c) => c.id)).toEqual([1]);
+		});
+	});
+
 	describe('randomCardIds', () => {
 		it('only ever draws from the pool it is given', () => {
 			const pool = [monster(7), monster(8)] as never[];

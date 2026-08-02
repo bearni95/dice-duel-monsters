@@ -68,12 +68,30 @@ function normalizeText(value: string): string {
 }
 
 // Classify a card into its top-level category.
-function categoryOf(card: CatalogCard): 'monster' | 'spell' | 'trap' | 'other' {
+function categoryOf(card: { type: string }): 'monster' | 'spell' | 'trap' | 'other' {
 	if (typeof card.type !== 'string') return 'other';
 	if (card.type.includes('Monster')) return 'monster';
 	if (card.type === 'Spell Card') return 'spell';
 	if (card.type === 'Trap Card') return 'trap';
 	return 'other';
+}
+
+// Monster varieties the game has no rules for: they summon from an extra deck
+// through mechanics (tuners, materials, scales) the board doesn't implement.
+// Fusions and rituals are absent on purpose — those the game does simulate.
+const UNSUPPORTED_MONSTER_TYPES = /Synchro|XYZ|Pendulum/i;
+
+/**
+ * True when a card is one the game's own systems can handle: a monster, and not
+ * one of the extra-deck varieties above.
+ *
+ * The `playable` verdict alone doesn't answer this — a card earns `playable` by
+ * having an effect implementation assigned on /admin/cards, which a Synchro or
+ * Pendulum monster can be given as readily as any other. So a card can be
+ * playable, in a deck, and still be something the board can never summon.
+ */
+export function isSystemMonster(card: { type: string }): boolean {
+	return categoryOf(card) === 'monster' && !UNSUPPORTED_MONSTER_TYPES.test(card.type);
 }
 
 function unique(values: (string | undefined | null)[]): string[] {
