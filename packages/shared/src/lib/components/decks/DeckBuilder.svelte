@@ -72,10 +72,6 @@
 	// collection is shown but inert until one is created or picked.
 	$: noDeck = deck === null;
 
-	// What still stands between this deck and being playable. It gates nothing —
-	// the deck is saved either way — it just says what is left to do.
-	$: problem = playerDeckAdapter.validate(name, cards, owned);
-
 	// The deck's contents paired with their art, dropping any card that has fallen
 	// out of the collection (nothing removes ownership today, but the deck should
 	// still render rather than break if it ever does).
@@ -221,43 +217,27 @@
 		{/if}
 
 		{#if deck}
-			<div class="space-y-3">
-				<!-- Where a save button used to be. Every edit is already written; this
-				     only reports how that is going. -->
-				{#if !error}
-					<p class="text-base-content/60 text-sm" aria-live="polite">
-						{#if saving}
-							Saving…
-						{:else if problem}
-							Saved · {problem}
-						{:else}
-							Saved · ready to play
-						{/if}
-					</p>
-				{/if}
-
-				{#if deckTiles.length > 0}
-					<div class="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-						{#each deckTiles as { entry, card } (card.id)}
-							<DeckCardTile
-								{card}
-								inDeck={entry.quantity}
-								owned={owned.get(card.id) ?? 0}
-								max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
-								{deckFull}
-								on:add={() => dispatch('add', { cardId: card.id })}
-								on:remove={() => dispatch('remove', { cardId: card.id })}
-							/>
-						{/each}
-					</div>
-				{:else}
-					<div
-						class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
-					>
-						Empty. Pick cards from your collection.
-					</div>
-				{/if}
-			</div>
+			{#if deckTiles.length > 0}
+				<div class="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+					{#each deckTiles as { entry, card } (card.id)}
+						<DeckCardTile
+							{card}
+							inDeck={entry.quantity}
+							owned={owned.get(card.id) ?? 0}
+							max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
+							{deckFull}
+							on:add={() => dispatch('add', { cardId: card.id })}
+							on:remove={() => dispatch('remove', { cardId: card.id })}
+						/>
+					{/each}
+				</div>
+			{:else}
+				<div
+					class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+				>
+					Empty. Pick cards from your collection.
+				</div>
+			{/if}
 		{/if}
 	</aside>
 </section>
