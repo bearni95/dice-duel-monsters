@@ -117,12 +117,13 @@
 			</button>
 		</section>
 	{:else}
-		<!-- The signed-in page as four columns: who is playing in the first, the decks
-		     they play with in the second, and two columns held for what comes next.
-		     Below `xl` they fall back to two columns and then to one, since neither
-		     panel survives being a quarter of a narrow window. `flex-1` stretches the
-		     grid over the whole viewport height; nothing here paints a background, so
-		     the layout's card backdrop shows through it. -->
+		<!-- The signed-in page as four columns: who is playing and the decks they play
+		     with in the first, the characters that can be played against in the third,
+		     and the second and fourth held for what comes next. Below `xl` they fall
+		     back to two columns and then to one, since neither panel survives being a
+		     quarter of a narrow window. `flex-1` stretches the grid over the whole
+		     viewport height; nothing here paints a background, so the layout's card
+		     backdrop shows through it. -->
 		<div class="grid flex-1 grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
 			<div class="min-w-0 space-y-6">
 				<section
@@ -209,24 +210,27 @@
 						<button class="btn btn-ghost btn-sm" onclick={edit}>Edit</button>
 					</section>
 				{/if}
+
+				<section class="space-y-4" aria-label="Your decks">
+					<a class="btn btn-primary btn-sm w-full" href="/decks">Build decks</a>
+
+					{#if $decks.loading}
+						<div class="flex items-center justify-center py-8">
+							<span class="loading loading-spinner loading-md text-primary"></span>
+						</div>
+					{:else}
+						<DeckList
+							decks={$decks.decks}
+							saving={$decks.saving}
+							error={$decks.error ?? ''}
+							on:enable={enable}
+						/>
+					{/if}
+				</section>
 			</div>
 
-			<section class="min-w-0 space-y-4" aria-label="Your decks">
-				<a class="btn btn-primary btn-sm w-full" href="/decks">Build decks</a>
-
-				{#if $decks.loading}
-					<div class="flex items-center justify-center py-8">
-						<span class="loading loading-spinner loading-md text-primary"></span>
-					</div>
-				{:else}
-					<DeckList
-						decks={$decks.decks}
-						saving={$decks.saving}
-						error={$decks.error ?? ''}
-						on:enable={enable}
-					/>
-				{/if}
-			</section>
+			<!-- The second column, empty since the decks moved up into the first. -->
+			<div class="min-w-0" aria-hidden="true"></div>
 
 			<section class="min-w-0" aria-label="Characters">
 				<AssignedCharacterList entries={opponents} loading={opponentsLoading} />
