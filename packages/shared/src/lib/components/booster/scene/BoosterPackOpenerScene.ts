@@ -38,6 +38,8 @@ export interface BoosterPackOpenerCallbacks {
 type SceneState = 'loading' | 'idle' | 'cutting' | 'revealing' | 'fanned';
 
 const PACK_ASPECT = 5 / 8; // width / height (portrait)
+/** How much of the axis it is fitted against the pack takes up, leaving a margin. */
+const PACK_FILL = 0.82;
 const CARD_ASPECT = 1080 / 1415; // the baked card PNGs
 const GRID_GAP = 12;
 const GRID_COLUMNS = 3;
@@ -228,11 +230,12 @@ export class BoosterPackOpenerScene {
 	}
 
 	private computePackDimensions(w: number, h: number): { packW: number; packH: number } {
-		// The wrapper fills ~82% of the canvas height and at most ~45% of its width.
-		const maxH = h * 0.82;
-		const maxW = w * 0.45;
-		const byHeight = { packW: maxH * PACK_ASPECT, packH: maxH };
-		return byHeight.packW <= maxW ? byHeight : { packW: maxW, packH: maxW / PACK_ASPECT };
+		// The wrapper is contained in the canvas: it is fitted against whichever of
+		// the two axes runs out first and keeps its aspect either way, so it fills a
+		// tall narrow column as readily as a wide short one. Both axes are held to
+		// the same fraction, so the margin around it looks the same whichever bound.
+		const packH = Math.min(h * PACK_FILL, (w * PACK_FILL) / PACK_ASPECT);
+		return { packW: packH * PACK_ASPECT, packH };
 	}
 
 	private positionPack(): void {
@@ -646,6 +649,15 @@ export class BoosterPackOpenerScene {
 		this.app.renderer.resize(width, height);
 		// Only reflow while idle; reflowing mid-animation would jump the sprites.
 		if (this.state === 'idle' && this.packSprite) {
+			// The wrapper is re-fitted to the canvas it now has, and the cut line kept
+			// where it was proportionally rather than at the pixel it sat on — the pack
+			// it marks is a different size.
+			const previousH = this.packSprite.packHeight;
+			const { packW, packH } = this.computePackDimensions(width, height);
+			this.packSprite.resize(packW, packH);
+			this.cutY = previousH > 0 ? (this.cutY / previousH) * packH : packH / 2;
+			this.cutStep = Math.max(6, Math.round(packH / 24));
+
 			this.positionPack();
 			this.redrawCutAtLocal(this.cutY);
 			this.emitPackBounds();

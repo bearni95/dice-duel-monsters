@@ -52,6 +52,12 @@ export class PackSprite extends Container {
 	private coverUrl: string | null;
 	private packW: number;
 	private packH: number;
+	// The size the wrapper's texture was baked at. `resize` moves the displayed
+	// size off it rather than re-baking — re-rendering the whole composition on
+	// every resize tick would be far more work than drawing the same texture at
+	// another size — so cuts have to be mapped back into these coordinates.
+	private texW: number;
+	private texH: number;
 	private renderTex: RenderTexture | null = null;
 	private mainSprite: Sprite | null = null;
 
@@ -62,6 +68,8 @@ export class PackSprite extends Container {
 		this.coverUrl = opts.coverUrl;
 		this.packW = opts.width;
 		this.packH = opts.height;
+		this.texW = opts.width;
+		this.texH = opts.height;
 	}
 
 	get packWidth(): number {
@@ -70,6 +78,20 @@ export class PackSprite extends Container {
 
 	get packHeight(): number {
 		return this.packH;
+	}
+
+	/**
+	 * Draw the wrapper at another size. The baked texture is reused and simply
+	 * drawn to the new box, so this is cheap enough to run from a resize observer;
+	 * the caller keeps the aspect ratio, since nothing here does.
+	 */
+	resize(width: number, height: number): void {
+		this.packW = width;
+		this.packH = height;
+		if (this.mainSprite) {
+			this.mainSprite.width = width;
+			this.mainSprite.height = height;
+		}
 	}
 
 	async load(): Promise<void> {
@@ -119,13 +141,18 @@ export class PackSprite extends Container {
 		const tex = this.renderTex;
 		const py = Math.max(1, Math.min(this.packH - 1, Math.round(cutY)));
 
+		// The cut arrives in displayed pixels; the frames that carve the texture up
+		// are in the pixels it was baked at, which are only the same when the wrapper
+		// has not been resized since.
+		const pyTex = Math.max(1, Math.min(this.texH - 1, Math.round((py / this.packH) * this.texH)));
+
 		const topTex = new Texture({
 			source: tex.source,
-			frame: new Rectangle(0, 0, this.packW, py)
+			frame: new Rectangle(0, 0, this.texW, pyTex)
 		});
 		const bottomTex = new Texture({
 			source: tex.source,
-			frame: new Rectangle(0, py, this.packW, this.packH - py)
+			frame: new Rectangle(0, pyTex, this.texW, this.texH - pyTex)
 		});
 
 		const top = new Sprite(topTex);
