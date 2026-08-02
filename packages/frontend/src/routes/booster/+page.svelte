@@ -6,7 +6,7 @@
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import type { PackPull } from '$types/booster.type';
 	import { defaultBoosterPack } from '$data/boosterPacks';
-	import { openPack, RARITY_LABEL } from '$utils/booster/rarityTier';
+	import { openPack } from '$utils/booster/rarityTier';
 	import { packCoverUrl } from '$utils/booster/packTextures';
 	import { BoosterPackOpener } from '$components/booster';
 
@@ -48,9 +48,6 @@
 	let opened = $state(false);
 	let committing = $state(false);
 
-	// The card under the pointer or the keyboard cursor, captioned below the canvas.
-	let focused = $state<PackPull | null>(null);
-
 	let ready = $derived(availableCards.length > 0 && pulls.length > 0);
 
 	// Roll the next pack. The pulls are decided here rather than at the cut, so the
@@ -58,7 +55,6 @@
 	function roll() {
 		if (!availableCards.length) return;
 		error = '';
-		focused = null;
 		pulls = openPack(availableCards);
 		opened = false;
 		openSession += 1;
@@ -136,30 +132,20 @@
 					{coverUrl}
 					{pulls}
 					onOpenComplete={commit}
-					onFocusedChange={(pull) => (focused = pull)}
 				/>
 			{/key}
 		</div>
 
-		<!-- Sits over the collection backdrop the layout draws, so the caption gets a
-		     translucent panel rather than competing with the art. It only appears
-		     when there is something to say. -->
-		<footer class="relative z-20 flex shrink-0 items-center justify-center p-4">
-			<!-- Taken out of the flow so the button stays centred on the page rather
-			     than on whatever space the caption leaves it. -->
-			{#if error || focused}
-				<div
-					class="bg-base-100/70 border-base-300/60 absolute left-4 max-w-[40%] rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
+		<footer class="z-20 flex shrink-0 flex-col items-center gap-2 p-4">
+			<!-- Only ever on screen when a grant failed, over the collection backdrop
+			     the layout draws — hence the panel rather than bare text on the art. -->
+			{#if error}
+				<p
+					class="bg-base-100/70 border-base-300/60 text-error rounded-lg border px-4 py-2 text-sm shadow-lg backdrop-blur-sm"
+					role="alert"
 				>
-					{#if error}
-						<p class="text-error truncate text-sm" role="alert">{error}</p>
-					{:else if focused}
-						<p class="truncate text-sm" aria-live="polite">
-							<span class="font-medium">{focused.card.name}</span>
-							<span class="opacity-60"> · {RARITY_LABEL[focused.rarity]}</span>
-						</p>
-					{/if}
-				</div>
+					{error}
+				</p>
 			{/if}
 
 			<button

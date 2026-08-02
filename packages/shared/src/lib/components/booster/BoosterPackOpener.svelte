@@ -16,7 +16,6 @@
 		pulls,
 		classes = '',
 		onCardClick,
-		onFocusedChange,
 		onOpenComplete
 	}: {
 		pack: BoosterPack;
@@ -24,8 +23,6 @@
 		pulls: PackPull[];
 		classes?: string;
 		onCardClick?: (pull: PackPull, index: number) => void;
-		/** The card the pointer or keyboard cursor is on, for the page to caption. */
-		onFocusedChange?: (pull: PackPull | null) => void;
 		/** Fires once the cards have settled — the point at which the pulls are the player's. */
 		onOpenComplete?: () => void;
 	} = $props();
@@ -97,7 +94,6 @@
 		if (!host) return;
 		scene = new BoosterPackOpenerScene(host, pack, coverUrl, pulls, {
 			onCardClick: (pull, index) => onCardClick?.(pull, index),
-			onCardHover: (pull) => onFocusedChange?.(pull),
 			onOpenComplete: () => onOpenComplete?.(),
 			onPackBoundsChange: (bounds) => (packBounds = bounds),
 			onCardBoundsChange: (bounds) => (cardBounds = bounds)
@@ -148,8 +144,6 @@
 		style:top="{rect.top}px"
 		style:width="{rect.width}px"
 		style:height="{rect.height}px"
-		onfocus={() => onFocusedChange?.(pulls[idx] ?? null)}
-		onblur={() => onFocusedChange?.(null)}
 		onclick={() => pulls[idx] && onCardClick?.(pulls[idx], idx)}
 	></button>
 {/each}

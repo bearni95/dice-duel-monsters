@@ -25,8 +25,6 @@ export interface BoosterPackOpenerCallbacks {
 	/** Fires once the cards have settled — the point at which the pulls are the player's. */
 	onOpenComplete?: () => void;
 	onCardClick?: (pull: PackPull, index: number) => void;
-	/** Fires only while the cards are settled; `null` means the pointer left the last card. */
-	onCardHover?: (pull: PackPull | null) => void;
 	/**
 	 * Bounds (in viewport coordinates) of the wrapper while it is still intact and
 	 * cuttable, or `null` once it stops being a target. The host positions a
@@ -509,12 +507,6 @@ export class BoosterPackOpenerScene {
 			const idx = i;
 			sprite.on('pointertap', () => {
 				if (this.state === 'fanned') this.callbacks.onCardClick?.(pull, idx);
-			});
-			sprite.on('pointerover', () => {
-				if (this.state === 'fanned') this.callbacks.onCardHover?.(pull);
-			});
-			sprite.on('pointerout', () => {
-				if (this.state === 'fanned') this.callbacks.onCardHover?.(null);
 			});
 
 			this.cardLayer.addChild(sprite);
