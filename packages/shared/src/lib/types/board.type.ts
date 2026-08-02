@@ -1,5 +1,6 @@
 import type { Container, Graphics, Sprite } from 'pixi.js';
 import type { IGameCreature } from '$adapters/creature.adapter';
+import type { DiceRole } from '$types/dice.type';
 
 // Which side of the board a unit belongs to. The player commands the red
 // network (origin L12); the CPU rival commands the blue one (origin A1).
@@ -29,6 +30,26 @@ export interface PlacedUnit {
 	// pointer hovers it (player units only). Lives in the `overlays` layer, pinned
 	// under the sprite; hidden until hovered. Built lazily on summon.
 	actionGroup?: Container;
+}
+
+// One action a placed player unit can take right now — Move / Combat, or the single
+// Cancel that replaces the pair while one of them is in flight — as plain data. Both
+// the on-board Pixi buttons and the DOM card viewer's button row render from this same
+// list, so the two can never disagree on a label, a cost or whether an action is live.
+export interface UnitAction {
+	key: 'move' | 'combat' | 'cancel-move' | 'cancel-combat';
+	label: string;
+	variant: 'primary' | 'error';
+	enabled: boolean;
+	// The energy pool this action spends and what it costs, printed beside the label.
+	// Null / 0 on a Cancel, which spends nothing.
+	role: DiceRole | null;
+	cost: number;
+	// URL of the role's element icon (the same glyph the energy counters show), or
+	// null for a Cancel and until the dice config loads.
+	iconSrc: string | null;
+	// Fire the action. The same call the on-board button makes.
+	run: () => void;
 }
 
 // A destroyable origin cell: its grid position, network side/color, remaining

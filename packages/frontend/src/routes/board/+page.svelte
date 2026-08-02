@@ -7,6 +7,7 @@
 	// so there is no DOM sidebar — the canvas fills the whole area below the navbar.
 	import { onMount } from 'svelte';
 	import { createBoardEngine } from '$services/board-engine.svelte';
+	import BoardCardViewer from '$components/board/BoardCardViewer.svelte';
 	import BoardFramePanel from '$components/board/BoardFramePanel.svelte';
 	import CombatHitMarkers from '$components/board/CombatHitMarkers.svelte';
 	import CombatResultCard from '$components/board/CombatResultCard.svelte';
@@ -57,15 +58,11 @@
 		<!-- The card viewer: a DOM element pinned to the page's bottom-left, showing the
 		     full art of the card the pointer last hovered on the canvas (a hand card, a
 		     played plaque card, or an on-board creature). It is sticky — leaving a card
-		     leaves its art on show until another card is hovered. Fixed 300px wide; the
-		     in-canvas hover handlers drive engine.previewCardSrc. pointer-events-none so
-		     it never intercepts board interaction. -->
+		     leaves its art on show until another card is hovered. When the card is one of
+		     the player's own on-board creatures, engine.previewUnitActions fills the row
+		     above it with that unit's Move / Combat buttons. -->
 		{#if engine.previewCardSrc}
-			<img
-				src={engine.previewCardSrc}
-				alt="Hovered card"
-				class="pointer-events-none fixed bottom-4 left-4 z-20 w-[300px] rounded-xl shadow-2xl"
-			/>
+			<BoardCardViewer src={engine.previewCardSrc} actions={engine.previewUnitActions} />
 		{/if}
 	</div>
 </div>

@@ -40,7 +40,15 @@ import { cellLabel } from '$utils/board/coords';
 import { DICE_NETS, NEIGHBOR_OFFSETS, offsetsForRotation } from '$utils/board/diceNet';
 import { pSingleDie, pAnyDie } from '$utils/board/cpuScoring';
 import { opaqueBounds } from '$utils/board/opaqueBounds';
-import type { Side, PlacedUnit, OriginCell, CpuMove, CardPlaque, SortKey } from '$types/board.type';
+import type {
+	Side,
+	PlacedUnit,
+	OriginCell,
+	CpuMove,
+	CardPlaque,
+	SortKey,
+	UnitAction
+} from '$types/board.type';
 import { diceAdapter } from '$adapters/dice.adapter';
 import {
 	emptyEnergyPools,
@@ -1307,6 +1315,13 @@ let cardBackTexture: Texture | null = $state(null);
 // the board's pan/zoom). $state so the img reacts.
 let previewCardId = $state<IGameCreature['id'] | null>(null);
 
+// The placed unit the viewer's card belongs to, when it was hovered on the board (null
+// when the card came from the hand or a plaque, so it isn't a unit that can act). Kept
+// as an id, like hoveredActionUnitId, so it stays reactive without wrapping the unit's
+// live Pixi objects in a proxy — it's what previewUnitActions looks the unit up from, to
+// give the DOM viewer the same Move / Combat buttons the creature unfolds on the board.
+let previewUnitId = $state<number | null>(null);
+
 // The world-space column of turn/unit action buttons (Move/Combat/Unfold/End Turn),
 // built in init and added to `camera` so it pans and zooms with the board. It sits
 // just under the player's red energy-dice row (see renderActionButtons).
@@ -1486,10 +1501,13 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 // Set the card the DOM viewer shows. The single entry point the in-canvas hover handlers
 // call — hovering a hand card, a played plaque card, or an on-board creature sets its id
 // here. There is no clear: the viewer holds the last hovered card until another one
-// replaces it. The board page reactively renders previewCardSrc as the fixed bottom-left
-// viewer, so positioning is pure CSS.
-function showCardPreview(cardId: IGameCreature['id']) {
+// replaces it. `unitId` is the placed unit the card was hovered on, when it came from the
+// board — it earns the viewer its action buttons; hand and plaque cards pass none. The
+// board page reactively renders previewCardSrc as the fixed bottom-left viewer, so
+// positioning is pure CSS.
+function showCardPreview(cardId: IGameCreature['id'], unitId: number | null = null) {
 	previewCardId = cardId;
+	previewUnitId = unitId;
 }
 
 
@@ -1898,43 +1916,83 @@ function buildUnitActionButton(
 	return btn;
 }
 
-// Build the Move / Combat rows for a player unit, mirroring the old off-board column's
-// enablement: Move needs its cost in the move pool, Combat needs its cost in the attack
-// pool and a target in reach; both are inert while the rival is thinking or a summon is
-// resolving. While a move / combat is in flight the pair collapses to a single Cancel.
-function buildUnitActionRows(unit: PlacedUnit): Container[] {
+// The Move / Combat actions available to a player unit right now, mirroring the old
+// off-board column's enablement: Move needs its cost in the move pool, Combat needs its
+// cost in the attack pool and a target in reach; both are inert while the rival is
+// thinking or a summon is resolving. While a move / combat is in flight the pair
+// collapses to a single Cancel. Returned as data so the on-board Pixi buttons and the
+// DOM card viewer's button row both render the exact same set (see UnitAction).
+function unitActions(unit: PlacedUnit): UnitAction[] {
 	const cost = unit.creature.cost;
 	const controlsDisabled = rivalThinking || summoning;
-	const rows: Container[] = [];
+	const iconFor = (role: DiceRole) => diceConfig?.roles[role]?.icon ?? null;
 
 	if (moving && movingUnit === unit) {
-		rows.push(buildUnitActionButton('Cancel Move', 'error', true, null, 0, cancelMove));
-	} else if (combating && attackingUnit === unit) {
-		rows.push(buildUnitActionButton('Cancel Combat', 'error', true, null, 0, cancelCombat));
-	} else {
-		rows.push(
-			buildUnitActionButton(
-				'Move',
-				'primary',
-				!controlsDisabled && energy.move >= cost,
-				'move',
-				cost,
-				() => startMove(unit)
-			)
-		);
-		rows.push(
-			buildUnitActionButton(
-				'Combat',
-				'primary',
-				!controlsDisabled && energy.attack >= cost && combatTargetsFor(unit).length > 0,
-				'attack',
-				cost,
-				() => startCombat(unit)
-			)
-		);
+		return [
+			{
+				key: 'cancel-move',
+				label: 'Cancel Move',
+				variant: 'error',
+				enabled: true,
+				role: null,
+				cost: 0,
+				iconSrc: null,
+				run: cancelMove
+			}
+		];
 	}
 
-	return rows;
+	if (combating && attackingUnit === unit) {
+		return [
+			{
+				key: 'cancel-combat',
+				label: 'Cancel Combat',
+				variant: 'error',
+				enabled: true,
+				role: null,
+				cost: 0,
+				iconSrc: null,
+				run: cancelCombat
+			}
+		];
+	}
+
+	return [
+		{
+			key: 'move',
+			label: 'Move',
+			variant: 'primary',
+			enabled: !controlsDisabled && energy.move >= cost,
+			role: 'move',
+			cost,
+			iconSrc: iconFor('move'),
+			run: () => startMove(unit)
+		},
+		{
+			key: 'combat',
+			label: 'Combat',
+			variant: 'primary',
+			enabled: !controlsDisabled && energy.attack >= cost && combatTargetsFor(unit).length > 0,
+			role: 'attack',
+			cost,
+			iconSrc: iconFor('attack'),
+			run: () => startCombat(unit)
+		}
+	];
+}
+
+// Draw a unit's current actions as the stacked on-board buttons that unfold beneath it.
+function buildUnitActionRows(unit: PlacedUnit): Container[] {
+	return unitActions(unit).map((action) =>
+		buildUnitActionButton(
+			action.label,
+			action.variant,
+			action.enabled,
+			action.role,
+			action.cost,
+			action.run
+		)
+	);
 }
 
 // Give a unit its (empty, hidden) action group, parented in `overlays` so it renders above
@@ -3510,7 +3568,7 @@ async function placeMonster(
 	// (the group's own hover handlers keep them open once the pointer slides onto them).
 	// Leaving folds the buttons back; the viewer keeps the card until another is hovered.
 	sprite.on('pointerenter', () => {
-		showCardPreview(creature.id);
+		showCardPreview(creature.id, unit.unitId);
 		if (unit.side === 'player' && !moving && !combating) hoveredActionUnitId = unit.unitId;
 	});
 	sprite.on('pointerleave', () => {
@@ -4250,6 +4308,9 @@ function removeUnit(unit: PlacedUnit) {
 	unit.healthBar.destroy();
 	unit.actionGroup?.destroy();
 	if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
+	// The viewer keeps showing this creature's card (it holds the last card hovered), but a
+	// destroyed unit can no longer act — drop its actions so the viewer's buttons go with it.
+	if (previewUnitId === unit.unitId) previewUnitId = null;
 	placedUnits.delete(unit.unitId);
 
 	// A destroyed creature's card is spent — it's already left its owner's hand
@@ -5725,6 +5786,17 @@ tile.on('pointerout', () => {
 		// renders it as the fixed bottom-left DOM card viewer.
 		get previewCardSrc() {
 			return previewCardId != null ? `/cards/generated/${previewCardId}.png` : null;
+		},
+		// The Move / Combat actions of the unit the viewer's card belongs to, so the DOM
+		// viewer can offer the same buttons the creature unfolds on the board. Empty unless
+		// the card was hovered on a player unit that is still alive — a hand card, a plaque
+		// card or a rival creature leaves the viewer view-only. Recomputed on read, so it
+		// tracks the energy pools and the move / combat flags exactly like the on-board pair.
+		get previewUnitActions(): UnitAction[] {
+			if (previewUnitId == null) return [];
+			const unit = placedUnits.get(previewUnitId);
+			if (!unit || unit.side !== 'player') return [];
+			return unitActions(unit);
 		},
 		// Whether the yellow play-area outline is drawn; the page's top-left panel reads
 		// it and flips it via toggleBoardFrame.
