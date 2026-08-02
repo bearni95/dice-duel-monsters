@@ -1,12 +1,11 @@
 <script lang="ts">
 	import classNames from 'classnames';
-	import { onMount } from 'svelte';
 	import { playerService } from '$services/player.service';
 	import { authService } from '$services/auth.service';
+	import { playerDeckService } from '$services/player-deck.service';
 	import { characters } from '$data/characters';
-	import { CardApiAdapter } from '$adapters/cardApi.adapter';
-	import type { CardAsset } from '$components/cards/GameCard.svelte';
-	import GeneratedCardImage from '$components/cards/GeneratedCardImage.svelte';
+	import DeckList from '$components/decks/DeckList.svelte';
+	import type { PlayerDeck } from '$types/player-deck.type';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
 	// signed-in account (`authService.configured` must be true and a user present).
@@ -16,6 +15,10 @@
 	// loads on sign-in and clears on sign-out, so name/avatar/cards follow the
 	// Discord account across devices rather than living in one browser.
 	const player = playerService.store;
+
+	// The player's saved decks, the same store the decks page builds against. Here
+	// they are only listed and switched between — building happens on /decks.
+	const decks = playerDeckService.store;
 
 	let profile = $derived($player.profile);
 
@@ -54,44 +57,12 @@
 		editing = true;
 	}
 
-	// The pool of cards made available into the game — the same monster cards the
-	// admin /cards browser exposes — loaded once, so the "give random cards" button
-	// can draw from it and the empty state can reflect whether any exist.
-	const cardApiAdapter = new CardApiAdapter();
-	let availableCards = $state<CardAsset[]>([]);
-
-	// The player's owned cards, one id per copy (from Supabase via playerService).
-	let ownedCardIds = $derived($player.cards);
-
-	// The owned cards resolved into distinct assets with copy counts for the grid.
-	// Resolving reads the (memoised) catalog, so it runs in an effect that re-runs
-	// whenever ownership changes; a token guards against a slow resolve overwriting
-	// a newer one.
-	let ownedCards = $state<{ card: CardAsset; count: number }[]>([]);
-	let ownedToken = 0;
-	$effect(() => {
-		const ids = ownedCardIds;
-		const token = ++ownedToken;
-		if (ids.length === 0) {
-			ownedCards = [];
-			return;
-		}
-		cardApiAdapter.ownedUnique(ids).then((resolved) => {
-			if (token === ownedToken) ownedCards = resolved;
-		});
-	});
-
-	// Grant ten random cards drawn from the available pool and persist them to the
-	// player's Supabase-backed collection.
-	async function giveRandomCards() {
-		const granted = cardApiAdapter.randomCardIds(availableCards, 10);
-		if (!granted.length) return;
-		await playerService.grantCards(granted);
+	// Enable or disable a deck for play, exactly as the decks page does: the board
+	// deals from the enabled deck (see playerDeckAdapter.activeDeck), so this is
+	// what picks which deck a match is played with.
+	function enable(event: CustomEvent<{ deck: PlayerDeck; enabled: boolean }>) {
+		void playerDeckService.setEnabled(event.detail.deck.id, event.detail.enabled);
 	}
-
-	onMount(async () => {
-		availableCards = await cardApiAdapter.loadAvailableCards();
-	});
 </script>
 
 <svelte:head>
@@ -199,41 +170,28 @@
 			<button class="btn btn-ghost btn-sm" onclick={edit}>Edit</button>
 		</section>
 
-		<section class="space-y-4" aria-label="Your cards">
+		<section class="space-y-4" aria-label="Your decks">
 			<div class="flex items-center justify-between gap-4">
 				<div>
-					<h2 class="text-xl font-bold">Your cards</h2>
+					<h2 class="text-xl font-bold">Your decks</h2>
 					<p class="text-base-content/60 text-sm">
-						{ownedCardIds.length}
-						{ownedCardIds.length === 1 ? 'card' : 'cards'} owned
+						The active deck is the one you take to the board.
 					</p>
 				</div>
-				<button
-					class="btn btn-primary btn-sm"
-					disabled={availableCards.length === 0 || $player.saving}
-					onclick={giveRandomCards}
-				>
-					Give 10 random cards
-				</button>
+				<a class="btn btn-primary btn-sm" href="/decks">Build decks</a>
 			</div>
 
-			{#if ownedCards.length > 0}
-				<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-					{#each ownedCards as { card, count } (card.id)}
-						<div class="relative">
-							<GeneratedCardImage id={card.id} name={card.name} />
-							{#if count > 1}
-								<span class="badge badge-primary badge-sm absolute right-1 top-1 font-semibold">
-									×{count}
-								</span>
-							{/if}
-						</div>
-					{/each}
+			{#if $decks.loading}
+				<div class="flex items-center justify-center py-8">
+					<span class="loading loading-spinner loading-md text-primary"></span>
 				</div>
 			{:else}
-				<div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center text-sm">
-					You don't own any cards yet. Grab some to get started.
-				</div>
+				<DeckList
+					decks={$decks.decks}
+					saving={$decks.saving}
+					error={$decks.error ?? ''}
+					on:enable={enable}
+				/>
 			{/if}
 		</section>
 		{/if}
