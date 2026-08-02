@@ -207,34 +207,36 @@
 				</div>
 
 				{#if deck}
-					<!-- One deck is active at a time: switching this on stands down whichever
-					     deck held it. A player's only deck is played whether or not its flag
-					     was ever set, so its switch reads on and can't be turned off. -->
-					<label class="label cursor-pointer justify-start gap-2">
-						<span class="label-text">Active</span>
+					<!-- The deck's name, and whether it is the deck played. One deck is active
+					     at a time: switching this on stands down whichever deck held it. A
+					     player's only deck is played whether or not its flag was ever set, so
+					     its switch reads on and can't be turned off. The switch carries no
+					     visible label, so it says what it is through its tooltip. -->
+					<div class="flex min-w-0 items-center gap-2">
+						<input
+							class="input input-bordered input-sm w-full min-w-0 flex-1"
+							type="text"
+							placeholder="Name your deck"
+							maxlength="40"
+							aria-label="Deck name"
+							bind:value={name}
+							on:input={onNameInput}
+							on:blur={flushRename}
+						/>
+
 						<input
 							type="checkbox"
-							class="toggle toggle-primary toggle-sm"
+							class="toggle toggle-primary toggle-sm shrink-0"
 							checked={playerDeckAdapter.isEnabled(deck, decks)}
 							disabled={saving || decks.length === 1}
+							aria-label="Active deck"
 							title={decks.length === 1
 								? 'Your only deck is always the one you play with.'
 								: 'Make this the deck you take to the board'}
 							on:change={(event) =>
 								deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
 						/>
-					</label>
-
-					<input
-						class="input input-bordered input-sm w-full"
-						type="text"
-						placeholder="Name your deck"
-						maxlength="40"
-						aria-label="Deck name"
-						bind:value={name}
-						on:input={onNameInput}
-						on:blur={flushRename}
-					/>
+					</div>
 
 					<!-- How full the open deck is, and the way to be rid of it, at the foot
 					     of the column so the destructive button is nowhere near the ones
