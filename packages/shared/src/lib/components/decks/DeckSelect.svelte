@@ -38,7 +38,7 @@
 </script>
 
 <select
-	class="select select-bordered select-sm min-w-56"
+	class="select select-bordered select-sm w-full min-w-0"
 	bind:value={currentId}
 	{disabled}
 	aria-label="Deck to edit"

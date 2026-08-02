@@ -162,10 +162,11 @@
 
 	<!-- The right column: the card being pointed at on top, the decks under it. -->
 	<div class="flex min-w-0 flex-col gap-4 lg:col-span-1 lg:min-h-0">
-		<!-- The hovered card in the first of two columns, the second left empty for
-		     what will read beside it. The viewer holds a card's shape whether or not
-		     one has been hovered yet, so nothing below it jumps the first time a card
-		     lands here. -->
+		<!-- The hovered card in the first of two columns, and beside it the controls
+		     for which deck is being built: the picker, whether it is the deck played,
+		     its name, and the button that starts another. The viewer holds a card's
+		     shape whether or not one has been hovered yet, so nothing below it jumps
+		     the first time a card lands here. -->
 		<div class="grid shrink-0 grid-cols-2 gap-4">
 			<div class="min-w-0">
 				{#if hovered}
@@ -179,33 +180,15 @@
 				{/if}
 			</div>
 
-			<div></div>
-		</div>
-
-		<!-- The decks: which one is open is a picker rather than a list, so the panel
-		     is only ever showing the deck being worked on. -->
-		<aside
-			class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
-			aria-label="Your decks"
-		>
-			<div class="flex flex-wrap items-center gap-2">
+			<div class="flex min-w-0 flex-col gap-2">
 				{#if decks.length > 0}
 					<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
 				{/if}
-				<button
-					class="btn btn-primary btn-sm"
-					disabled={collection.length === 0 || saving}
-					on:click={() => dispatch('create')}
-				>
-					New deck
-				</button>
 
 				{#if deck}
-					<!-- Everything that acts on the open deck as a whole rather than on its
-					     contents, on one line. A player's only deck is played whether or not
-					     its flag was ever set, so its switch reads on and can't be turned
-					     off. -->
-					<label class="label ml-auto cursor-pointer gap-2">
+					<!-- A player's only deck is played whether or not its flag was ever set,
+					     so its switch reads on and can't be turned off. -->
+					<label class="label cursor-pointer justify-start gap-2">
 						<span class="label-text">Enabled</span>
 						<input
 							type="checkbox"
@@ -221,7 +204,7 @@
 					</label>
 
 					<input
-						class="input input-bordered input-sm w-48"
+						class="input input-bordered input-sm w-full"
 						type="text"
 						placeholder="Name your deck"
 						maxlength="40"
@@ -230,14 +213,35 @@
 						on:input={onNameInput}
 						on:blur={flushRename}
 					/>
+				{/if}
 
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={collection.length === 0 || saving}
+					on:click={() => dispatch('create')}
+				>
+					New deck
+				</button>
+			</div>
+		</div>
+
+		<!-- The decks: which one is open is a picker rather than a list, so the panel
+		     is only ever showing the deck being worked on. -->
+		<aside
+			class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+			aria-label="Your decks"
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				{#if deck}
+					<!-- How full the open deck is, and the one thing done to it as a whole
+					     that isn't up beside the card viewer. -->
 					<div class="flex items-center gap-2">
 						<span class="label-text">Cards</span>
 						<span class={counterClasses}>{total}/{DECK_SIZE}</span>
 					</div>
 
 					<button
-						class="btn btn-ghost btn-sm text-error"
+						class="btn btn-ghost btn-sm text-error ml-auto"
 						disabled={saving}
 						on:click={() => deck && dispatch('deleteDeck', { deck })}
 					>
