@@ -45,8 +45,15 @@ jobs:
       # committed cardinfo.json — no sqlite needed) then runs `vite build`,
       # emitting the static SPA to packages/frontend/dist with an index.html
       # fallback.
+      # Supabase powers Discord auth for the shipped SPA. Both values run purely
+      # in the browser and are inlined into the bundle by Vite at build time, so
+      # they must be present here or the deploy ships with auth disabled. Public
+      # by design — the anon key is safe to expose.
       - name: Build static SPA
         run: pnpm build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       # Custom domain: GitHub Pages needs a CNAME in the published artifact so
       # the domain setting survives each deploy.
