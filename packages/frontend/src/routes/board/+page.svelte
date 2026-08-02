@@ -50,11 +50,17 @@
 		<!-- The card viewer: a DOM element pinned to the page's bottom-left, showing the
 		     full art of the card last clicked on the canvas (a hand card, a played plaque
 		     card, or an on-board creature). The clicked card wears a yellow frame on the
-		     canvas and stays in the viewer until another is clicked. When the card is one
-		     of the player's own on-board creatures, engine.previewUnitActions fills the row
-		     above it with that unit's Move / Combat buttons. -->
+		     canvas and stays in the viewer until another is clicked, or until the viewer's
+		     close button drops the selection and hands the board back to hover. When the
+		     card is one of the player's own on-board creatures, engine.previewUnitActions
+		     fills the row above it with that unit's Move / Combat buttons. -->
 		{#if engine.previewCardSrc}
-			<BoardCardViewer src={engine.previewCardSrc} actions={engine.previewUnitActions} />
+			<BoardCardViewer
+				src={engine.previewCardSrc}
+				actions={engine.previewUnitActions}
+				canClose={engine.canCloseCard}
+				onclose={engine.clearCardSelection}
+			/>
 		{/if}
 	</div>
 </div>

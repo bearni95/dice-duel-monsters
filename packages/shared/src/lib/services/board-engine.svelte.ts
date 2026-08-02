@@ -1582,6 +1582,19 @@ function selectCard(key: string, cardId: IGameCreature['id'], unitId: number | n
 	previewUnitId = unitId;
 }
 
+// Drop the click selection: the viewer closes, its yellow frame leaves the canvas, and the
+// board goes back to its hover behaviour — no card is pinned, and a creature's Move /
+// Combat buttons only show while the pointer is on it. Driven by the viewer's close
+// button. Frozen mid-move/combat like selectCard, so the acting unit's Cancel can't be
+// closed out from under the player.
+function clearCardSelection() {
+	if (moving || combating) return;
+
+	selectedCardKey = null;
+	previewCardId = null;
+	previewUnitId = null;
+}
+
 // Clicking a hand card — its art or the Summon button laid over it — loads it into the
 // detail panel and the bottom-left viewer, and frames it as the selection. Shared by both
 // handlers so the summon click, which stops propagation to keep the card's own handler from
@@ -5931,6 +5944,11 @@ tile.on('pointerout', () => {
 			if (!unit || unit.side !== 'player') return [];
 			return unitActions(unit);
 		},
+		// Whether the viewer's close button is live: the selection is frozen while a move or
+		// combat is in flight, so the panel holding that unit's Cancel can't be dismissed.
+		get canCloseCard() {
+			return !moving && !combating;
+		},
 		// The player's commands, driven by the sidebar buttons and hand tiles. Move and
 		// Combat are now started from the on-board hover buttons (they need the specific
 		// PlacedUnit), so they're no longer part of the external command surface.
@@ -5942,7 +5960,8 @@ tile.on('pointerout', () => {
 		cancelCombat,
 		startUnfold,
 		endTurn,
-		confirmDicePick
+		confirmDicePick,
+		clearCardSelection
 	};
 }
 
