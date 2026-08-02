@@ -1,5 +1,4 @@
 <script lang="ts">
-	import classNames from 'classnames';
 	import { onMount } from 'svelte';
 	import { authService } from '$services/auth.service';
 	import { playerService } from '$services/player.service';
@@ -8,7 +7,6 @@
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import DeckBuilder from '$components/decks/DeckBuilder.svelte';
-	import DeckList from '$components/decks/DeckList.svelte';
 	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
 
 	// Same three Supabase-backed stores the home page uses: the session, the
@@ -40,22 +38,22 @@
 		});
 	});
 
-	// Card art by id, shared with the deck list so it can render preview strips.
-	let assets = $derived(new Map(collection.map(({ card }) => [card.id, card])));
-
 	// The deck a match is played with, named on the page so the choice the toggles
 	// make is stated rather than inferred.
 	let activeDeck = $derived(playerDeckAdapter.activeDeck($decks.decks));
 
-	// Which deck the builder is editing, by id. The deck itself is read back out
-	// of the store rather than held here, so the edits the service applies show up
-	// immediately — and a deck that disappears (deleted, or a sign-out) closes the
-	// builder instead of stranding it.
-	let editingId = $state<string | null>(null);
-	let editingDeck = $derived($decks.decks.find((deck) => deck.id === editingId) ?? null);
-	$effect(() => {
-		if (editingId !== null && editingDeck === null && !$decks.loading) editingId = null;
-	});
+	// Which deck the builder is editing, by id. The deck itself is read back out of
+	// the store rather than held here, so the edits the service applies show up
+	// immediately — and a deck that disappears (deleted, or a sign-out) falls back
+	// to another one instead of leaving the builder blank. There is no unselected
+	// state to sit in: the page always has a deck open when there is one to open.
+	let selectedId = $state<string | null>(null);
+	let selectedDeck = $derived(
+		$decks.decks.find((deck) => deck.id === selectedId) ??
+			playerDeckAdapter.activeDeck($decks.decks) ??
+			$decks.decks[0] ??
+			null
+	);
 
 	// The message from a failed write, either a delete's (thrown) or an edit's
 	// (reported on the store, since nothing awaits those).
@@ -68,25 +66,30 @@
 	async function create() {
 		deleteError = '';
 		const id = await playerDeckService.create();
-		if (id) editingId = id;
+		if (id) selectedId = id;
 	}
 
-	function rename(event: CustomEvent<{ name: string }>) {
-		if (editingDeck) playerDeckService.update(editingDeck.id, { name: event.detail.name });
+	function select(event: CustomEvent<{ deck: PlayerDeck }>) {
+		deleteError = '';
+		selectedId = event.detail.deck.id;
+	}
+
+	function rename(event: CustomEvent<{ deckId: string; name: string }>) {
+		playerDeckService.update(event.detail.deckId, { name: event.detail.name });
 	}
 
 	function addCard(event: CustomEvent<{ cardId: number }>) {
-		if (!editingDeck) return;
+		if (!selectedDeck) return;
 		const ownedCount = collection.find(({ card }) => card.id === event.detail.cardId)?.count ?? 0;
-		playerDeckService.update(editingDeck.id, {
-			cards: playerDeckAdapter.addCopy(editingDeck.cards, event.detail.cardId, ownedCount)
+		playerDeckService.update(selectedDeck.id, {
+			cards: playerDeckAdapter.addCopy(selectedDeck.cards, event.detail.cardId, ownedCount)
 		});
 	}
 
 	function removeCard(event: CustomEvent<{ cardId: number }>) {
-		if (!editingDeck) return;
-		playerDeckService.update(editingDeck.id, {
-			cards: playerDeckAdapter.removeCopy(editingDeck.cards, event.detail.cardId)
+		if (!selectedDeck) return;
+		playerDeckService.update(selectedDeck.id, {
+			cards: playerDeckAdapter.removeCopy(selectedDeck.cards, event.detail.cardId)
 		});
 	}
 
@@ -107,20 +110,6 @@
 		}
 	}
 
-	function edit(event: CustomEvent<{ deck: PlayerDeck }>) {
-		deleteError = '';
-		editingId = event.detail.deck.id;
-	}
-
-	// The builder puts the deck in a side menu next to the collection grid, so it
-	// gets the full page width; the deck list stays narrow.
-	let mainClasses = $derived(
-		classNames('mx-auto w-full space-y-6 p-4 sm:p-6 lg:p-8', {
-			'max-w-7xl': editingDeck !== null,
-			'max-w-4xl': editingDeck === null
-		})
-	);
-
 	// Warm the catalog so the first collection resolve doesn't wait on a cold
 	// fetch when the player already owns cards.
 	onMount(() => {
@@ -132,7 +121,7 @@
 	<title>Decks · Dice Guardians</title>
 </svelte:head>
 
-<main class={mainClasses}>
+<main class="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
 	{#if !authService.configured}
 		<section class="space-y-2 py-8 text-center" aria-label="Sign in required">
 			<h1 class="text-2xl font-bold">Decks</h1>
@@ -158,72 +147,36 @@
 		<section class="flex items-center justify-center py-16" aria-label="Loading decks">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</section>
-	{:else if editingDeck !== null}
+	{:else}
+		<div>
+			<h1 class="text-2xl font-bold">Decks</h1>
+			<p class="text-base-content/60 text-sm">
+				{DECK_SIZE} cards each, up to 3 copies of a card per deck.
+				{#if $decks.decks.length === 1}
+					Your only deck is the one you take to the board.
+				{:else if activeDeck}
+					The board deals from <span class="font-medium"
+						>{activeDeck.name || 'your untitled deck'}</span
+					>. Enable another to play with it instead.
+				{:else if $decks.decks.length > 0}
+					Enable a deck to take it to the board.
+				{/if}
+			</p>
+		</div>
+
 		<DeckBuilder
-			deck={editingDeck}
+			decks={$decks.decks}
+			deck={selectedDeck}
 			{collection}
 			saving={$decks.saving}
 			{error}
+			on:create={create}
+			on:select={select}
+			on:enable={enable}
+			on:deleteDeck={remove}
 			on:rename={rename}
 			on:add={addCard}
 			on:remove={removeCard}
-			on:done={() => (editingId = null)}
 		/>
-	{:else}
-		<section class="space-y-4" aria-label="Your decks">
-			<div class="flex flex-wrap items-center justify-between gap-3">
-				<div>
-					<h1 class="text-2xl font-bold">Your decks</h1>
-					<p class="text-base-content/60 text-sm">
-						{$decks.decks.length}
-						{$decks.decks.length === 1 ? 'deck' : 'decks'} · {DECK_SIZE} cards each, up to 3 copies
-						of a card per deck
-					</p>
-					<p class="text-base-content/60 text-sm">
-						{#if $decks.decks.length === 1}
-							Your only deck is the one you take to the board.
-						{:else if activeDeck}
-							The board deals from <span class="font-medium"
-								>{activeDeck.name || 'your untitled deck'}</span
-							>. Enable another to play with it instead.
-						{:else}
-							Enable a deck to take it to the board.
-						{/if}
-					</p>
-				</div>
-				<button
-					class="btn btn-primary"
-					disabled={collection.length === 0 || $decks.saving}
-					onclick={create}
-				>
-					New deck
-				</button>
-			</div>
-
-			{#if error}
-				<div class="alert alert-error text-sm" role="alert">{error}</div>
-			{/if}
-
-			{#if $decks.decks.length > 0}
-				<DeckList
-					decks={$decks.decks}
-					{assets}
-					disabled={$decks.saving}
-					on:edit={edit}
-					on:enable={enable}
-					on:remove={remove}
-				/>
-			{:else}
-				<div
-					class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-8 text-center text-sm"
-				>
-					{#if collection.length === 0}
-						You need cards before you can build a deck. Grab some on the home page first.
-					{:else}
-						No decks yet. Build your first one from the {collection.length} cards you own.
-					{/if}
-				</div>
-			{/if}
-		</section>
 	{/if}
 </main>
