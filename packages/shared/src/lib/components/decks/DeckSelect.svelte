@@ -12,9 +12,13 @@
 
 	const dispatch = createEventDispatcher<{ select: { deck: PlayerDeck } }>();
 
-	// The deck the board deals from, called out in its option so the one that gets
+	// The deck the board deals from, marked in its option so the one that gets
 	// played is visible without opening it.
 	$: active = playerDeckAdapter.activeDeck(decks);
+
+	// Leads the active deck's option. Options can't be styled, so the mark is part
+	// of the text.
+	const ACTIVE_MARK = '✓ ';
 
 	// Mirrors the selection so the element stays in step with the deck the parent
 	// has open — which isn't always the one that was picked here: a delete moves it
@@ -27,8 +31,8 @@
 	function label(deck: PlayerDeck): string {
 		const total = playerDeckAdapter.totalCards(deck.cards);
 		const name = deck.name || 'Untitled deck';
-		const suffix = active?.id === deck.id ? ' · on the board' : '';
-		return `${name} · ${total}/${DECK_SIZE}${suffix}`;
+		const mark = active?.id === deck.id ? ACTIVE_MARK : '';
+		return `${mark}${name} · ${total}/${DECK_SIZE}`;
 	}
 
 	function onChange(event: Event & { currentTarget: HTMLSelectElement }) {
