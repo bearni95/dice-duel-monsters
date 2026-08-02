@@ -84,6 +84,13 @@
 		({ card, count }) => playerDeckAdapter.copiesOutsideDeck(cards, card.id, count) > 0
 	);
 
+	// Until a card has been pointed at, the viewer shows the first one in the grid
+	// rather than an empty frame — the collection arrives after the first render, so
+	// this waits for it and then leaves the viewer alone.
+	$: if (hovered === null && (available.length > 0 || collection.length > 0)) {
+		hovered = (available[0] ?? collection[0]).card;
+	}
+
 	// The deck's contents as one tile per copy rather than one per card with a count
 	// on it — three copies of a card are three cards in the deck, and the grid says
 	// so. Cards that have fallen out of the collection are dropped (nothing removes
