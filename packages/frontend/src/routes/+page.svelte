@@ -12,8 +12,11 @@
 	} from '$services/deck.service';
 	import { characters } from '$data/characters';
 	import { characterDeckAdapter } from '$adapters/character-deck.adapter';
+	import { CardApiAdapter } from '$adapters/cardApi.adapter';
 	import DeckList from '$components/decks/DeckList.svelte';
 	import { AssignedCharacterList } from '$components/characters';
+	import { BoosterPackPanel } from '$components/booster';
+	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import type { PlayerDeck } from '$types/player-deck.type';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
@@ -82,9 +85,22 @@
 		characterDeckAdapter.assigned(characters, $staticDecks, $characterDecks)
 	);
 
+	// The pool the pack opener in the middle columns draws from — the same one the
+	// /booster page packs: every card the game can actually summon. A failure here
+	// leaves the pool empty, which the panel renders as nothing to open rather than
+	// taking the rest of the page down with it.
+	const cardApiAdapter = new CardApiAdapter();
+	let boosterPool = $state<CardAsset[]>([]);
+
 	onMount(async () => {
 		await Promise.all([refreshDecks(), refreshAssignments()]);
 		opponentsLoading = false;
+
+		try {
+			boosterPool = await cardApiAdapter.loadBoosterPool();
+		} catch {
+			boosterPool = [];
+		}
 	});
 </script>
 
@@ -229,17 +245,21 @@
 				</section>
 			</div>
 
-			<!-- The second column, empty since the decks moved up into the first. -->
-			<div class="min-w-0" aria-hidden="true"></div>
+			<!-- The middle two columns: the same pack opener the /booster page is, canvas
+			     and all. It fills the two columns it spans and the full height of the
+			     row, which is what gives the canvas something to size itself to. -->
+			<section class="min-w-0 md:col-span-2" aria-label="Booster packs">
+				<BoosterPackPanel
+					pool={boosterPool}
+					saving={$player.saving}
+					onGrant={(cardIds) => playerService.grantCards(cardIds)}
+					classes="h-full"
+				/>
+			</section>
 
 			<section class="min-w-0" aria-label="Characters">
 				<AssignedCharacterList entries={opponents} loading={opponentsLoading} />
 			</section>
-
-			<!-- The fourth column, held empty until there is something to put in it. It
-			     renders nothing, so it only takes up space once the grid is actually
-			     four columns wide. -->
-			<div class="min-w-0" aria-hidden="true"></div>
 		</div>
 	{/if}
 </main>
