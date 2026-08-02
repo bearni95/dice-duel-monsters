@@ -28,6 +28,9 @@ create policy "Available cards are readable by everyone"
 	on public.available_cards for select
 	using (true);
 
+-- The set stated below, so `gen:grantable` can tell whether a later run actually
+-- changed anything instead of emitting a no-op migration every build.
+-- allow-list: 280:a189ab89aa2ef69b
 insert into public.available_cards (card_id)
 values
 	(423705), (1184620), (1546123), (1784619), (2111707), (2851070), (2906250), (3134241), (3366982), (3573512),
