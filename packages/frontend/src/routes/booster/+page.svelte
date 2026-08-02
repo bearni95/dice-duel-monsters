@@ -6,7 +6,7 @@
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import type { PackPull } from '$types/booster.type';
 	import { defaultBoosterPack } from '$data/boosterPacks';
-	import { openPack, PACK_SIZE, RARITY_LABEL } from '$utils/booster/rarityTier';
+	import { openPack, RARITY_LABEL } from '$utils/booster/rarityTier';
 	import { packCoverUrl } from '$utils/booster/packTextures';
 	import { BoosterPackOpener } from '$components/booster';
 
@@ -41,9 +41,11 @@
 	// trying to re-animate the one that was just cut.
 	let openSession = $state(0);
 	// The grant is deferred until the cut animation finishes, so a pack left
-	// unopened costs nothing. `committed` tracks whether this pack's pulls have
-	// been persisted yet, and gates rolling the next one.
-	let committed = $state(false);
+	// unopened costs nothing. `opened` flips when it does, and is what gates
+	// rolling the next pack — it tracks the animation rather than the write, so a
+	// grant that fails leaves the player able to move on rather than stuck on a
+	// pack that can never be re-committed.
+	let opened = $state(false);
 	let committing = $state(false);
 
 	// The card under the pointer or the keyboard cursor, captioned below the canvas.
@@ -58,18 +60,18 @@
 		error = '';
 		focused = null;
 		pulls = openPack(availableCards);
-		committed = false;
+		opened = false;
 		openSession += 1;
 	}
 
 	// Fires once the cards have settled in the canvas: that is the moment they
 	// become the player's, so it is the moment they are written to Supabase.
 	async function commit() {
-		if (committed || committing || pulls.length === 0) return;
+		if (opened || committing || pulls.length === 0) return;
+		opened = true;
 		committing = true;
 		try {
 			await playerService.grantCards(pulls.map((pull) => pull.card.id));
-			committed = true;
 		} catch {
 			error = "Those cards couldn't be added to your collection. Try opening another pack.";
 		} finally {
@@ -127,19 +129,6 @@
 			</p>
 		</section>
 	{:else}
-		<!-- Sits over the collection backdrop the layout draws, so the header and
-		     footer get translucent panels rather than competing with the art. -->
-		<header class="pointer-events-none z-20 flex shrink-0 items-start p-4 pr-14">
-			<div
-				class="bg-base-100/70 border-base-300/60 rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
-			>
-				<h1 class="text-lg font-bold">{pack.label}</h1>
-				<p class="text-base-content/60 text-xs">
-					Click anywhere along the pack to slice it open, or aim with ↑/↓ and press Enter
-				</p>
-			</div>
-		</header>
-
 		<div class="min-h-0 flex-1">
 			{#key openSession}
 				<BoosterPackOpener
@@ -152,27 +141,30 @@
 			{/key}
 		</div>
 
-		<footer class="z-20 flex shrink-0 items-center justify-between gap-3 p-4">
-			<div
-				class="bg-base-100/70 border-base-300/60 min-w-0 rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
-			>
-				{#if error}
-					<p class="text-error truncate text-sm" role="alert">{error}</p>
-				{:else if focused}
-					<p class="truncate text-sm" aria-live="polite">
-						<span class="font-medium">{focused.card.name}</span>
-						<span class="opacity-60"> · {RARITY_LABEL[focused.rarity]}</span>
-					</p>
-				{:else}
-					<p class="text-base-content/60 truncate text-sm">
-						{PACK_SIZE} cards a pack, straight into your collection.
-					</p>
-				{/if}
-			</div>
+		<!-- Sits over the collection backdrop the layout draws, so the caption gets a
+		     translucent panel rather than competing with the art. It only appears
+		     when there is something to say. -->
+		<footer class="relative z-20 flex shrink-0 items-center justify-center p-4">
+			<!-- Taken out of the flow so the button stays centred on the page rather
+			     than on whatever space the caption leaves it. -->
+			{#if error || focused}
+				<div
+					class="bg-base-100/70 border-base-300/60 absolute left-4 max-w-[40%] rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
+				>
+					{#if error}
+						<p class="text-error truncate text-sm" role="alert">{error}</p>
+					{:else if focused}
+						<p class="truncate text-sm" aria-live="polite">
+							<span class="font-medium">{focused.card.name}</span>
+							<span class="opacity-60"> · {RARITY_LABEL[focused.rarity]}</span>
+						</p>
+					{/if}
+				</div>
+			{/if}
 
 			<button
 				class="btn bg-warning text-warning-content hover:bg-warning/80"
-				disabled={!committed || committing || $player.saving}
+				disabled={!opened || committing || $player.saving}
 				onclick={roll}
 			>
 				{#if committing}
