@@ -224,35 +224,63 @@ class PlayerDeckService {
 	}
 
 	/**
-	 * Enable or disable a deck — whether the board deals from it (see
-	 * `playerDeckAdapter.activeDeck`). Written straight to the deck row rather
-	 * than through `save_player_deck`, which replaces a deck's name and contents
-	 * wholesale and has no business rewriting 30 card rows because a switch was
-	 * flipped. RLS scopes the update to the owner.
+	 * Make a deck the active one, or stand it down — whether the board deals from
+	 * it (see `playerDeckAdapter.activeDeck`). Exactly one deck is active at a
+	 * time: activating a deck stands down whichever one held the flag, so the
+	 * player never has to turn the old one off first. Written straight to the deck
+	 * rows rather than through `save_player_deck`, which replaces a deck's name and
+	 * contents wholesale and has no business rewriting 30 card rows because a
+	 * switch was flipped. RLS scopes both updates to the owner.
 	 *
 	 * Optimistic like `update`, but not coalesced: a flag is one round trip either
-	 * way. A refused write puts the flag back where it was, so the switch can
+	 * way. A refused write puts every flag back where it was, so the switches can
 	 * never show a state the database didn't accept.
 	 */
 	async setEnabled(deckId: string, enabled: boolean): Promise<void> {
 		const userId = this.currentUserId;
 		const client = getSupabaseClient();
-		const current = get(this.store).decks.find((deck) => deck.id === deckId);
+		const decks = get(this.store).decks;
+		const current = decks.find((deck) => deck.id === deckId);
 		if (!userId || !client || !current) return;
 		if (current.enabled === enabled) return;
 
-		const applyFlag = (value: boolean, error: string | null) =>
+		// The decks that have to be stood down for this one to take over. Activating
+		// is the only direction that touches another deck; standing one down leaves
+		// the player with none active, which is theirs to do.
+		const standDown = enabled ? decks.filter((deck) => deck.id !== deckId && deck.enabled) : [];
+
+		const before = new Map(decks.map((deck) => [deck.id, deck.enabled]));
+		const after = new Map(before);
+		after.set(deckId, enabled);
+		for (const deck of standDown) after.set(deck.id, false);
+
+		const applyFlags = (flags: Map<string, boolean>, error: string | null) =>
 			this.store.update((s) => ({
 				...s,
 				error,
-				decks: s.decks.map((deck) => (deck.id === deckId ? { ...deck, enabled: value } : deck))
+				decks: s.decks.map((deck) => ({ ...deck, enabled: flags.get(deck.id) ?? deck.enabled }))
 			}));
 
-		applyFlag(enabled, null);
+		applyFlags(after, null);
+
+		// The old deck is stood down first: a moment with no active deck is
+		// recoverable, two active decks is the state this exists to prevent. There is
+		// only ever one row to clear unless older data left several flagged.
+		for (const other of standDown) {
+			const { error } = await client
+				.from('player_decks')
+				.update({ enabled: false })
+				.eq('id', other.id);
+
+			if (error) {
+				if (this.currentUserId === userId) applyFlags(before, error.message);
+				return;
+			}
+		}
 
 		const { error } = await client.from('player_decks').update({ enabled }).eq('id', deckId);
 
-		if (error && this.currentUserId === userId) applyFlag(current.enabled, error.message);
+		if (error && this.currentUserId === userId) applyFlags(before, error.message);
 	}
 
 	/**

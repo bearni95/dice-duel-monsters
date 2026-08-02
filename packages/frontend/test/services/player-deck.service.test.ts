@@ -242,17 +242,34 @@ describe('playerDeckService', () => {
 
 			await done;
 
+			// The deck that held the flag is stood down first, then the new one takes
+			// it — one row update each.
 			expect(mocks.updates).toEqual([
+				{ table: 'player_decks', values: { enabled: false }, id: 'deck-1' },
 				{ table: 'player_decks', values: { enabled: true }, id: 'deck-2' }
 			]);
 			// The flag is its own row update; a deck's 30 cards aren't rewritten for it.
 			expect(mocks.rpc).not.toHaveBeenCalled();
 		});
 
-		it('leaves the other decks alone', async () => {
+		it('stands the active deck down when another one takes over', async () => {
 			await playerDeckService.setEnabled('deck-2', true);
 
-			expect(get(playerDeckService.store).decks[0].enabled).toBe(true);
+			const decks = get(playerDeckService.store).decks;
+			expect(decks[0].enabled).toBe(false);
+			expect(decks[1].enabled).toBe(true);
+		});
+
+		it('leaves the other decks alone when a deck stands itself down', async () => {
+			await playerDeckService.setEnabled('deck-1', false);
+
+			expect(mocks.updates).toEqual([
+				{ table: 'player_decks', values: { enabled: false }, id: 'deck-1' }
+			]);
+			expect(get(playerDeckService.store).decks.map((deck) => deck.enabled)).toEqual([
+				false,
+				false
+			]);
 		});
 
 		it('puts the flag back and reports the reason when the write is refused', async () => {
@@ -263,6 +280,20 @@ describe('playerDeckService', () => {
 			const state = get(playerDeckService.store);
 			expect(state.decks[1].enabled).toBe(false);
 			expect(state.error).toBe('permission denied');
+		});
+
+		it('leaves the active deck standing when it cannot be stood down', async () => {
+			mocks.updateError.message = 'permission denied';
+
+			await playerDeckService.setEnabled('deck-2', true);
+
+			const state = get(playerDeckService.store);
+			expect(state.decks[0].enabled).toBe(true);
+			// The refusal came from the stand-down, so the deck taking over is never
+			// written at all.
+			expect(mocks.updates).toEqual([
+				{ table: 'player_decks', values: { enabled: false }, id: 'deck-1' }
+			]);
 		});
 
 		it('writes nothing when the flag already has the requested value', async () => {

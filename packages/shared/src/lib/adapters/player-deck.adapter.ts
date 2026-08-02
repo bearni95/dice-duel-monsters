@@ -53,11 +53,11 @@ export class PlayerDeckAdapter extends AdapterClass {
 	}
 
 	/**
-	 * The deck the board deals from, or `null` when the player has none. Nothing
-	 * stops several decks being enabled at once, so this resolves the tie the same
-	 * way every time: the first enabled deck in the order they were created (the
-	 * order the decks page lists them in), which is what lets that page state
-	 * plainly which deck a match will use.
+	 * The deck the board deals from, or `null` when the player has none. Only one
+	 * deck is meant to carry the flag — `playerDeckService.setEnabled` stands the
+	 * old one down as it raises the new — but nothing in the database enforces
+	 * that, so this still resolves a tie the same way every time: the first enabled
+	 * deck in the order they were created.
 	 */
 	activeDeck(decks: PlayerDeck[]): PlayerDeck | null {
 		if (decks.length === 1) return decks[0];

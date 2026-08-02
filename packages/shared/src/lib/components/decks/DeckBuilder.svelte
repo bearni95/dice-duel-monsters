@@ -193,10 +193,11 @@
 				{/if}
 
 				{#if deck}
-					<!-- A player's only deck is played whether or not its flag was ever set,
-					     so its switch reads on and can't be turned off. -->
+					<!-- One deck is active at a time: switching this on stands down whichever
+					     deck held it. A player's only deck is played whether or not its flag
+					     was ever set, so its switch reads on and can't be turned off. -->
 					<label class="label cursor-pointer justify-start gap-2">
-						<span class="label-text">Enabled</span>
+						<span class="label-text">Active</span>
 						<input
 							type="checkbox"
 							class="toggle toggle-primary toggle-sm"
@@ -204,7 +205,7 @@
 							disabled={saving || decks.length === 1}
 							title={decks.length === 1
 								? 'Your only deck is always the one you play with.'
-								: 'Take this deck to the board'}
+								: 'Make this the deck you take to the board'}
 							on:change={(event) =>
 								deck && dispatch('enable', { deck, enabled: event.currentTarget.checked })}
 						/>
