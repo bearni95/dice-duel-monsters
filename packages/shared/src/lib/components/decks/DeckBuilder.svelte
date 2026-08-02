@@ -123,6 +123,7 @@
 						max={playerDeckAdapter.maxCopies(count)}
 						{deckFull}
 						disabled={noDeck}
+						controls="row"
 						on:add={() => dispatch('add', { cardId: card.id })}
 						on:remove={() => dispatch('remove', { cardId: card.id })}
 					/>

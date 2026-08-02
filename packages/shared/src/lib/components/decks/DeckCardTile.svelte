@@ -19,12 +19,24 @@
 	export let deckFull: boolean = false;
 	// Blocks both controls while a save is in flight.
 	export let disabled: boolean = false;
+	// Where the count and the two buttons go. `row` puts them under the art, which
+	// the collection grid uses because its tiles are big enough to give them a line
+	// of their own; `overlay` keeps them on the art, for the cramped tiles in the
+	// deck's own list.
+	export let controls: 'overlay' | 'row' = 'overlay';
 	export let classes: string = '';
 
 	const dispatch = createEventDispatcher<{ add: void; remove: void }>();
 
 	$: canAdd = !disabled && !deckFull && inDeck < max;
 	$: canRemove = !disabled && inDeck > 0;
+
+	// Why adding is refused, so both the art and the add button say the same thing.
+	$: addTitle = canAdd
+		? `Add ${card.name}`
+		: deckFull
+			? 'The deck is already full'
+			: `You can run at most ${max} of ${card.name}`;
 
 	// Dim cards that can't go into the deck at all (owned, but already maxed out
 	// or the deck is full) so the addable ones stand out.
@@ -33,6 +45,13 @@
 		{ 'opacity-50': !canAdd && inDeck === 0 },
 		classes
 	);
+
+	// The count reads as a live figure once the card is in the deck, and as the
+	// limit it could reach while it isn't.
+	$: countClasses = classNames('font-mono text-xs font-semibold', {
+		'text-primary': inDeck > 0,
+		'text-base-content/50': inDeck === 0
+	});
 </script>
 
 <div class={tileClasses}>
@@ -43,36 +62,60 @@
 		class="block w-full cursor-pointer disabled:cursor-not-allowed"
 		disabled={!canAdd}
 		aria-label={`Add ${card.name} to the deck`}
-		title={canAdd
-			? `Add ${card.name}`
-			: deckFull
-				? 'The deck is already full'
-				: `You can run at most ${max} of ${card.name}`}
+		title={addTitle}
 		on:click={() => dispatch('add')}
 	>
 		<GeneratedCardImage id={card.id} name={card.name} />
 	</button>
 
-	{#if inDeck > 0}
-		<span class="badge badge-primary badge-sm absolute top-1 right-1 font-semibold">
-			{inDeck}/{max}
-		</span>
-	{:else if owned > 1}
-		<span class="badge badge-neutral badge-sm absolute top-1 right-1 font-semibold">
-			×{owned}
-		</span>
-	{/if}
+	{#if controls === 'row'}
+		<!-- The count and both buttons on a line of their own under the art, so
+		     nothing sits on top of the card being looked at. -->
+		<div class="mt-1 flex items-center justify-between gap-1">
+			<button
+				type="button"
+				class="btn btn-square btn-xs"
+				disabled={!canRemove}
+				aria-label={`Remove a copy of ${card.name} from the deck`}
+				title={`Remove a copy of ${card.name}`}
+				on:click={() => dispatch('remove')}
+			>
+				−
+			</button>
+			<span class={countClasses} title={`You own ${owned}`}>{inDeck}/{max}</span>
+			<button
+				type="button"
+				class="btn btn-square btn-xs btn-primary"
+				disabled={!canAdd}
+				aria-label={`Add a copy of ${card.name} to the deck`}
+				title={addTitle}
+				on:click={() => dispatch('add')}
+			>
+				+
+			</button>
+		</div>
+	{:else}
+		{#if inDeck > 0}
+			<span class="badge badge-primary badge-sm absolute top-1 right-1 font-semibold">
+				{inDeck}/{max}
+			</span>
+		{:else if owned > 1}
+			<span class="badge badge-neutral badge-sm absolute top-1 right-1 font-semibold">
+				×{owned}
+			</span>
+		{/if}
 
-	{#if inDeck > 0}
-		<button
-			type="button"
-			class="btn btn-error btn-xs absolute bottom-1 left-1"
-			disabled={!canRemove}
-			aria-label={`Remove a copy of ${card.name} from the deck`}
-			title={`Remove a copy of ${card.name}`}
-			on:click={() => dispatch('remove')}
-		>
-			−
-		</button>
+		{#if inDeck > 0}
+			<button
+				type="button"
+				class="btn btn-error btn-xs absolute bottom-1 left-1"
+				disabled={!canRemove}
+				aria-label={`Remove a copy of ${card.name} from the deck`}
+				title={`Remove a copy of ${card.name}`}
+				on:click={() => dispatch('remove')}
+			>
+				−
+			</button>
+		{/if}
 	{/if}
 </div>
