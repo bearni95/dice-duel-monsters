@@ -43,6 +43,10 @@
 	// Card art by id, shared with the deck list so it can render preview strips.
 	let assets = $derived(new Map(collection.map(({ card }) => [card.id, card])));
 
+	// The deck a match is played with, named on the page so the choice the toggles
+	// make is stated rather than inferred.
+	let activeDeck = $derived(playerDeckAdapter.activeDeck($decks.decks));
+
 	// Which deck the builder is editing, by id. The deck itself is read back out
 	// of the store rather than held here, so the edits the service applies show up
 	// immediately — and a deck that disappears (deleted, or a sign-out) closes the
@@ -84,6 +88,14 @@
 		playerDeckService.update(editingDeck.id, {
 			cards: playerDeckAdapter.removeCopy(editingDeck.cards, event.detail.cardId)
 		});
+	}
+
+	// Enable or disable a deck for play. The board deals from the enabled deck
+	// (see playerDeckAdapter.activeDeck), so this is what picks which deck a match
+	// is played with.
+	function enable(event: CustomEvent<{ deck: PlayerDeck; enabled: boolean }>) {
+		deleteError = '';
+		void playerDeckService.setEnabled(event.detail.deck.id, event.detail.enabled);
 	}
 
 	async function remove(event: CustomEvent<{ deck: PlayerDeck }>) {
@@ -167,6 +179,17 @@
 						{$decks.decks.length === 1 ? 'deck' : 'decks'} · {DECK_SIZE} cards each, up to 3 copies
 						of a card per deck
 					</p>
+					<p class="text-base-content/60 text-sm">
+						{#if $decks.decks.length === 1}
+							Your only deck is the one you take to the board.
+						{:else if activeDeck}
+							The board deals from <span class="font-medium"
+								>{activeDeck.name || 'your untitled deck'}</span
+							>. Enable another to play with it instead.
+						{:else}
+							Enable a deck to take it to the board.
+						{/if}
+					</p>
 				</div>
 				<button
 					class="btn btn-primary"
@@ -187,6 +210,7 @@
 					{assets}
 					disabled={$decks.saving}
 					on:edit={edit}
+					on:enable={enable}
 					on:remove={remove}
 				/>
 			{:else}

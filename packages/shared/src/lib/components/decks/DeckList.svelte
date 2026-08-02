@@ -12,7 +12,20 @@
 	// Blocks the controls while a save or delete is in flight.
 	export let disabled: boolean = false;
 
-	const dispatch = createEventDispatcher<{ edit: { deck: PlayerDeck }; remove: { deck: PlayerDeck } }>();
+	const dispatch = createEventDispatcher<{
+		edit: { deck: PlayerDeck };
+		remove: { deck: PlayerDeck };
+		enable: { deck: PlayerDeck; enabled: boolean };
+	}>();
+
+	// The deck the board deals from. Several decks may be enabled at once, so this
+	// is named on the one that actually gets played rather than left to be guessed
+	// from the switches.
+	$: active = playerDeckAdapter.activeDeck(decks);
+
+	// A player's only deck is played whether or not its flag was ever set, so its
+	// switch reads on and can't be turned off — there is nothing to fall back to.
+	$: onlyDeck = decks.length === 1;
 
 	// How many cards of a deck to show in its preview strip before trailing off.
 	const PREVIEW_LIMIT = 8;
@@ -38,6 +51,9 @@
 							<!-- Decks are saved as they are built, so one can sit here unnamed
 							     and half-full; both say so rather than reading as broken. -->
 							{deck.name || 'Untitled deck'}
+							{#if active?.id === deck.id}
+								<span class="badge badge-primary badge-sm font-normal">On the board</span>
+							{/if}
 							{#if total !== DECK_SIZE}
 								<span class="badge badge-ghost badge-sm font-normal">Unfinished</span>
 							{/if}
@@ -47,7 +63,19 @@
 							{deck.cards.length === 1 ? 'unique card' : 'unique cards'}
 						</p>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex items-center gap-2">
+						<label class="label cursor-pointer gap-2 py-0">
+							<span class="label-text text-sm">Enabled</span>
+							<input
+								type="checkbox"
+								class="toggle toggle-primary toggle-sm"
+								checked={playerDeckAdapter.isEnabled(deck, decks)}
+								disabled={disabled || onlyDeck}
+								title={onlyDeck ? 'Your only deck is always the one you play with.' : undefined}
+								on:change={(event) =>
+									dispatch('enable', { deck, enabled: event.currentTarget.checked })}
+							/>
+						</label>
 						<button
 							class="btn btn-sm"
 							{disabled}
