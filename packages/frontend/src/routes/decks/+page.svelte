@@ -7,7 +7,7 @@
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import DeckBuilder from '$components/decks/DeckBuilder.svelte';
-	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
+	import type { PlayerDeck } from '$types/player-deck.type';
 
 	// Same three Supabase-backed stores the home page uses: the session, the
 	// player's collection, and — new here — their saved decks.
@@ -37,10 +37,6 @@
 			if (token === collectionToken) collection = resolved;
 		});
 	});
-
-	// The deck a match is played with, named on the page so the choice the toggles
-	// make is stated rather than inferred.
-	let activeDeck = $derived(playerDeckAdapter.activeDeck($decks.decks));
 
 	// Which deck the builder is editing, by id. The deck itself is read back out of
 	// the store rather than held here, so the edits the service applies show up
@@ -148,22 +144,6 @@
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</section>
 	{:else}
-		<div>
-			<h1 class="text-2xl font-bold">Decks</h1>
-			<p class="text-base-content/60 text-sm">
-				{DECK_SIZE} cards each, up to 3 copies of a card per deck.
-				{#if $decks.decks.length === 1}
-					Your only deck is the one you take to the board.
-				{:else if activeDeck}
-					The board deals from <span class="font-medium"
-						>{activeDeck.name || 'your untitled deck'}</span
-					>. Enable another to play with it instead.
-				{:else if $decks.decks.length > 0}
-					Enable a deck to take it to the board.
-				{/if}
-			</p>
-		</div>
-
 		<DeckBuilder
 			decks={$decks.decks}
 			deck={selectedDeck}
