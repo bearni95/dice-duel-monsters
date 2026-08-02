@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { isPlayable, survivesBillboardGate, readJsonObject } from './lib/card-rules.mjs';
 
 // Emits a trimmed, deploy-ready card catalog that the client filters in the
 // browser. The static SPA (GitHub Pages) has no server to run the old
@@ -31,65 +32,8 @@ const ASSIGNMENTS = fromEnv('CARD_CATALOG_ASSIGNMENTS', 'card-effects/assignment
 const POSITIONS = fromEnv('CARD_CATALOG_POSITIONS', 'cards/positions.json');
 const OUT = fromEnv('CARD_CATALOG_OUT', 'dist/catalog.json');
 
-// --- playable classification (mirrors the old +server.ts rules) -------------
-
-function categoryOf(type) {
-	if (typeof type !== 'string') return 'other';
-	if (type.includes('Monster')) return 'monster';
-	if (type === 'Spell Card') return 'spell';
-	if (type === 'Trap Card') return 'trap';
-	return 'other';
-}
-
-// Vanilla monsters (Normal / Normal Tuner / Pendulum Normal) and plain Effect
-// Monsters are playable on their own; every other card needs an assigned effect.
-function isVanillaMonster(type) {
-	return categoryOf(type) === 'monster' && typeof type === 'string' && type.includes('Normal');
-}
-function isPlainEffectMonster(type) {
-	return type === 'Effect Monster';
-}
-// Fusion and Ritual monsters (any of their `type` variants — "Fusion Monster",
-// "Ritual Monster", "Ritual Effect Monster", "Pendulum Effect Fusion Monster",
-// …) are playable on their own, like vanilla and plain Effect Monsters.
-function isFusionOrRitualMonster(type) {
-	return (
-		categoryOf(type) === 'monster' &&
-		typeof type === 'string' &&
-		(type.includes('Fusion') || type.includes('Ritual'))
-	);
-}
-
-// A monster only earns a place in the catalog once it has a billboard cutout
-// prepared for the board — there is nothing to render on the field without one.
-// Spells, traps, and everything else are always kept regardless of billboard.
-function survivesBillboardGate(card) {
-	return categoryOf(card.type) === 'monster' ? Boolean(card.billboard) : true;
-}
-
-function readEffectAssignments() {
-	if (!existsSync(ASSIGNMENTS)) return {};
-	try {
-		const data = JSON.parse(readFileSync(ASSIGNMENTS, 'utf8'));
-		return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-	} catch {
-		return {};
-	}
-}
-
-// Per-card board positioning authored on /admin/cards
-// (`cardId -> { size?, x?, y? }`): a billboard size factor plus an x/y pixel
-// offset of the image (its red square) relative to its cell (the purple square).
-// Only fields adjusted away from their default (size 1, x/y 0) are stored.
-function readPositions() {
-	if (!existsSync(POSITIONS)) return {};
-	try {
-		const data = JSON.parse(readFileSync(POSITIONS, 'utf8'));
-		return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-	} catch {
-		return {};
-	}
-}
+// The playable / billboard classification lives in ./lib/card-rules.mjs, shared
+// with build-grantable-cards so the two can never drift apart.
 
 // --- build ------------------------------------------------------------------
 
@@ -104,16 +48,15 @@ if (!raw || !Array.isArray(raw.data)) {
 	process.exit(1);
 }
 
-const effects = readEffectAssignments();
-const positions = readPositions();
+const effects = readJsonObject(ASSIGNMENTS);
+// Per-card board positioning authored on /admin/cards
+// (`cardId -> { size?, x?, y? }`): a billboard size factor plus an x/y pixel
+// offset of the image (its red square) relative to its cell (the purple square).
+// Only fields adjusted away from their default (size 1, x/y 0) are stored.
+const positions = readJsonObject(POSITIONS);
 
 const cards = raw.data.filter(survivesBillboardGate).map((card) => {
-	const impls = effects[String(card.id)];
-	const playable =
-		isVanillaMonster(card.type) ||
-		isPlainEffectMonster(card.type) ||
-		isFusionOrRitualMonster(card.type) ||
-		(Array.isArray(impls) && impls.length > 0);
+	const playable = isPlayable(card.type, effects[String(card.id)]);
 
 	// Board positioning: only fields adjusted away from their default carry a
 	// stored value, so a default card omits `size`/`x`/`y` entirely (the renderer
