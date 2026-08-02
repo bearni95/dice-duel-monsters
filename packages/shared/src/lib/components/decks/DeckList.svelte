@@ -36,13 +36,17 @@
 {#if decks.length > 0}
 	<ul class="space-y-2">
 		{#each decks as deck (deck.id)}
-			<!-- Rows are drawn with borders rather than fills so whatever sits behind
-			     the list shows through it; the active one is tinted, not filled. -->
+			<!-- Rows are frosted glass rather than solid panels: whatever sits behind
+			     the list still reads through them, blurred back enough that the text on
+			     top stays legible. The active one is tinted the same way. -->
 			<li
-				class={classNames('flex items-center gap-3 rounded-lg border px-3 py-2', {
-					'bg-primary/10 border-primary': playerDeckAdapter.isEnabled(deck, decks),
-					'border-base-300': !playerDeckAdapter.isEnabled(deck, decks)
-				})}
+				class={classNames(
+					'flex items-center gap-3 rounded-lg border px-3 py-2 backdrop-blur-md',
+					{
+						'bg-primary/20 border-primary': playerDeckAdapter.isEnabled(deck, decks),
+						'bg-base-100/50 border-base-300': !playerDeckAdapter.isEnabled(deck, decks)
+					}
+				)}
 			>
 				<div class="min-w-0 flex-1">
 					<p class="truncate font-medium">{label(deck)}</p>
@@ -74,7 +78,7 @@
 	</ul>
 {:else}
 	<p
-		class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+		class="border-base-300 bg-base-100/50 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm backdrop-blur-md"
 	>
 		You don't have any decks yet. Build one on the decks page.
 	</p>

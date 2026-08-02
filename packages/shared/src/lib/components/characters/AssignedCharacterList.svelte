@@ -18,11 +18,13 @@
 		<span class="loading loading-spinner loading-md text-primary"></span>
 	</div>
 {:else if entries.length > 0}
-	<!-- Rows are drawn with borders rather than fills, like the deck list beside
-	     them, so whatever sits behind the column shows through it. -->
+	<!-- Rows are frosted glass, like the deck list beside them: whatever sits behind
+	     the column still reads through them, blurred back so the text stays legible. -->
 	<ul class={classNames('space-y-2', classes)}>
 		{#each entries as { character, deck } (character.slug)}
-			<li class="border-base-300 flex items-center gap-3 rounded-lg border px-3 py-2">
+			<li
+				class="border-base-300 bg-base-100/50 flex items-center gap-3 rounded-lg border px-3 py-2 backdrop-blur-md"
+			>
 				<img
 					src={character.src}
 					alt=""
@@ -42,7 +44,7 @@
 {:else}
 	<p
 		class={classNames(
-			'border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm',
+			'border-base-300 bg-base-100/50 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm backdrop-blur-md',
 			classes
 		)}
 	>
