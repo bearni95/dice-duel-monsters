@@ -225,15 +225,7 @@
 				{/if}
 			</section>
 
-			<section class="min-w-0 space-y-4" aria-label="Characters">
-				<div class="min-w-0">
-					<h2 class="text-xl font-bold">Characters</h2>
-					<p class="text-base-content/60 text-sm">
-						{opponents.length}
-						{opponents.length === 1 ? 'character has' : 'characters have'} a deck to play with.
-					</p>
-				</div>
-
+			<section class="min-w-0" aria-label="Characters">
 				<AssignedCharacterList entries={opponents} loading={opponentsLoading} />
 			</section>
 

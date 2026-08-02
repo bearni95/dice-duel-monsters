@@ -21,23 +21,19 @@
 	<!-- Rows are frosted glass, like the deck list beside them: whatever sits behind
 	     the column still reads through them, blurred back so the text stays legible. -->
 	<ul class={classNames('space-y-2', classes)}>
-		{#each entries as { character, deck } (character.slug)}
+		{#each entries as { character } (character.slug)}
+			<!-- The portrait is the row's full height and flush with its edges — the
+			     row is sized for it, and clips it back to the same rounded corners. -->
 			<li
-				class="border-base-300 bg-base-100/50 flex items-center gap-3 rounded-lg border px-3 py-2 backdrop-blur-md"
+				class="border-base-300 bg-base-100/50 flex h-20 items-center gap-3 overflow-hidden rounded-lg border pr-3 backdrop-blur-md"
 			>
 				<img
 					src={character.src}
 					alt=""
 					loading="lazy"
-					class="border-base-300 h-12 w-12 shrink-0 rounded-lg border object-cover [image-rendering:pixelated]"
+					class="h-full w-20 shrink-0 object-cover [image-rendering:pixelated]"
 				/>
-				<div class="min-w-0 flex-1">
-					<p class="truncate font-medium">{character.name}</p>
-					<p class="text-base-content/60 truncate text-sm">{deck.name}</p>
-				</div>
-				{#if character.series}
-					<span class="badge badge-ghost badge-sm shrink-0">{character.series}</span>
-				{/if}
+				<p class="min-w-0 flex-1 truncate font-medium">{character.name}</p>
 			</li>
 		{/each}
 	</ul>
