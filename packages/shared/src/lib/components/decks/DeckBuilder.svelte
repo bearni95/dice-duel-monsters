@@ -58,9 +58,6 @@
 
 	$: cards = deck?.cards ?? [];
 
-	// Copies owned per card id, which caps how many of it a deck may run.
-	$: owned = new Map(collection.map(({ card, count }) => [card.id, count]));
-
 	// Card art by id, so the deck contents can be rendered from the same assets
 	// the collection grid uses.
 	$: assets = new Map(collection.map(({ card }) => [card.id, card]));
@@ -80,12 +77,19 @@
 		({ card, count }) => playerDeckAdapter.copiesOutsideDeck(cards, card.id, count) > 0
 	);
 
-	// The deck's contents paired with their art, dropping any card that has fallen
-	// out of the collection (nothing removes ownership today, but the deck should
-	// still render rather than break if it ever does).
-	$: deckTiles = cards
-		.map((entry) => ({ entry, card: assets.get(entry.cardId) }))
-		.filter((tile): tile is { entry: (typeof cards)[number]; card: CardAsset } => Boolean(tile.card));
+	// The deck's contents as one tile per copy rather than one per card with a count
+	// on it — three copies of a card are three cards in the deck, and the grid says
+	// so. Cards that have fallen out of the collection are dropped (nothing removes
+	// ownership today, but the deck should still render rather than break if it
+	// ever does).
+	$: deckCopies = cards.flatMap((entry) => {
+		const card = assets.get(entry.cardId);
+		if (!card) return [];
+		return Array.from({ length: entry.quantity }, (_, copy) => ({
+			key: `${entry.cardId}-${copy}`,
+			card
+		}));
+	});
 
 	$: counterClasses = classNames('font-mono text-lg font-bold', {
 		'text-success': total === DECK_SIZE,
@@ -227,16 +231,12 @@
 		{/if}
 
 		{#if deck}
-			{#if deckTiles.length > 0}
+			{#if deckCopies.length > 0}
 				<div class="grid grid-cols-5 gap-2">
-					{#each deckTiles as { entry, card } (card.id)}
+					{#each deckCopies as { key, card } (key)}
 						<DeckCardTile
 							{card}
-							inDeck={entry.quantity}
-							owned={owned.get(card.id) ?? 0}
-							max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
-							{deckFull}
-							on:add={() => dispatch('add', { cardId: card.id })}
+							controls="remove"
 							on:remove={() => dispatch('remove', { cardId: card.id })}
 						/>
 					{/each}
