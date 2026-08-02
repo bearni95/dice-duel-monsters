@@ -153,9 +153,6 @@
 				disabled={!opened || committing || $player.saving}
 				onclick={roll}
 			>
-				{#if committing}
-					<span class="loading loading-spinner loading-xs"></span>
-				{/if}
 				Open another
 			</button>
 		</footer>
