@@ -34,7 +34,8 @@ export interface ScatterLayoutOptions {
 
 /** The tuning the backdrop looks right at, shared with the component's props. */
 export const SCATTER_DEFAULTS = {
-	cardWidth: 140,
+	/** Height follows from the art's aspect, and the grid steps off this too. */
+	cardWidth: 210,
 	maxCards: 200,
 	maxRotationDeg: 35
 } as const;

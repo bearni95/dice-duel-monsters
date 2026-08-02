@@ -32,7 +32,8 @@
 
 	// The generated card art is 1080x1415.
 	const CARD_ASPECT = 1415 / 1080;
-	const CORNER_RADIUS = 8;
+	// Scaled with the card so the corners keep their shape at any width.
+	const CORNER_RADIUS_RATIO = 8 / 140;
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 
@@ -95,6 +96,7 @@
 		const cardHeight = cardWidth * CARD_ASPECT;
 		const halfWidth = cardWidth / 2;
 		const halfHeight = cardHeight / 2;
+		const cornerRadius = cardWidth * CORNER_RADIUS_RATIO;
 
 		// Drawn in order, so the newest copies (last in the layout) land on top.
 		for (const card of cards) {
@@ -107,7 +109,7 @@
 
 			ctx.beginPath();
 			if (ctx.roundRect) {
-				ctx.roundRect(-halfWidth, -halfHeight, cardWidth, cardHeight, CORNER_RADIUS);
+				ctx.roundRect(-halfWidth, -halfHeight, cardWidth, cardHeight, cornerRadius);
 			} else {
 				ctx.rect(-halfWidth, -halfHeight, cardWidth, cardHeight);
 			}
