@@ -16,6 +16,10 @@ export default defineConfig({
 		}
 	},
 	resolve: {
+		// Svelte ships a server build and a client build behind export conditions.
+		// Without this, importing a component here resolves to the server one, whose
+		// `mount()` throws — component tests can only run against the client build.
+		conditions: ['browser'],
 		alias: {
 			$lib: resolve(__dirname, '../shared/src/lib'),
 			$services: resolve(__dirname, '../shared/src/lib/services'),
