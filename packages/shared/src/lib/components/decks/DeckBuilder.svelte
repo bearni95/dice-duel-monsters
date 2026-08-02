@@ -112,7 +112,7 @@
 <section class="grid grid-cols-1 gap-6 lg:h-[calc(100dvh-4rem)] lg:grid-cols-3" aria-label="Decks">
 	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1 lg:col-span-2 lg:h-auto lg:min-h-0">
 		{#if collection.length > 0}
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-5 xl:grid-cols-6">
+			<div class="grid grid-cols-6 gap-3">
 				{#each collection as { card, count } (card.id)}
 					<DeckCardTile
 						{card}
@@ -216,7 +216,7 @@
 
 		{#if deck}
 			{#if deckTiles.length > 0}
-				<div class="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-4">
+				<div class="grid grid-cols-5 gap-2">
 					{#each deckTiles as { entry, card } (card.id)}
 						<DeckCardTile
 							{card}
