@@ -5,8 +5,10 @@
 	"type": "module",
 	"scripts": {
 		"gen:catalog": "build-card-catalog",
-		"dev": "pnpm gen:catalog && vite dev",
-		"build": "pnpm gen:catalog && vite build",
+		"gen:grantable": "build-grantable-cards",
+		"gen:data": "pnpm gen:catalog && pnpm gen:grantable",
+		"dev": "pnpm gen:data && vite dev",
+		"build": "pnpm gen:data && vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

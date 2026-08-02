@@ -28,6 +28,9 @@ const FRONTEND_STATIC = join(dirname(fileURLToPath(import.meta.url)), '..', '..'
 // Ordered URL matchers → absolute file path. First match wins.
 const routes: Array<{ re: RegExp; to: (m: RegExpMatchArray) => string }> = [
 	{ re: /^\/cards\/catalog\.json$/, to: () => join(DATA_ROOT, 'dist', 'catalog.json') },
+	// The allow-list of grantable card ids, emitted next to the catalog by
+	// build-grantable-cards. Served under the same name the frontend uses.
+	{ re: /^\/cards\/grantable\.json$/, to: () => join(DATA_ROOT, 'dist', 'grantable-cards.json') },
 	{ re: /^\/cards\/generated\/([^/]+)$/, to: (m) => join(ASSETS_GENERATED, m[1]) },
 	// Monster cutout billboards (the on-board sprites the catalog references as
 	// `/cards/monster-billboards/…`), served from the frontend's static tree so the
