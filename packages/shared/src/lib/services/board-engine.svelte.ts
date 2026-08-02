@@ -2463,6 +2463,7 @@ function rolledDieCenter(
 // shown — at page start every total reads 0.
 const ROLE_COUNTER_ICON = 26; // drawn height (px) of a counter icon
 const ROLE_COUNTER_GAP = 3; // vertical gap between the icon and its value
+const ROLE_COUNTER_VALUE_H = 24; // drawn height (px) of a counter's 20px bold value
 
 // World centre of the k-th role counter: fixed one column past the block's last column
 // (full-width row centring puts the last column at +((COLS-1)/2) steps, so the next column is
@@ -2482,6 +2483,23 @@ function roleCounterCenter(
 	return {
 		x: mid.x + uHat.x * along + vHat.x * out,
 		y: mid.y + uHat.y * along + vHat.y * out
+	};
+}
+
+// The top-left corner of the player's Roll button: hung straight below the last role
+// counter's value, sharing that counter's column position, so the button reads as the foot of
+// the counter stack instead of floating centred under the pool. The counter's value is drawn
+// ROLE_COUNTER_GAP below its centre and is ROLE_COUNTER_VALUE_H tall, so the button clears it
+// by another gap; the x is pulled back half a button width to centre it on that column.
+function rollButtonCorner(axes: {
+	uHat: { x: number; y: number };
+	vHat: { x: number; y: number };
+	mid: { x: number; y: number };
+}): { x: number; y: number } {
+	const last = roleCounterCenter(ENERGY_ROWS.length - 1, axes);
+	return {
+		x: last.x - ACTION_BTN_W / 2,
+		y: last.y + ROLE_COUNTER_GAP + ROLE_COUNTER_VALUE_H + ROLE_COUNTER_GAP
 	};
 }
 
@@ -2650,10 +2668,10 @@ async function renderDiceDisplay() {
 			.sort((a, b) => a.cy - b.cy)
 			.forEach(({ node }) => diceDisplayLayer!.addChild(node));
 
-		// The player's Roll button, one row past the block while the pick is open.
+		// The player's Roll button while the pick is open: at the foot of the role-counter
+		// column, right under the last counter's value (see rollButtonCorner), rather than
+		// centred past the block where the parked roll-spot dice land.
 		if (side.interactive && pickingDice) {
-			const rows = Math.max(1, Math.ceil(slotTotal / MATCH_DIE_COLS));
-			const out = MATCH_DIE_OUT_GAP + rows * MATCH_DIE_ROW_STEP + MATCH_DIE_ROW_STEP;
 			const enabled = dicePick.length === dicePickCount();
 			const btn = buildActionButton(
 				`Roll ${dicePick.length}/${dicePickCount()}`,
@@ -2661,7 +2679,8 @@ async function renderDiceDisplay() {
 				enabled,
 				rollDicePick
 			);
-			btn.position.set(mid.x + vHat.x * out - ACTION_BTN_W / 2, mid.y + vHat.y * out);
+			const corner = rollButtonCorner(side.axes);
+			btn.position.set(corner.x, corner.y);
 			diceDisplayLayer.addChild(btn);
 		}
 	}
@@ -2802,8 +2821,7 @@ function playAreaPoints(): { x: number; y: number }[] {
 			pts.push({ x: cx - MATCH_DIE_SIZE, y: cy - MATCH_DIE_SIZE });
 			pts.push({ x: cx + MATCH_DIE_SIZE, y: cy + MATCH_DIE_SIZE });
 		}
-		// The Roll button (and, after a roll, the parked dice) hang one row past the block; keep
-		// their reach in bounds too.
+		// The parked roll-spot dice hang one row past the block; keep their reach in bounds too.
 		const out = MATCH_DIE_OUT_GAP + (MATCH_DICE_MAX_ROWS + 1) * MATCH_DIE_ROW_STEP;
 		pts.push({ x: mid.x + vHat.x * out, y: mid.y + vHat.y * out + ACTION_BTN_H });
 
@@ -2817,6 +2835,11 @@ function playAreaPoints(): { x: number; y: number }[] {
 			y: mid.y + uHat.y * along + vHat.y * counterOut + MATCH_DIE_SIZE
 		});
 	}
+
+	// Only the player has a Roll button, hanging at the foot of its counter column (see
+	// rollButtonCorner); reserve the box it occupies during the turn-start pick.
+	const roll = rollButtonCorner(playerDiceAxes());
+	pts.push({ x: roll.x, y: roll.y }, { x: roll.x + ACTION_BTN_W, y: roll.y + ACTION_BTN_H });
 
 	// Each side's full-size hand row: the player's cards hang down-right off the plaque
 	// edge (no lift), the rival's stand up-left above it (lifted a full card height), the
