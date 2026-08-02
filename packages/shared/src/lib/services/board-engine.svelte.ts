@@ -3008,8 +3008,8 @@ function drawOriginHearts(
 }
 
 // HP progressbar dimensions (in board/world units, before camera zoom). The bar
-// spans the full width of the purple cell-reference square drawn under each unit
-// (CELL_WIDTH — see createCellSquare), so it reads as the monster's own footprint.
+// spans the drawn (gapped) cell's own width (CELL_WIDTH — the same width the billboard
+// is sized to), so it reads as the monster's own footprint.
 // Its height is no longer fixed: it hugs the HP text it backs (see healthBarHeight),
 // with HP_BAR_HEIGHT kept only as a fallback before the label has measured.
 const HP_BAR_WIDTH = CELL_WIDTH;
@@ -3210,36 +3210,6 @@ function createShadow(x: number, y: number): Graphics {
 function positionShadow(unit: PlacedUnit) {
 	const { x: isoX, y: isoY } = isoPosOf(unit.x, unit.y);
 	unit.shadow.position.set(isoX, isoY);
-}
-
-// Build the purple cell square for a unit, rendered identically to the cell
-// square in the /cards board-preview modal: an axis-aligned square whose
-// side equals the drawn (gapped) cell's horizontal diagonal (CELL_WIDTH),
-// matching the billboard width, centered on the cell
-// center (x = 0) with its bottom edge flush with it (y = 0), so it rises above
-// the cell. Its 1-world-unit stroke matches the grid outlines. Lives in `shadows`
-// (below the creature sprites) and is anchored to the cell center — never the
-// card's x/y offset — so the red image border can be read against it exactly as
-// in the preview.
-function createCellSquare(x: number, y: number): Graphics {
-	const square = new Graphics()
-		.rect(-CELL_WIDTH / 2, -CELL_WIDTH, CELL_WIDTH, CELL_WIDTH)
-		.stroke({ width: 1, color: 0xa855f7, alignment: 0.5 });
-
-	const { x: isoX, y: isoY } = isoPosOf(x, y);
-	square.position.set(isoX, isoY);
-	square.eventMode = 'none';
-
-	shadows.addChild(square);
-
-	return square;
-}
-
-// Keep a unit's cell square on the cell it currently stands on (mirrors
-// positionShadow).
-function positionCellSquare(unit: PlacedUnit) {
-	const { x: isoX, y: isoY } = isoPosOf(unit.x, unit.y);
-	unit.cellSquare.position.set(isoX, isoY);
 }
 
 // The yellow frame around the selected on-board creature. Only one card is ever selected,
@@ -3490,10 +3460,6 @@ async function placeMonster(
 	// Isometric shadow ellipse on the creature's cell, under its sprite.
 	const shadow = createShadow(gridX, gridY);
 
-	// Purple cell-reference square on the creature's cell, matching the preview
-	// modal. Fixed to the cell center, so the sprite's x/y offset reads against it.
-	const cellSquare = createCellSquare(gridX, gridY);
-
 	const sprite = new Sprite(texture);
 
 	// As wide as the drawn (gapped) cell, with the billboard's bottom edge anchored
@@ -3536,7 +3502,6 @@ async function placeMonster(
 		creature,
 		sprite,
 		shadow,
-		cellSquare,
 		x: gridX,
 		y: gridY,
 		hp: 0,
@@ -4038,10 +4003,9 @@ function relocateUnit(unit: PlacedUnit, x: number, y: number) {
 	unit.x = x;
 	unit.y = y;
 
-	// Keep the shadow, cell square, HP bar and — when this is the selected creature — its
-	// yellow frame aligned with the sprite's new tile.
+	// Keep the shadow, HP bar and — when this is the selected creature — its yellow frame
+	// aligned with the sprite's new tile.
 	positionShadow(unit);
-	positionCellSquare(unit);
 	positionHealthBar(unit);
 	renderUnitSelection();
 }
@@ -4164,12 +4128,12 @@ function exitCombatFocus() {
 	restoreUnitInteractivity();
 }
 
-// The size a target's sword icon is scaled to: it fits inside the unit's purple
-// cell square (CELL_WIDTH), with a little padding so the blade sits within it.
+// The size a target's sword icon is scaled to: it fits inside the drawn cell's own width
+// (CELL_WIDTH), with a little padding so the blade sits within it.
 const COMBAT_ICON_FIT = CELL_WIDTH * 0.9;
 
 // Float the sword icon (the cards' ATK glyph) over each combat target at full
-// opacity, fitted to and centered on the target's purple cell square, as the
+// opacity, fitted to and centered on the target's billboard box, as the
 // clickable handle for striking that target. Tapping the icon resolves the
 // attack on its cell — the cell itself is no longer the click target. No-op when
 // the sword texture hasn't loaded (the tile click path then remains the fallback).
@@ -4182,9 +4146,9 @@ function showCombatTargetIcons() {
 	}
 }
 
-// Build one full-opacity sword icon centered on the purple cell square of the
-// target at (x, y): the square spans CELL_WIDTH and rises from the cell center,
-// so the icon is centered half a square above it. A dark drop shadow sits behind
+// Build one full-opacity sword icon centered on the billboard box of the target at
+// (x, y): that box spans CELL_WIDTH and rises from the cell center, so the icon is
+// centered half a box above it. A dark drop shadow sits behind
 // the white blade (mirroring the card's drop-shadow) so it stays legible over any
 // billboard. The whole icon is the click target for striking this cell.
 function createCombatTargetIcon(x: number, y: number): Container {
@@ -4291,7 +4255,6 @@ function applyDamageToUnit(unit: PlacedUnit, hits: number) {
 function removeUnit(unit: PlacedUnit) {
 	unit.sprite.destroy();
 	unit.shadow.destroy();
-	unit.cellSquare.destroy();
 	unit.healthBar.destroy();
 	// The viewer keeps showing this creature's card (it holds the last card clicked), but a
 	// destroyed unit can no longer act — drop its actions, and its frame, with the creature.

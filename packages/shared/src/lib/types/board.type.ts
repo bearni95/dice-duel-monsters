@@ -16,11 +16,6 @@ export interface PlacedUnit {
 	sprite: Sprite;
 	// Flattened black ellipse painted on the unit's cell as its shadow.
 	shadow: Graphics;
-	// Purple reference square on the unit's cell — the fixed cell marker the
-	// /cards board-preview modal draws (the offset is measured against it),
-	// mirrored here so the board matches the preview. Independent of the sprite,
-	// so it never moves with the card's x/y offset.
-	cellSquare: Graphics;
 	x: number;
 	y: number;
 	hp: number;
