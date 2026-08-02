@@ -8,7 +8,6 @@
 	import { onMount } from 'svelte';
 	import { createBoardEngine } from '$services/board-engine.svelte';
 	import BoardCardViewer from '$components/board/BoardCardViewer.svelte';
-	import BoardFramePanel from '$components/board/BoardFramePanel.svelte';
 	import CombatHitMarkers from '$components/board/CombatHitMarkers.svelte';
 	import CombatResultCard from '$components/board/CombatResultCard.svelte';
 	import CombatResultToast from '$components/board/CombatResultToast.svelte';
@@ -39,13 +38,10 @@
 			<CombatHitMarkers hits={engine.combatBoxHits} />
 		{/if}
 
-		<!-- Left dice panel: floats over the top-left of the canvas (an absolute overlay
+		<!-- Combat readout: floats over the top-left of the canvas (an absolute overlay
 		     inside the canvas host, not a column that reserves space). The board is fitted
-		     to the whole canvas and centered, so the panel simply sits over its margin. -->
+		     to the whole canvas and centered, so the panel simply sits over it. -->
 		<aside class="absolute top-0 left-0 z-10 flex max-h-full flex-col gap-2 overflow-auto p-2">
-			<!-- Board options panel: toggles the yellow play-area outline on the canvas. -->
-			<BoardFramePanel visible={engine.boardFrameVisible} ontoggle={engine.toggleBoardFrame} />
-
 			{#if engine.combatResult}
 				<CombatResultCard result={engine.combatResult} />
 			{/if}

@@ -1404,9 +1404,9 @@ const ACTION_BTN_H = 30;
 const ACTION_BTN_GAP = 8;
 const ACTION_DICE_GAP = 28;
 
-// How far inside the yellow play-area outline the action column's bottom edge is kept
-// when the stack has to be lifted to fit (see stackActionRows), so the buttons read as
-// sitting within the frame rather than resting on its stroke.
+// How far inside the play area's bottom bound the action column's bottom edge is kept when
+// the stack has to be lifted to fit (see stackActionRows), so the buttons read as sitting
+// within the fitted board rather than pressed against its edge.
 const ACTION_FRAME_INSET = 10;
 
 // A pill-shaped "Summon" button centered on a hand card, mirroring the DOM hand
@@ -1856,10 +1856,10 @@ function buildActionPrompt(text: string): Container {
 // row laid out by its own height so a taller prompt plaque doesn't overlap the
 // buttons beneath it.
 //
-// The column is then lifted so its bottom edge stays inside the yellow play-area
-// outline: hanging free below the dice row would drop it past the frame's bottom edge
-// (the dice already sit two rows under the grid's bottom corner), so the whole stack is
-// pulled up by however much it overhangs, plus a small inset off the outline itself.
+// The column is then lifted so its bottom edge stays inside the play area: hanging free
+// below the dice row would drop it past the area's bottom bound (the dice already sit two
+// rows under the grid's bottom corner) and so off the fitted canvas, so the whole stack is
+// pulled up by however much it overhangs, plus a small inset.
 function stackActionRows(rows: Container[], diceCenter: { x: number; y: number }) {
 	if (!actionLayer) return;
 	const diceHalf = playerEnergyDice?.diceHalfExtent(3) ?? 0;
@@ -2775,10 +2775,9 @@ function handCardCorners(matrix: Matrix, lift: number): { x: number; y: number }
 
 // Every world-space point the play area must enclose: the isometric grid, both card
 // plaques flanking it at opposite corners, — reserved at full size — each side's
-// match-dice block laid past its plaque, and each side's full-size hand row. Shared by
-// frameBoard (the opening camera fit) and drawBoardFrame (the yellow reference outline)
-// so both bound the same region and neither the dice nor the hands fall outside the
-// framed view.
+// match-dice block laid past its plaque, and each side's full-size hand row. This is the
+// region frameBoard fits to the canvas, so nothing listed here can fall outside the view
+// at any window size.
 function playAreaPoints(): { x: number; y: number }[] {
 	const pts: { x: number; y: number }[] = [];
 
@@ -2840,16 +2839,16 @@ function playAreaPoints(): { x: number; y: number }[] {
 	// Each side's full-size hand row: the player's cards hang down-right off the plaque
 	// edge (no lift), the rival's stand up-left above it (lifted a full card height), the
 	// same shifts renderHand / renderCpuHand apply. Adding both keeps the whole hand inside
-	// the framed view instead of overflowing the yellow outline below and above it.
+	// the framed view instead of overflowing the play area below and above it.
 	pts.push(...handCardCorners(PLAYER_BOARD_MATRIX, 0));
 	pts.push(...handCardCorners(RIVAL_BOARD_MATRIX, HAND_CARD_H));
 
 	return pts;
 }
 
-// The world-space bounding box of every play-area point — the exact rectangle the yellow
-// outline traces. Shared by frameBoard (the opening camera fit), drawBoardFrame (the
-// outline itself) and stackActionRows (which keeps the turn-action column inside it).
+// The world-space bounding box of every play-area point — the rectangle the board is
+// fitted from. Shared by frameBoard (the camera fit) and stackActionRows (which keeps the
+// turn-action column inside the same bounds).
 function playAreaBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
 	const pts = playAreaPoints();
 	const xs = pts.map((p) => p.x);
@@ -2862,10 +2861,10 @@ function playAreaBounds(): { minX: number; maxX: number; minY: number; maxY: num
 	};
 }
 
-// Fit the whole play area — the rectangle the yellow outline traces — into the canvas and
-// centre it there. The board has no pan or zoom: this is the only thing that ever sets the
-// camera, so what the fit lays down is what the player sees, and it re-runs on every resize
-// (see the renderer's 'resize' wiring in init) to keep the same view at any window size.
+// Fit the whole play area into the canvas and centre it there. The board has no pan or
+// zoom: this is the only thing that ever sets the camera, so what the fit lays down is what
+// the player sees, and it re-runs on every resize (see the renderer's 'resize' wiring in
+// init) to keep the same view at any window size.
 //
 // One uniform scale is applied to both axes — whichever of width/height is the tighter
 // constraint wins — so the play area keeps its aspect ratio and every element inside it
@@ -2884,35 +2883,6 @@ function frameBoard() {
 	// Centre the play area's bounding box on the canvas, on both axes.
 	camera.x = app.screen.width / 2 - centerX * scale;
 	camera.y = app.screen.height / 2 - centerY * scale;
-}
-
-// A yellow reference outline framing the whole play area: the isometric grid, the red
-// (player) and blue (rival) card plaques flanking it at opposite corners, and each
-// side's match-dice block past its plaque. Lives inside `camera`, so it takes the fit's
-// scale along with the board. Purely a visual guide.
-let boardFrame: Graphics | undefined;
-
-// Whether the yellow outline is shown. Driven by the page's top-left panel toggle:
-// drawBoardFrame honors it when (re)building the outline, and toggleBoardFrame flips
-// the live graphic in place. $state so the panel's toggle reflects the current value.
-let boardFrameVisible = $state(true);
-function toggleBoardFrame() {
-	boardFrameVisible = !boardFrameVisible;
-	if (boardFrame) boardFrame.visible = boardFrameVisible;
-}
-
-function drawBoardFrame() {
-	if (!camera) return;
-
-	const { minX, maxX, minY, maxY } = playAreaBounds();
-
-	boardFrame?.destroy();
-	boardFrame = new Graphics()
-		.rect(minX, minY, maxX - minX, maxY - minY)
-		.stroke({ width: 3, color: 0xffff00 });
-	boardFrame.eventMode = 'none';
-	boardFrame.visible = boardFrameVisible;
-	camera.addChild(boardFrame);
 }
 
 const tiles = new Map<string, Graphics>();
@@ -5523,10 +5493,6 @@ hpDice = new Dice3D({
 			renderPlaque(playerPlaque, playedCards);
 			renderPlaque(rivalPlaque, cpuPlayedCards);
 
-			// Yellow reference outline around the grid + both card plaques, added on top
-			// of the board layers so its lines stay visible.
-			drawBoardFrame();
-
 			// Paint the (initially empty) hand row; its $effect repaints it as cards are
 			// drawn, summoned, and as the energy pool changes.
 			renderHand();
@@ -5965,12 +5931,6 @@ tile.on('pointerout', () => {
 			if (!unit || unit.side !== 'player') return [];
 			return unitActions(unit);
 		},
-		// Whether the yellow play-area outline is drawn; the page's top-left panel reads
-		// it and flips it via toggleBoardFrame.
-		get boardFrameVisible() {
-			return boardFrameVisible;
-		},
-
 		// The player's commands, driven by the sidebar buttons and hand tiles. Move and
 		// Combat are now started from the on-board hover buttons (they need the specific
 		// PlacedUnit), so they're no longer part of the external command surface.
@@ -5982,8 +5942,7 @@ tile.on('pointerout', () => {
 		cancelCombat,
 		startUnfold,
 		endTurn,
-		confirmDicePick,
-		toggleBoardFrame
+		confirmDicePick
 	};
 }
 
