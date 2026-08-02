@@ -209,15 +209,7 @@
 			</div>
 
 			<section class="min-w-0 space-y-4" aria-label="Your decks">
-				<div class="flex items-center justify-between gap-4">
-					<div class="min-w-0">
-						<h2 class="text-xl font-bold">Your decks</h2>
-						<p class="text-base-content/60 text-sm">
-							The active deck is the one you take to the board.
-						</p>
-					</div>
-					<a class="btn btn-primary btn-sm" href="/decks">Build decks</a>
-				</div>
+				<a class="btn btn-primary btn-sm w-full" href="/decks">Build decks</a>
 
 				{#if $decks.loading}
 					<div class="flex items-center justify-center py-8">
