@@ -43,6 +43,12 @@ export interface PlayerDeckState {
 	loading: boolean;
 	/** `true` while a deck save or delete is in flight. */
 	saving: boolean;
+	/**
+	 * The message from the last failed write, or `null`. Edits persist on their
+	 * own now, so a failure has no save button to report against — it surfaces
+	 * here, and the store is resynced with what the server actually holds.
+	 */
+	error: string | null;
 }
 
 /** A row of the `player_decks` table, as returned by the Supabase client. */

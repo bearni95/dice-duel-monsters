@@ -1,44 +1,52 @@
 <script lang="ts">
 	import classNames from 'classnames';
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import DeckCardTile from '$components/decks/DeckCardTile.svelte';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
-	import { DECK_SIZE, type PlayerDeck, type PlayerDeckCard } from '$types/player-deck.type';
+	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
 
-	// The deck being edited, or `null` when building a new one.
-	export let deck: PlayerDeck | null = null;
+	// The deck being edited. It always exists — creating a deck saves it before
+	// the builder opens — so this renders the stored deck rather than a draft of
+	// one, and every edit below is dispatched to be persisted as it is made.
+	export let deck: PlayerDeck;
 	// The player's collection: every distinct card they own with its copy count.
 	// This is both the pool to build from and the source of each card's cap.
 	export let collection: { card: CardAsset; count: number }[] = [];
-	// Set while a save is in flight, so the whole editor goes read-only.
+	// Set while a write is in flight, shown as the save status.
 	export let saving: boolean = false;
-	// A message from a failed save, shown alongside the local validation hint.
+	// A message from a failed write, shown in place of the status.
 	export let error: string = '';
 
 	const dispatch = createEventDispatcher<{
-		save: { name: string; cards: PlayerDeckCard[] };
-		cancel: void;
+		rename: { name: string };
+		add: { cardId: number };
+		remove: { cardId: number };
+		done: void;
 	}>();
 
-	// The draft. Seeded from `deck` below; editing only ever touches these, and
-	// nothing reaches Supabase until `save` is dispatched and the page acts on it.
-	let name = '';
-	let cards: PlayerDeckCard[] = [];
+	// How long typing pauses before a rename is dispatched. Long enough that a
+	// name is written once rather than per keystroke, short enough that a player
+	// who types and immediately navigates away doesn't outrun it (and `onDestroy`
+	// covers them if they do).
+	const RENAME_DEBOUNCE_MS = 500;
 
-	// Which deck the draft was seeded from, so switching decks re-seeds while
-	// ordinary edits don't get clobbered on every re-render. `null` (a new deck)
-	// is tracked as the distinct sentinel `'new'`.
-	let seededFor: string | null = null;
+	// The name field is the one edit that isn't applied on the spot: it mirrors
+	// the deck locally while typing, so the caret isn't disturbed by the store
+	// updating underneath it.
+	let name = deck.name;
+	let renamingDeckId = deck.id;
+	let renameTimer: ReturnType<typeof setTimeout> | null = null;
 
-	$: {
-		const key = deck?.id ?? 'new';
-		if (seededFor !== key) {
-			name = deck?.name ?? '';
-			cards = deck ? deck.cards.map((card) => ({ ...card })) : [];
-			seededFor = key;
-		}
+	// Switching decks re-seeds the field; the deck's own name changing (from a
+	// write landing, say) doesn't clobber what is being typed.
+	$: if (renamingDeckId !== deck.id) {
+		flushRename();
+		name = deck.name;
+		renamingDeckId = deck.id;
 	}
+
+	$: cards = deck.cards;
 
 	// Copies owned per card id, which caps how many of it a deck may run.
 	$: owned = new Map(collection.map(({ card, count }) => [card.id, count]));
@@ -49,46 +57,56 @@
 
 	$: total = playerDeckAdapter.totalCards(cards);
 	$: deckFull = total >= DECK_SIZE;
+
+	// What still stands between this deck and being playable. It gates nothing —
+	// the deck is saved either way — it just says what is left to do.
 	$: problem = playerDeckAdapter.validate(name, cards, owned);
-	$: canSave = !saving && problem === null;
 
 	// The deck's contents paired with their art, dropping any card that has fallen
 	// out of the collection (nothing removes ownership today, but the deck should
 	// still render rather than break if it ever does).
 	$: deckTiles = cards
 		.map((entry) => ({ entry, card: assets.get(entry.cardId) }))
-		.filter((tile): tile is { entry: PlayerDeckCard; card: CardAsset } => Boolean(tile.card));
+		.filter((tile): tile is { entry: (typeof cards)[number]; card: CardAsset } => Boolean(tile.card));
 
 	$: counterClasses = classNames('font-mono text-lg font-bold', {
 		'text-success': total === DECK_SIZE,
-		'text-error': total > DECK_SIZE,
-		'text-base-content/60': total < DECK_SIZE
+		'text-base-content/60': total !== DECK_SIZE
 	});
 
-	function add(cardId: number) {
-		cards = playerDeckAdapter.addCopy(cards, cardId, owned.get(cardId) ?? 0);
+	function flushRename() {
+		if (renameTimer === null) return;
+		clearTimeout(renameTimer);
+		renameTimer = null;
+		dispatch('rename', { name: name.trim() });
 	}
 
-	function remove(cardId: number) {
-		cards = playerDeckAdapter.removeCopy(cards, cardId);
+	function onNameInput() {
+		if (renameTimer !== null) clearTimeout(renameTimer);
+		renameTimer = setTimeout(() => {
+			renameTimer = null;
+			dispatch('rename', { name: name.trim() });
+		}, RENAME_DEBOUNCE_MS);
 	}
 
-	function save() {
-		if (!canSave) return;
-		dispatch('save', { name: name.trim(), cards });
-	}
+	// Leaving the page mid-rename still saves it.
+	onDestroy(flushRename);
 </script>
 
 <section
 	class="flex flex-col gap-6 lg:flex-row lg:items-start"
-	aria-label={deck ? 'Edit deck' : 'New deck'}
+	aria-label="Edit deck"
 >
-	<!-- The deck itself — name, count, actions and contents — as a side menu, so
-	     the collection it is filled from stays visible the whole time it is edited. -->
+	<!-- The deck itself — name, count and contents — as a side menu, so the
+	     collection it is filled from stays visible the whole time it is edited. -->
 	<aside
 		class="bg-base-200 w-full shrink-0 space-y-4 rounded-lg p-4 lg:sticky lg:top-4 lg:w-80"
 		aria-label="Deck"
 	>
+		<button class="btn btn-ghost btn-sm -ml-2" on:click={() => dispatch('done')}>
+			← All decks
+		</button>
+
 		<label class="form-control">
 			<span class="label-text mb-1">Deck name</span>
 			<input
@@ -96,8 +114,9 @@
 				type="text"
 				placeholder="Name your deck"
 				maxlength="40"
-				disabled={saving}
 				bind:value={name}
+				on:input={onNameInput}
+				on:blur={flushRename}
 			/>
 		</label>
 
@@ -106,19 +125,20 @@
 			<span class={counterClasses}>{total}/{DECK_SIZE}</span>
 		</div>
 
-		<div class="flex gap-2">
-			<button class="btn btn-primary flex-1" disabled={!canSave} on:click={save}>
-				{saving ? 'Saving…' : 'Save deck'}
-			</button>
-			<button class="btn btn-ghost" disabled={saving} on:click={() => dispatch('cancel')}>
-				Cancel
-			</button>
-		</div>
-
+		<!-- Where a save button used to be. Every edit is already written; this only
+		     reports how that is going. -->
 		{#if error}
 			<div class="alert alert-error text-sm" role="alert">{error}</div>
-		{:else if problem}
-			<p class="text-base-content/60 text-sm">{problem}</p>
+		{:else}
+			<p class="text-base-content/60 text-sm" aria-live="polite">
+				{#if saving}
+					Saving…
+				{:else if problem}
+					Saved · {problem}
+				{:else}
+					Saved · ready to play
+				{/if}
+			</p>
 		{/if}
 
 		<div class="space-y-2">
@@ -132,9 +152,8 @@
 							owned={owned.get(card.id) ?? 0}
 							max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
 							{deckFull}
-							disabled={saving}
-							on:add={() => add(card.id)}
-							on:remove={() => remove(card.id)}
+							on:add={() => dispatch('add', { cardId: card.id })}
+							on:remove={() => dispatch('remove', { cardId: card.id })}
 						/>
 					{/each}
 				</div>
@@ -163,9 +182,8 @@
 						owned={count}
 						max={playerDeckAdapter.maxCopies(count)}
 						{deckFull}
-						disabled={saving}
-						on:add={() => add(card.id)}
-						on:remove={() => remove(card.id)}
+						on:add={() => dispatch('add', { cardId: card.id })}
+						on:remove={() => dispatch('remove', { cardId: card.id })}
 					/>
 				{/each}
 			</div>

@@ -34,7 +34,14 @@
 			<div class="card-body gap-3 p-4">
 				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div class="min-w-0">
-						<h3 class="truncate text-lg font-bold">{deck.name}</h3>
+						<h3 class="flex items-center gap-2 truncate text-lg font-bold">
+							<!-- Decks are saved as they are built, so one can sit here unnamed
+							     and half-full; both say so rather than reading as broken. -->
+							{deck.name || 'Untitled deck'}
+							{#if total !== DECK_SIZE}
+								<span class="badge badge-ghost badge-sm font-normal">Unfinished</span>
+							{/if}
+						</h3>
 						<p class="text-base-content/60 text-sm">
 							{total}/{DECK_SIZE} cards · {deck.cards.length}
 							{deck.cards.length === 1 ? 'unique card' : 'unique cards'}
