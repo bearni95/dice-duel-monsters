@@ -26,18 +26,35 @@
 			{#each actions as action (action.key)}
 				<button
 					type="button"
-					class={classNames('btn btn-sm gap-1 shadow-lg', variantClasses[action.variant], {
-						'col-span-2': actions.length === 1
-					})}
+					class={classNames(
+						'btn btn-sm gap-1 px-2 text-xs shadow-lg',
+						variantClasses[action.variant],
+						{ 'col-span-2': actions.length === 1 }
+					)}
 					disabled={!action.enabled}
 					onclick={action.run}
 				>
 					<span>{action.label}</span>
 					{#if action.role}
-						{#if action.iconSrc}
-							<img src={action.iconSrc} alt="" class="h-4 w-4" />
-						{/if}
-						<span class="font-bold">{action.cost}</span>
+						<!-- (cost, effect): what the click spends, then what this creature does
+						     with it — each behind the same icon the energy counters and the card
+						     print it under, so the price and the payoff read before clicking. -->
+						<span class="flex items-center gap-0.5">
+							<span aria-hidden="true">(</span>
+							{#if action.iconSrc}
+								<img src={action.iconSrc} alt="" class="h-3.5 w-3.5" />
+							{/if}
+							<span class="font-bold">{action.cost}</span>
+							{#if action.effect}
+								<img
+									src={action.effect.iconSrc}
+									alt={action.effect.label}
+									class="ml-1 h-3.5 w-3.5"
+								/>
+								<span class="font-bold">{action.effect.value}</span>
+							{/if}
+							<span aria-hidden="true">)</span>
+						</span>
 					{/if}
 				</button>
 			{/each}

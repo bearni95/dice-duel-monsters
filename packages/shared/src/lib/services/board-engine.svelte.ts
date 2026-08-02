@@ -47,7 +47,9 @@ import type {
 	CpuMove,
 	CardPlaque,
 	SortKey,
-	UnitAction
+	UnitAction,
+	UnitActionEffect,
+	UnitActionStat
 } from '$types/board.type';
 import { diceAdapter } from '$adapters/dice.adapter';
 import {
@@ -217,13 +219,30 @@ export function createBoardEngine() {
 	// `roleIconsReady` bumped when they land so the action-button $effect repaints.
 	const roleIconTex: Partial<Record<DiceRole, Texture | null>> = {};
 	let roleIconsReady = $state(0);
+
+	// The card stat each action plays out with, and the icon the card prints that stat
+	// under (see GameCard's Atk / SPD cells) — so an action button can show the payoff
+	// beside the price: how far a Move carries the creature, how many dice a Combat rolls.
+	const STAT_ICONS: Record<UnitActionStat, string> = {
+		speed: '/assets/icons/lorc/walking-boot.svg',
+		atk: '/assets/icons/lorc/broadsword.svg'
+	};
+
+	// The stat glyphs, cached beside the role icons (same plain map — Textures must not be
+	// wrapped in a $state proxy — under the same `roleIconsReady` bump) so the on-board
+	// buttons can draw them once they land.
+	const statIconTex: Partial<Record<UnitActionStat, Texture | null>> = {};
+
 	async function loadRoleIcons(cfg: DiceTemplateConfig) {
-		await Promise.all(
-			(['summon', 'move', 'attack'] as DiceRole[]).map(async (role) => {
+		await Promise.all([
+			...(['summon', 'move', 'attack'] as DiceRole[]).map(async (role) => {
 				const url = cfg.roles[role]?.icon;
 				roleIconTex[role] = url ? await Assets.load<Texture>(url).catch(() => null) : null;
+			}),
+			...(Object.keys(STAT_ICONS) as UnitActionStat[]).map(async (stat) => {
+				statIconTex[stat] = await Assets.load<Texture>(STAT_ICONS[stat]).catch(() => null);
 			})
-		);
+		]);
 		roleIconsReady++;
 	}
 
@@ -1833,83 +1852,116 @@ $effect(() => {
 
 // The layout of the Move / Combat buttons that unfold beneath a hovered player creature.
 // Sized in world units — they live in the `overlays` layer alongside the HP bars, so they
-// read at a constant board size through pan and zoom. The column is a touch wider than a
-// cell so each label fits beside its cost icon; its top sits HP_BAR_GAP below the
+// read at a constant board size through pan and zoom. The column is wide enough for each
+// label plus its parenthesized cost + effect cluster; its top sits HP_BAR_GAP below the
 // creature's feet, mirroring the gap the HP bar floats above the creature's top edge.
-const UNIT_ACTION_BTN_W = CELL_WIDTH * 1.7;
+const UNIT_ACTION_BTN_W = CELL_WIDTH * 2.6;
 const UNIT_ACTION_BTN_H = 15;
 const UNIT_ACTION_BTN_GAP = 3;
-const UNIT_ACTION_ICON = 12; // drawn height (world px) of a cost element icon
+const UNIT_ACTION_ICON = 11; // drawn height (world px) of a cost / effect icon
+
+// Build one line of the cluster: an icon (skipped until its texture lands) followed by
+// its value, laid left to right from `x` and vertically centered in the button. Returns
+// the x the next part starts at.
+function addClusterPair(into: Container, tex: Texture | null | undefined, value: string, x: number) {
+	const mid = UNIT_ACTION_BTN_H / 2;
+	let cursor = x;
+
+	if (tex) {
+		const icon = new Sprite(tex);
+		icon.anchor.set(0, 0.5);
+		icon.scale.set(UNIT_ACTION_ICON / (tex.height || 1));
+		icon.position.set(cursor, mid);
+		into.addChild(icon);
+		cursor += icon.width + 1;
+	}
+
+	const text = new Text({
+		text: value,
+		style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
+		resolution: LABEL_RESOLUTION
+	});
+	text.anchor.set(0, 0.5);
+	text.position.set(cursor, mid);
+	into.addChild(text);
+
+	return cursor + text.width;
+}
+
+// The parenthesized cluster that follows a paid action's label: what the click spends
+// (the role glyph the energy counters show + the cost) and what the creature does with it
+// (the SPD boot + its speed for a move, the Atk sword + its attack for a combat — the same
+// glyphs the card prints under its art), so price and payoff both read before clicking.
+// Laid out left to right from its own origin; the caller positions the container.
+function buildActionStatCluster(action: UnitAction): Container {
+	const cluster = new Container();
+	const mid = UNIT_ACTION_BTN_H / 2;
+
+	const paren = (char: string, x: number) => {
+		const text = new Text({
+			text: char,
+			style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
+			resolution: LABEL_RESOLUTION
+		});
+		text.anchor.set(0, 0.5);
+		text.position.set(x, mid);
+		cluster.addChild(text);
+		return x + text.width;
+	};
+
+	let x = paren('(', 0);
+	x = addClusterPair(cluster, action.role ? roleIconTex[action.role] : null, String(action.cost), x);
+	if (action.effect) {
+		x = addClusterPair(cluster, statIconTex[action.effect.stat], String(action.effect.value), x + 4);
+	}
+	paren(')', x + 1);
+
+	return cluster;
+}
 
 // One on-board action button beneath a creature: a filled rounded rect with a left-aligned
-// label and, for the paid actions (Move / Combat), the action's cost printed at the right
-// beside its element icon — the same summon / move / attack glyph the energy counters show —
-// so the player reads what each action will spend. A role of null (e.g. a Cancel button)
-// centers the label and prints no cost. Sized in world units; the caller positions it.
-function buildUnitActionButton(
-	label: string,
-	variant: keyof typeof ACTION_VARIANTS,
-	enabled: boolean,
-	role: DiceRole | null,
-	cost: number,
-	onClick: () => void
-): Container {
+// label and, for the paid actions (Move / Combat), the cost + effect cluster printed at the
+// right (see buildActionStatCluster). A Cancel carries no role, so its label simply centers.
+// Sized in world units; the caller positions it.
+function buildUnitActionButton(action: UnitAction): Container {
 	const btn = new Container();
-	btn.alpha = enabled ? 1 : 0.45;
+	btn.alpha = action.enabled ? 1 : 0.45;
 
 	const bg = new Graphics()
 		.roundRect(0, 0, UNIT_ACTION_BTN_W, UNIT_ACTION_BTN_H, 4)
-		.fill({ color: ACTION_VARIANTS[variant] });
+		.fill({ color: ACTION_VARIANTS[action.variant] });
 	btn.addChild(bg);
 
 	const padX = 6;
 	const text = new Text({
-		text: label,
+		text: action.label,
 		style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
 		resolution: LABEL_RESOLUTION
 	});
 
-	if (role) {
-		// label on the left, cost cluster (icon + value) on the right.
+	if (action.role) {
+		// Label on the left, cost + effect cluster on the right.
 		text.anchor.set(0, 0.5);
 		text.position.set(padX, UNIT_ACTION_BTN_H / 2);
 		btn.addChild(text);
 
-		const costText = new Text({
-			text: String(cost),
-			style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' },
-			resolution: LABEL_RESOLUTION
-		});
-		costText.anchor.set(1, 0.5);
-		costText.position.set(UNIT_ACTION_BTN_W - padX, UNIT_ACTION_BTN_H / 2);
-		btn.addChild(costText);
-
-		const icon = roleIconTex[role];
-		if (icon) {
-			const iconSprite = new Sprite(icon);
-			iconSprite.anchor.set(1, 0.5);
-			iconSprite.scale.set(UNIT_ACTION_ICON / (icon.height || 1));
-			// Sit just left of the cost number.
-			iconSprite.position.set(
-				UNIT_ACTION_BTN_W - padX - costText.width - 3,
-				UNIT_ACTION_BTN_H / 2
-			);
-			btn.addChild(iconSprite);
-		}
+		const cluster = buildActionStatCluster(action);
+		cluster.position.x = UNIT_ACTION_BTN_W - padX - cluster.width;
+		btn.addChild(cluster);
 	} else {
 		text.anchor.set(0.5);
 		text.position.set(UNIT_ACTION_BTN_W / 2, UNIT_ACTION_BTN_H / 2);
 		btn.addChild(text);
 	}
 
-	if (enabled) {
+	if (action.enabled) {
 		btn.eventMode = 'static';
 		btn.cursor = 'pointer';
 		// stopPropagation so the tap that fires the action doesn't also fall through to
 		// the tile beneath the button.
 		btn.on('pointertap', (e) => {
 			e.stopPropagation();
-			onClick();
+			action.run();
 		});
 	}
 
@@ -1920,12 +1972,20 @@ function buildUnitActionButton(
 // off-board column's enablement: Move needs its cost in the move pool, Combat needs its
 // cost in the attack pool and a target in reach; both are inert while the rival is
 // thinking or a summon is resolving. While a move / combat is in flight the pair
-// collapses to a single Cancel. Returned as data so the on-board Pixi buttons and the
-// DOM card viewer's button row both render the exact same set (see UnitAction).
+// collapses to a single Cancel. Each paid action carries both its price (the role glyph
+// + cost) and its payoff for this creature (SPD for a move's range, Atk for a combat's
+// dice), so a button can show what the click buys. Returned as data so the on-board Pixi
+// buttons and the DOM card viewer's button row render the exact same set (see UnitAction).
 function unitActions(unit: PlacedUnit): UnitAction[] {
 	const cost = unit.creature.cost;
 	const controlsDisabled = rivalThinking || summoning;
 	const iconFor = (role: DiceRole) => diceConfig?.roles[role]?.icon ?? null;
+	const effect = (stat: UnitActionStat, label: string, value: number): UnitActionEffect => ({
+		stat,
+		label,
+		iconSrc: STAT_ICONS[stat],
+		value
+	});
 
 	if (moving && movingUnit === unit) {
 		return [
@@ -1937,6 +1997,7 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 				role: null,
 				cost: 0,
 				iconSrc: null,
+				effect: null,
 				run: cancelMove
 			}
 		];
@@ -1952,6 +2013,7 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 				role: null,
 				cost: 0,
 				iconSrc: null,
+				effect: null,
 				run: cancelCombat
 			}
 		];
@@ -1966,6 +2028,8 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 			role: 'move',
 			cost,
 			iconSrc: iconFor('move'),
+			// A move reaches as far as the creature's SPD (see reachableTiles).
+			effect: effect('speed', 'SPD', unit.creature.speed),
 			run: () => startMove(unit)
 		},
 		{
@@ -1976,6 +2040,8 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 			role: 'attack',
 			cost,
 			iconSrc: iconFor('attack'),
+			// A combat rolls one die per point of the creature's Atk (see resolveCombat).
+			effect: effect('atk', 'Atk', unit.creature.atk),
 			run: () => startCombat(unit)
 		}
 	];
@@ -1983,16 +2049,7 @@ function unitActions(unit: PlacedUnit): UnitAction[] {
 
 // Draw a unit's current actions as the stacked on-board buttons that unfold beneath it.
 function buildUnitActionRows(unit: PlacedUnit): Container[] {
-	return unitActions(unit).map((action) =>
-		buildUnitActionButton(
-			action.label,
-			action.variant,
-			action.enabled,
-			action.role,
-			action.cost,
-			action.run
-		)
-	);
+	return unitActions(unit).map(buildUnitActionButton);
 }
 
 // Give a unit its (empty, hidden) action group, parented in `overlays` so it renders above

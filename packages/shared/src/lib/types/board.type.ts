@@ -32,6 +32,20 @@ export interface PlacedUnit {
 	actionGroup?: Container;
 }
 
+// The card stat an action plays out with: a Move carries the creature as far as its SPD,
+// a Combat rolls as many dice as its Atk.
+export type UnitActionStat = 'speed' | 'atk';
+
+// What an action does for this particular creature, printed on its button beside the
+// energy cost so the payoff reads before the click. `iconSrc` is the same glyph the card
+// prints the stat under, so the button and the card agree at a glance.
+export interface UnitActionEffect {
+	stat: UnitActionStat;
+	label: string;
+	iconSrc: string;
+	value: number;
+}
+
 // One action a placed player unit can take right now — Move / Combat, or the single
 // Cancel that replaces the pair while one of them is in flight — as plain data. Both
 // the on-board Pixi buttons and the DOM card viewer's button row render from this same
@@ -48,6 +62,9 @@ export interface UnitAction {
 	// URL of the role's element icon (the same glyph the energy counters show), or
 	// null for a Cancel and until the dice config loads.
 	iconSrc: string | null;
+	// What the creature does with that energy (its SPD for a move, its Atk for a
+	// combat). Null on a Cancel, which has no effect to preview.
+	effect: UnitActionEffect | null;
 	// Fire the action. The same call the on-board button makes.
 	run: () => void;
 }
