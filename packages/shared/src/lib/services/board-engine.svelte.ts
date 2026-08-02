@@ -28,6 +28,8 @@ import {
 import type { IGameCreature } from '$adapters/creature.adapter';
 import { CardApiAdapter } from '$adapters/cardApi.adapter';
 import { getDeckById, getPlayerDeck, getCpuDeck } from '$services/deck.service';
+import { playerDeckService } from '$services/player-deck.service';
+import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 import { enabledCardIds, forcedCardIds } from '$utils/deck/enabledCardIds';
 import { textureForType } from '$utils/card/typeTexture';
 import rollDie from '$utils/dice/rollDie';
@@ -924,29 +926,37 @@ export function createBoardEngine() {
 		}
 	}
 
-	// Use the deck chosen for the player on the home page (via the `?player=`
-	// query param) as the hand, falling back to the last board selection. Falls
-	// back to a random monster pull when no deck has been chosen yet.
-	async function loadDeck() {
-		const { player } = selectedDeckIds();
-		const chosen = (await getDeckById(player)) ?? (await getPlayerDeck());
+	// The card ids the signed-in player's own deck contributes to the draw pile:
+	// the deck they built on /decks and enabled there (a lone deck counts as
+	// enabled — see playerDeckAdapter.activeDeck). Empty when nobody is signed in,
+	// when Supabase isn't configured for this build, or when no deck is enabled,
+	// which is what hands the draw pile back to the curated decks below.
+	//
+	// Waits for the decks to actually load: the board mounts while the session is
+	// still resolving, so reading them without waiting would find nothing every
+	// time and silently play someone else's deck.
+	//
+	// One id per *distinct* card, not one per copy. Copies are dropped on purpose:
+	// the engine identifies a hand card by its card id (summoning discards every
+	// entry sharing that id), so a draw pile holding three of a card would lose
+	// two of them the moment the first is played. The curated decks are already
+	// dealt this way — `loadByIds` folds their duplicate main-deck entries into
+	// one — so this keeps both sides drawing under the same rule.
+	async function playerAccountCardIds(): Promise<number[]> {
+		const { decks } = await playerDeckService.ready();
+		const active = playerDeckAdapter.activeDeck(decks);
+		return active ? active.cards.map((card) => card.cardId) : [];
+	}
 
-		if (!chosen || (!chosen.main.length && !chosen.extra.length)) {
-			await loadCards(1);
-			return;
-		}
-
+	// Resolve card ids into the player's draw pile and deal the opening hand.
+	// Playable, placeable (billboard) monsters only, so a card that can't be
+	// summoned never takes up a slot in hand; `forcedIds` keeps cards a curated
+	// deck turned on despite being flagged not playable.
+	async function loadPlayerCards(cardIds: number[], forcedIds: number[] = []) {
 		loading = true;
 
 		try {
-			// This game has no separate extra deck: Fusion / Ritual monsters (which
-			// imported decks file under `extra`) are drawn from the main deck like any
-			// card, so both sections feed one draw pile. Only playable, enabled cards
-			// make it in: drop the ids the owner turned off in the deck editor, then
-			// resolve them playable-only — passing the deck's forced ids so cards
-			// toggled on despite being flagged not playable are kept too.
-			const cardIds = [...chosen.main, ...chosen.extra];
-			await cardApiAdapter.loadByIds(enabledCardIds(chosen, cardIds), true, forcedCardIds(chosen));
+			await cardApiAdapter.loadByIds(cardIds, true, forcedIds);
 			// Shuffle the playable (billboard) cards into the draw pile, then deal the
 			// opening hand up to HAND_SIZE.
 			deck = shuffle(cardApiAdapter.cards.filter((c) => c.billboard));
@@ -956,6 +966,34 @@ export function createBoardEngine() {
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Deal the player's hand from their own enabled deck. When they haven't got
+	// one, fall back to the curated deck chosen for this match (via the `?player=`
+	// query param, then the last board selection), and to a random monster pull
+	// when there's no deck at all.
+	async function loadDeck() {
+		const accountCardIds = await playerAccountCardIds();
+		if (accountCardIds.length) {
+			await loadPlayerCards(accountCardIds);
+			return;
+		}
+
+		const { player } = selectedDeckIds();
+		const chosen = (await getDeckById(player)) ?? (await getPlayerDeck());
+
+		if (!chosen || (!chosen.main.length && !chosen.extra.length)) {
+			await loadCards(1);
+			return;
+		}
+
+		// This game has no separate extra deck: Fusion / Ritual monsters (which
+		// imported decks file under `extra`) are drawn from the main deck like any
+		// card, so both sections feed one draw pile. Only enabled cards make it in:
+		// drop the ids the owner turned off in the deck editor, and pass the deck's
+		// forced ids so cards toggled on despite being flagged not playable are kept.
+		const cardIds = [...chosen.main, ...chosen.extra];
+		await loadPlayerCards(enabledCardIds(chosen, cardIds), forcedCardIds(chosen));
 	}
 
 	// Load the deck chosen for the CPU rival on the home page (via the `?cpu=`
