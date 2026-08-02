@@ -123,13 +123,13 @@
 	onDestroy(flushRename);
 </script>
 
-<!-- The page as a four-column grid filling the viewport and no more: the
-     collection takes three of the columns and the hovered card and deck being
-     edited the fourth, each scrolling inside its own cell. The page's padding comes
-     out of the height, so nothing here has to be scrolled to. Below `lg` the two
-     stack, since neither survives being a quarter of a phone screen. -->
-<section class="grid grid-cols-1 gap-6 lg:h-[calc(100dvh-4rem)] lg:grid-cols-4" aria-label="Decks">
-	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1 lg:col-span-3 lg:h-auto lg:min-h-0">
+<!-- The page as a three-column grid filling the viewport and no more: the
+     collection takes two of the columns and the hovered card and deck being edited
+     the third, each scrolling inside its own cell. The page's padding comes out of
+     the height, so nothing here has to be scrolled to. Below `lg` the two stack,
+     since neither survives being a third of a phone screen. -->
+<section class="grid grid-cols-1 gap-6 lg:h-[calc(100dvh-4rem)] lg:grid-cols-3" aria-label="Decks">
+	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1 lg:col-span-2 lg:h-auto lg:min-h-0">
 		{#if available.length > 0}
 			<div class="grid grid-cols-6 gap-3">
 				{#each available as { card, count } (card.id)}
