@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { playerDeckAdapter } from '$adapters/player-deck.adapter';
-import { DECK_SIZE, type PlayerDeckCard } from '$types/player-deck.type';
+import { DECK_SIZE, type PlayerDeck, type PlayerDeckCard } from '$types/player-deck.type';
 
 // A deck of exactly DECK_SIZE cards, spread over 10 distinct ids at 3 copies
 // each, where every id is owned in enough copies to be legal.
@@ -19,8 +19,8 @@ describe('playerDeckAdapter', () => {
 		it('groups card rows under their deck', () => {
 			const decks = playerDeckAdapter.fromRows(
 				[
-					{ id: 'a', name: 'First' },
-					{ id: 'b', name: 'Second' }
+					{ id: 'a', name: 'First', enabled: true },
+					{ id: 'b', name: 'Second', enabled: false }
 				],
 				[
 					{ deck_id: 'a', card_id: 1, quantity: 3 },
@@ -37,9 +37,56 @@ describe('playerDeckAdapter', () => {
 			expect(decks[1].cards).toEqual([{ cardId: 2, quantity: 1 }]);
 		});
 
+		it('carries each deck’s enabled flag through', () => {
+			const decks = playerDeckAdapter.fromRows(
+				[
+					{ id: 'a', name: 'First', enabled: true },
+					{ id: 'b', name: 'Second', enabled: false }
+				],
+				[]
+			);
+
+			expect(decks.map((deck) => deck.enabled)).toEqual([true, false]);
+		});
+
 		it('keeps a deck with no card rows', () => {
-			const decks = playerDeckAdapter.fromRows([{ id: 'a', name: 'Empty' }], []);
-			expect(decks).toEqual([{ id: 'a', name: 'Empty', cards: [] }]);
+			const decks = playerDeckAdapter.fromRows([{ id: 'a', name: 'Empty', enabled: false }], []);
+			expect(decks).toEqual([{ id: 'a', name: 'Empty', cards: [], enabled: false }]);
+		});
+	});
+
+	describe('activeDeck', () => {
+		// The decks the rules are applied to; only the id and flag matter here.
+		const deck = (id: string, enabled: boolean): PlayerDeck => ({
+			id,
+			name: id,
+			cards: [],
+			enabled
+		});
+
+		it('has no deck to play when the player has none', () => {
+			expect(playerDeckAdapter.activeDeck([])).toBeNull();
+		});
+
+		it('plays a lone deck even though it was never enabled', () => {
+			const only = deck('a', false);
+			expect(playerDeckAdapter.activeDeck([only])).toBe(only);
+			expect(playerDeckAdapter.isEnabled(only, [only])).toBe(true);
+		});
+
+		it('plays the enabled deck once there is more than one', () => {
+			const decks = [deck('a', false), deck('b', true)];
+			expect(playerDeckAdapter.activeDeck(decks)).toBe(decks[1]);
+			expect(playerDeckAdapter.isEnabled(decks[0], decks)).toBe(false);
+		});
+
+		it('plays the first enabled deck when several are enabled', () => {
+			const decks = [deck('a', false), deck('b', true), deck('c', true)];
+			expect(playerDeckAdapter.activeDeck(decks)).toBe(decks[1]);
+		});
+
+		it('plays nothing when several decks exist and none is enabled', () => {
+			expect(playerDeckAdapter.activeDeck([deck('a', false), deck('b', false)])).toBeNull();
 		});
 	});
 

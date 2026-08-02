@@ -30,6 +30,13 @@ export interface PlayerDeck {
 	name: string;
 	/** The deck's contents, one entry per distinct card. */
 	cards: PlayerDeckCard[];
+	/**
+	 * Whether the player has picked this deck to play with. New decks start
+	 * disabled; a player's only deck counts as enabled whatever this says (see
+	 * `playerDeckAdapter.activeDeck`), so it only matters once a second deck
+	 * exists.
+	 */
+	enabled: boolean;
 }
 
 /**
@@ -55,6 +62,7 @@ export interface PlayerDeckState {
 export interface PlayerDeckRow {
 	id: string;
 	name: string;
+	enabled: boolean;
 }
 
 /** A row of the `player_deck_cards` table, as returned by the Supabase client. */

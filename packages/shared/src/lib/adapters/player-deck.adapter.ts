@@ -37,8 +37,31 @@ export class PlayerDeckAdapter extends AdapterClass {
 		return deckRows.map((row) => ({
 			id: row.id,
 			name: row.name ?? '',
-			cards: byDeck.get(row.id) ?? []
+			cards: byDeck.get(row.id) ?? [],
+			enabled: row.enabled ?? false
 		}));
+	}
+
+	/**
+	 * Whether a deck counts as enabled for play. A player with one deck has
+	 * already made their choice by owning it, so their only deck plays whether or
+	 * not its flag was ever set — the flag only starts to mean anything once
+	 * there is a second deck to prefer it over.
+	 */
+	isEnabled(deck: PlayerDeck, decks: PlayerDeck[]): boolean {
+		return decks.length === 1 ? true : deck.enabled;
+	}
+
+	/**
+	 * The deck the board deals from, or `null` when the player has none. Nothing
+	 * stops several decks being enabled at once, so this resolves the tie the same
+	 * way every time: the first enabled deck in the order they were created (the
+	 * order the decks page lists them in), which is what lets that page state
+	 * plainly which deck a match will use.
+	 */
+	activeDeck(decks: PlayerDeck[]): PlayerDeck | null {
+		if (decks.length === 1) return decks[0];
+		return decks.find((deck) => deck.enabled) ?? null;
 	}
 
 	// A deck's contents as the `save_player_deck` RPC payload.
