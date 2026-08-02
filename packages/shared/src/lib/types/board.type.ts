@@ -111,6 +111,9 @@ export interface CpuMove {
 // from a superseded render can't paint stale art, and the border color of its
 // network.
 export interface CardPlaque {
+	// Whose plaque this is, so its cards can be keyed apart from the other side's when
+	// one of them is selected (see the board engine's plaqueCardKey).
+	side: Side;
 	container?: Container;
 	token: number;
 	borderColor: number;

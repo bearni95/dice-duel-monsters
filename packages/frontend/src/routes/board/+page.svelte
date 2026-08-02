@@ -56,10 +56,10 @@
 		</aside>
 
 		<!-- The card viewer: a DOM element pinned to the page's bottom-left, showing the
-		     full art of the card the pointer last hovered on the canvas (a hand card, a
-		     played plaque card, or an on-board creature). It is sticky — leaving a card
-		     leaves its art on show until another card is hovered. When the card is one of
-		     the player's own on-board creatures, engine.previewUnitActions fills the row
+		     full art of the card last clicked on the canvas (a hand card, a played plaque
+		     card, or an on-board creature). The clicked card wears a yellow frame on the
+		     canvas and stays in the viewer until another is clicked. When the card is one
+		     of the player's own on-board creatures, engine.previewUnitActions fills the row
 		     above it with that unit's Move / Combat buttons. -->
 		{#if engine.previewCardSrc}
 			<BoardCardViewer src={engine.previewCardSrc} actions={engine.previewUnitActions} />

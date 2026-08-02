@@ -1,6 +1,6 @@
 <script lang="ts">
 	// The board's card viewer, pinned to the page's bottom-left: the full art of the card
-	// the pointer last hovered on the canvas, with — when that card is one of the player's
+	// last clicked on the canvas, with — when that card is one of the player's
 	// own on-board creatures — a row of its Move / Combat buttons above it, the DOM twins
 	// of the ones the creature unfolds on the board. Presentation only; the parent passes
 	// the engine's previewCardSrc and previewUnitActions, and each action carries its own
@@ -61,5 +61,5 @@
 		</div>
 	{/if}
 
-	<img {src} alt="Hovered card" class="w-full rounded-xl shadow-2xl" />
+	<img {src} alt="Selected card" class="w-full rounded-xl shadow-2xl" />
 </div>

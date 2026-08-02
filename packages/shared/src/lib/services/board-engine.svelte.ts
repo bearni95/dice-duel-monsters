@@ -1194,8 +1194,8 @@ const RIVAL_BOARD_MATRIX = new Matrix(
 	2 * BOARD_CENTER_ISO_Y - (TAG_ISO_Y + TAG_WIDTH / 4)
 );
 
-const playerPlaque: CardPlaque = { token: 0, borderColor: 0xdc2626 };
-const rivalPlaque: CardPlaque = { token: 0, borderColor: 0x4d8cff };
+const playerPlaque: CardPlaque = { side: 'player', token: 0, borderColor: 0xdc2626 };
+const rivalPlaque: CardPlaque = { side: 'cpu', token: 0, borderColor: 0x4d8cff };
 
 // Rasterization resolution for the plaque's text, matching the crisp-at-max-zoom
 // treatment the HP-bar / coordinate labels get inside the zoomable camera.
@@ -1210,6 +1210,7 @@ const LABEL_RESOLUTION =
 async function addPlaqueCard(
 	plaque: CardPlaque,
 	card: IGameCreature,
+	index: number,
 	x: number,
 	y: number,
 	token: number
@@ -1222,19 +1223,23 @@ async function addPlaqueCard(
 	}
 	if (token !== plaque.token || !plaque.container) return;
 
+	const key = plaqueCardKey(plaque, index);
+
 	if (texture) {
 		const sprite = new Sprite(texture);
 		sprite.width = PB_CARD_W;
 		sprite.height = PB_CARD_H;
 		sprite.position.set(x, y);
-		// Hovering a played card shows it in the fixed card viewer, exactly like the hand
+		// Clicking a played card loads it into the fixed card viewer, exactly like the hand
 		// cards — so both the player's and the rival's out-of-grid plaque cards can be read
-		// at full size. The viewer is pinned to the page's bottom-left and keeps the last
-		// hovered card, so there is nothing to tear down on pointerleave.
+		// at full size — and frames it as the selection.
 		sprite.eventMode = 'static';
 		sprite.cursor = 'pointer';
-		sprite.on('pointerenter', () => showCardPreview(card.id));
+		sprite.on('pointertap', () => selectCard(key, card.id));
 		plaque.container.addChild(sprite);
+		if (selectedCardKey === key) {
+			plaque.container.addChild(buildSelectionFrame(x, y, PB_CARD_W, PB_CARD_H));
+		}
 		return;
 	}
 
@@ -1292,12 +1297,12 @@ async function renderPlaque(plaque: CardPlaque, cards: IGameCreature[]) {
 	// cross the plaque's right padding — the canvas mirror of the old flex-wrap row.
 	let cx = PB_PAD;
 	let cy = PB_PAD;
-	for (const card of cards) {
+	for (const [index, card] of cards.entries()) {
 		if (cx + PB_CARD_W > TAG_WIDTH - PB_PAD) {
 			cx = PB_PAD;
 			cy += PB_CARD_H + PB_GAP;
 		}
-		await addPlaqueCard(plaque, card, cx, cy, token);
+		await addPlaqueCard(plaque, card, index, cx, cy, token);
 		cx += PB_CARD_W + PB_GAP;
 	}
 }
@@ -1306,13 +1311,16 @@ async function renderPlaque(plaque: CardPlaque, cards: IGameCreature[]) {
 // list changes). Guarded inside renderPlaque until the container exists, and init
 // triggers the first render of both once the board is built.
 $effect(() => {
-	// Touch playedCards so this effect re-runs on every player summon.
+	// Touch playedCards so this effect re-runs on every player summon, and the selection
+	// so a click moves the yellow frame between plaque cards.
 	void playedCards;
+	void selectedCardKey;
 	renderPlaque(playerPlaque, playedCards);
 });
 $effect(() => {
 	// Touch cpuPlayedCards so this effect re-runs on every rival summon.
 	void cpuPlayedCards;
+	void selectedCardKey;
 	renderPlaque(rivalPlaque, cpuPlayedCards);
 });
 
@@ -1348,21 +1356,26 @@ let cpuHandToken = 0;
 // rival hand card. $state so renderCpuHand's $effect repaints the backs once the art lands.
 let cardBackTexture: Texture | null = $state(null);
 
-// The card viewer: the id of whichever card the pointer last hovered on the canvas (a
-// hand card, a played plaque card, or an on-board creature), or null until the first hover.
-// The viewer is sticky — leaving a card leaves its art on show, so the last card visited
-// stays readable while the pointer is back on the board. The in-canvas hover handlers set
-// it via showCardPreview; the board page reads previewCardSrc and renders it as a fixed
-// 300px <img> pinned to the page's bottom-left (so the viewer is a DOM element, immune to
-// the board's pan/zoom). $state so the img reacts.
+// The card viewer: the id of whichever card was last clicked on the canvas (a hand card, a
+// played plaque card, or an on-board creature), or null until the first click. The viewer
+// holds that card until another is clicked — hovering never changes it. The in-canvas click
+// handlers set it via selectCard; the board page reads previewCardSrc and renders it as a
+// fixed 300px <img> pinned to the page's bottom-left (so the viewer is a DOM element, immune
+// to the board's pan/zoom). $state so the img reacts.
 let previewCardId = $state<IGameCreature['id'] | null>(null);
 
-// The placed unit the viewer's card belongs to, when it was hovered on the board (null
+// The placed unit the viewer's card belongs to, when it was clicked on the board (null
 // when the card came from the hand or a plaque, so it isn't a unit that can act). Kept
 // as an id, like hoveredActionUnitId, so it stays reactive without wrapping the unit's
 // live Pixi objects in a proxy — it's what previewUnitActions looks the unit up from, to
 // give the DOM viewer the same Move / Combat buttons the creature unfolds on the board.
 let previewUnitId = $state<number | null>(null);
+
+// Which thing on the canvas carries the viewer's card, as a selection key (see
+// handCardKey / plaqueCardKey / unitCardKey). The element matching it draws a yellow frame
+// around itself, so the board marks the card the viewer is showing. $state so the hand and
+// plaque redraw, and the creature's frame repaints, as the selection moves.
+let selectedCardKey = $state<string | null>(null);
 
 // The world-space column of turn/unit action buttons (Move/Combat/Unfold/End Turn),
 // built in init and added to `camera` so it pans and zooms with the board. It sits
@@ -1463,8 +1476,12 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	cardContainer.eventMode = 'static';
 	cardContainer.cursor = 'pointer';
 	// Clicking an on-canvas hand card inspects it, exactly like clicking its tile in the
-	// DOM hand tray (both call inspectCard, loading it into the detail panel).
-	cardContainer.on('pointertap', () => inspectCard(card));
+	// DOM hand tray (both call inspectCard), and loads it into the bottom-left card viewer
+	// as the framed selection.
+	cardContainer.on('pointertap', () => {
+		inspectCard(card);
+		selectCard(handCardKey(card), card.id);
+	});
 
 	if (texture) {
 		const sprite = new Sprite(texture);
@@ -1526,30 +1543,60 @@ function addHandCard(card: IGameCreature, x: number, y: number, texture: Texture
 	hover.addChild(button);
 	cardContainer.addChild(hover);
 
-	// On hover, reveal the in-card Summon overlay AND show this card's full art in the
-	// bottom-left DOM viewer (only when its art actually loaded). Leaving hides the overlay
-	// but leaves the viewer showing this card, until another card is hovered.
+	// On hover, reveal the in-card Summon overlay. The card viewer is click-driven, so
+	// hovering never touches it.
 	cardContainer.on('pointerenter', () => {
 		hover.visible = true;
-		if (texture) showCardPreview(card.id);
 	});
 	cardContainer.on('pointerleave', () => {
 		hover.visible = false;
 	});
 
 	handLayer.addChild(cardContainer);
+
+	// The yellow frame marking this card as the one the viewer is showing. Laid in the hand
+	// row beside the card rather than inside it, so an unaffordable card's grayscale filter
+	// can't drain the frame's color, and added after it so it sits above the art.
+	if (selectedCardKey === handCardKey(card)) {
+		handLayer.addChild(buildSelectionFrame(x, y, HAND_CARD_W, HAND_CARD_H));
+	}
 }
 
-// Set the card the DOM viewer shows. The single entry point the in-canvas hover handlers
-// call — hovering a hand card, a played plaque card, or an on-board creature sets its id
-// here. There is no clear: the viewer holds the last hovered card until another one
-// replaces it. `unitId` is the placed unit the card was hovered on, when it came from the
-// board — it earns the viewer its action buttons; hand and plaque cards pass none. The
-// board page reactively renders previewCardSrc as the fixed bottom-left viewer, so
-// positioning is pure CSS.
-function showCardPreview(cardId: IGameCreature['id'], unitId: number | null = null) {
+// Load a clicked card into the DOM viewer and mark it as the selection. The single entry
+// point the in-canvas click handlers call — clicking a hand card, a card on either side's
+// plaque, or an on-board creature sends its key and id here. There is no clear: the viewer
+// holds the last clicked card, and its frame stays on the canvas, until another card is
+// clicked. `unitId` is the placed unit the card was clicked on, when it came from the board
+// — it earns the viewer its action buttons; hand and plaque cards pass none. The board page
+// reactively renders previewCardSrc as the fixed bottom-left viewer, so positioning is pure
+// CSS.
+function selectCard(key: string, cardId: IGameCreature['id'], unitId: number | null = null) {
+	selectedCardKey = key;
 	previewCardId = cardId;
 	previewUnitId = unitId;
+}
+
+// The selection keys of the three things that can carry a card on the canvas. A hand card
+// is keyed by its card id (two copies of one card read the same, and the key survives the
+// hand re-sorting as cards are drawn and summoned), a plaque card by its slot (played cards
+// only ever append) and a creature by its unit id.
+const handCardKey = (card: IGameCreature) => `hand:${card.id}`;
+const plaqueCardKey = (plaque: CardPlaque, index: number) => `plaque:${plaque.side}:${index}`;
+const unitCardKey = (unit: PlacedUnit) => `unit:${unit.unitId}`;
+
+// The yellow frame the canvas draws around the selected card, so the board always shows
+// which card the bottom-left viewer is reading.
+const CARD_SELECT_COLOR = 0xffdd33;
+const CARD_SELECT_WIDTH = 3;
+
+// A yellow frame drawn just inside a card's box at its local (x, y) — inside, so a plaque's
+// rounded mask can't clip it away. Inert, so it never eats the click that selected the card.
+function buildSelectionFrame(x: number, y: number, w: number, h: number): Graphics {
+	const frame = new Graphics()
+		.rect(x, y, w, h)
+		.stroke({ width: CARD_SELECT_WIDTH, color: CARD_SELECT_COLOR, alignment: 0 });
+	frame.eventMode = 'none';
+	return frame;
 }
 
 
@@ -1629,6 +1676,8 @@ $effect(() => {
 	void combating;
 	void specialCard;
 	void specialPhase;
+	// The selection frame is drawn into the card, so a click has to repaint the hand.
+	void selectedCardKey;
 	renderHand();
 });
 
@@ -3344,6 +3393,50 @@ function positionCellSquare(unit: PlacedUnit) {
 	unit.cellSquare.position.set(isoX, isoY);
 }
 
+// The yellow frame around the selected on-board creature. Only one card is ever selected,
+// so a single reusable Graphics serves the whole board; it lives in `overlays` (above the
+// sprites, like the HP bars) and is redrawn whenever the selection changes or the selected
+// creature moves. Built lazily on the first draw.
+let unitSelectionFrame: Graphics | null = null;
+
+// (Re)draw the creature frame: a box around the selected unit's sprite, or nothing at all
+// when the viewer's card came from a hand / plaque (or its creature has left the board).
+function renderUnitSelection() {
+	// The overlay layer only exists once init has built the board; until then there are no
+	// units to frame either.
+	if (!overlays) return;
+
+	if (!unitSelectionFrame) {
+		unitSelectionFrame = new Graphics();
+		unitSelectionFrame.eventMode = 'none';
+		overlays.addChild(unitSelectionFrame);
+	}
+
+	unitSelectionFrame.clear();
+
+	const unit = previewUnitId != null ? placedUnits.get(previewUnitId) : null;
+	if (!unit || selectedCardKey !== unitCardKey(unit)) return;
+
+	// The sprite's drawn box, read off its anchor exactly like positionHealthBar does, so
+	// the frame tracks the card's authored offset and size factor.
+	const { sprite } = unit;
+	unitSelectionFrame
+		.rect(
+			sprite.x - sprite.width * sprite.anchor.x,
+			sprite.y - sprite.height * sprite.anchor.y,
+			sprite.width,
+			sprite.height
+		)
+		.stroke({ width: CARD_SELECT_WIDTH, color: CARD_SELECT_COLOR, alignment: 0 });
+}
+
+// Repaint the creature frame whenever the selection moves.
+$effect(() => {
+	void selectedCardKey;
+	void previewUnitId;
+	renderUnitSelection();
+});
+
 // Float a unit's HP bar just above the top of its sprite. Tracks the sprite's
 // actual position (which already carries the card's x/y offset) and its scaled
 // height, so the bar stays centered over the creature however it's sized/nudged.
@@ -3641,14 +3734,16 @@ async function placeMonster(
 		// Precompute whether this unit has a rival target in range so the Combat
 		// button can reflect it (inspectedUnit isn't reactive on its own).
 		inspectedCanCombat = unit.side === 'player' && combatTargetsFor(unit).length > 0;
+		// The same click loads the creature's card into the bottom-left viewer — with its
+		// Move / Combat buttons, since it's a unit — and frames the creature as the selection.
+		selectCard(unitCardKey(unit), creature.id, unit.unitId);
 	});
 
-	// Hovering an on-board creature shows its card in the bottom-left DOM viewer, and —
-	// for the player's own units — unfolds the Move / Combat action buttons beneath it
-	// (the group's own hover handlers keep them open once the pointer slides onto them).
-	// Leaving folds the buttons back; the viewer keeps the card until another is hovered.
+	// Hovering one of the player's own creatures unfolds its Move / Combat action buttons
+	// beneath it (the group's own hover handlers keep them open once the pointer slides onto
+	// them); leaving folds them back. The card viewer is click-driven, so hovering leaves it
+	// alone.
 	sprite.on('pointerenter', () => {
-		showCardPreview(creature.id, unit.unitId);
 		if (unit.side === 'player' && !moving && !combating) hoveredActionUnitId = unit.unitId;
 	});
 	sprite.on('pointerleave', () => {
@@ -4128,12 +4223,13 @@ function relocateUnit(unit: PlacedUnit, x: number, y: number) {
 	unit.x = x;
 	unit.y = y;
 
-	// Keep the shadow, cell square, HP bar and action buttons aligned with the sprite's
-	// new tile.
+	// Keep the shadow, cell square, HP bar, action buttons and — when this is the selected
+	// creature — its yellow frame aligned with the sprite's new tile.
 	positionShadow(unit);
 	positionCellSquare(unit);
 	positionHealthBar(unit);
 	positionUnitActions(unit);
+	renderUnitSelection();
 }
 
 // Finish the player's move: relocate the sprite, update the unit's grid position
@@ -4388,9 +4484,10 @@ function removeUnit(unit: PlacedUnit) {
 	unit.healthBar.destroy();
 	unit.actionGroup?.destroy();
 	if (hoveredActionUnitId === unit.unitId) hoveredActionUnitId = null;
-	// The viewer keeps showing this creature's card (it holds the last card hovered), but a
-	// destroyed unit can no longer act — drop its actions so the viewer's buttons go with it.
+	// The viewer keeps showing this creature's card (it holds the last card clicked), but a
+	// destroyed unit can no longer act — drop its actions, and its frame, with the creature.
 	if (previewUnitId === unit.unitId) previewUnitId = null;
+	if (selectedCardKey === unitCardKey(unit)) selectedCardKey = null;
 	placedUnits.delete(unit.unitId);
 
 	// A destroyed creature's card is spent — it's already left its owner's hand
@@ -5288,7 +5385,7 @@ camera.addChild(moveOverlay);
 playerPlaque.container = new Container();
 playerPlaque.container.setFromMatrix(PLAYER_BOARD_MATRIX);
 // 'passive' (not 'none'): the plaque itself isn't hit-tested, but its interactive card
-// sprites (added by addPlaqueCard) still emit the hover events that drive the viewer.
+// sprites (added by addPlaqueCard) still emit the clicks that drive the viewer.
 playerPlaque.container.eventMode = 'passive';
 camera.addChild(playerPlaque.container);
 
@@ -5861,15 +5958,15 @@ tile.on('pointerout', () => {
 		get gameOver() {
 			return gameOver;
 		},
-		// The generated-card image URL of the card the pointer is hovering on the canvas
-		// (hand card, played plaque card, or on-board creature), or null. The board page
-		// renders it as the fixed bottom-left DOM card viewer.
+		// The generated-card image URL of the card last clicked on the canvas (hand card,
+		// played plaque card, or on-board creature), or null before the first click. The
+		// board page renders it as the fixed bottom-left DOM card viewer.
 		get previewCardSrc() {
 			return previewCardId != null ? `/cards/generated/${previewCardId}.png` : null;
 		},
 		// The Move / Combat actions of the unit the viewer's card belongs to, so the DOM
 		// viewer can offer the same buttons the creature unfolds on the board. Empty unless
-		// the card was hovered on a player unit that is still alive — a hand card, a plaque
+		// the card was clicked on a player unit that is still alive — a hand card, a plaque
 		// card or a rival creature leaves the viewer view-only. Recomputed on read, so it
 		// tracks the energy pools and the move / combat flags exactly like the on-board pair.
 		get previewUnitActions(): UnitAction[] {
