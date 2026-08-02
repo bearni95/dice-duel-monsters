@@ -17,13 +17,12 @@
 
 	const engine = createBoardEngine();
 
-	// The canvas host the engine renders into, and the floating dice panel it measures so
-	// the grid frames into the free space beside it.
+	// The canvas host the engine renders into. The engine fits the whole play area into
+	// it (and re-fits on resize), so the host's box is the only measurement it needs.
 	let host: HTMLDivElement;
-	let leftPanel: HTMLElement | undefined = $state();
 
 	// Boot the renderer once the host is in the DOM; the engine returns its teardown.
-	onMount(() => engine.mount(host, leftPanel));
+	onMount(() => engine.mount(host));
 </script>
 
 <svelte:head>
@@ -41,12 +40,9 @@
 		{/if}
 
 		<!-- Left dice panel: floats over the top-left of the canvas (an absolute overlay
-		     inside the canvas host, not a column that reserves space). Always rendered so
-		     the engine can measure it on mount. -->
-		<aside
-			bind:this={leftPanel}
-			class="absolute top-0 left-0 z-10 flex max-h-full flex-col gap-2 overflow-auto p-2"
-		>
+		     inside the canvas host, not a column that reserves space). The board is fitted
+		     to the whole canvas and centered, so the panel simply sits over its margin. -->
+		<aside class="absolute top-0 left-0 z-10 flex max-h-full flex-col gap-2 overflow-auto p-2">
 			<!-- Board options panel: toggles the yellow play-area outline on the canvas. -->
 			<BoardFramePanel visible={engine.boardFrameVisible} ontoggle={engine.toggleBoardFrame} />
 

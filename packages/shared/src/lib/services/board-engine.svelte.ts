@@ -74,12 +74,6 @@ export function createBoardEngine() {
 
 	let host: HTMLDivElement;
 
-	// The fixed dice panel floating over the top-left of the canvas, measured on mount
-	// so the grid can be framed into the free space beside it (see frameBoard). The
-	// right column isn't measured: the canvas viewport reserves its width (--right-col-w)
-	// on the right, so it never overlaps the play area.
-	let leftPanel: HTMLElement | undefined;
-
 	// The player's draw pile (cards not yet drawn) and current hand. At the start
 	// of each player turn the hand is refilled from the top of the deck up to
 	// HAND_SIZE; the deck's remaining count is shown in the right column instead of
@@ -1086,7 +1080,9 @@ export function createBoardEngine() {
 		// default footprint matches the visible tile it stands on.
 		const CELL_WIDTH = TILE_WIDTH * (1 - CELL_GAP);
 
-		const MIN_ZOOM = 0.25;
+		// The board no longer zooms, so this is not a camera limit any more: it survives as
+		// the rasterization headroom the in-camera text is drawn at (see LABEL_RESOLUTION),
+		// keeping labels crisp whatever scale the fit lands on.
 		const MAX_ZOOM = 4;
 
 		let camera: Container;
@@ -2866,11 +2862,15 @@ function playAreaBounds(): { minX: number; maxX: number; minY: number; maxY: num
 	};
 }
 
-// Frame the whole play area (grid + plaques + dice blocks) into the horizontal gap the
-// left panel leaves free, centered in that gap and vertically in the canvas. Called
-// once the board is built so the match opens looking at the play area — and, because the
-// dice blocks are part of the bounds, so both sides' dice sit on-screen rather than
-// spilling past the framed corners.
+// Fit the whole play area — the rectangle the yellow outline traces — into the canvas and
+// centre it there. The board has no pan or zoom: this is the only thing that ever sets the
+// camera, so what the fit lays down is what the player sees, and it re-runs on every resize
+// (see the renderer's 'resize' wiring in init) to keep the same view at any window size.
+//
+// One uniform scale is applied to both axes — whichever of width/height is the tighter
+// constraint wins — so the play area keeps its aspect ratio and every element inside it
+// (grid, plaques, dice blocks, hands) holds its relative placement. The looser axis is
+// left as even margins on either side.
 function frameBoard() {
 	const { minX, maxX, minY, maxY } = playAreaBounds();
 	const boxW = Math.max(1, maxX - minX);
@@ -2878,25 +2878,17 @@ function frameBoard() {
 	const centerX = (minX + maxX) / 2;
 	const centerY = (minY + maxY) / 2;
 
-	// The canvas already ends at the right column's left edge (the viewport reserves
-	// --right-col-w on the right), so only the left dice panel — which floats over the
-	// canvas at top-left — is subtracted here. Its offsetWidth includes padding; falls
-	// back to the full canvas before it's measured.
-	const leftW = leftPanel?.offsetWidth ?? 0;
-	const availableW = Math.max(1, app.screen.width - leftW);
-
-	// Fit the play area into the free gap by whichever axis is the tighter constraint,
-	// a small margin keeping its edges off the panels.
+	// A small margin keeps the outline itself (and its 3px stroke) off the canvas edges
+	// rather than flush against them.
 	const MARGIN = 0.94;
-	const scale = Math.max(
-		MIN_ZOOM,
-		Math.min(MAX_ZOOM, (availableW / boxW) * MARGIN, (app.screen.height / boxH) * MARGIN)
+	const scale = Math.min(
+		(app.screen.width / boxW) * MARGIN,
+		(app.screen.height / boxH) * MARGIN
 	);
 	camera.scale.set(scale);
 
-	// Center the play area's bounding box in the free gap horizontally and on the canvas
-	// midline vertically.
-	camera.x = leftW + availableW / 2 - centerX * scale;
+	// Centre the play area's bounding box on the canvas, on both axes.
+	camera.x = app.screen.width / 2 - centerX * scale;
 	camera.y = app.screen.height / 2 - centerY * scale;
 }
 
@@ -5379,14 +5371,12 @@ $effect(() => {
 });
 
 
-	// Boot the board into `hostEl` (the flex canvas host) and measure `leftPanelEl`
-	// (the floating dice panel) so the grid frames into the free space beside it.
-	// Called from the page component's onMount; returns the teardown to run on
-	// unmount. Mirrors the old top-level onMount, plus the reactive render effects
-	// that used to live at the component's script top level.
-	function mount(hostEl: HTMLDivElement, leftPanelEl?: HTMLElement) {
+	// Boot the board into `hostEl` (the flex canvas host). Called from the page
+	// component's onMount; returns the teardown to run on unmount. Mirrors the old
+	// top-level onMount, plus the reactive render effects that used to live at the
+	// component's script top level.
+	function mount(hostEl: HTMLDivElement) {
 		host = hostEl;
-		leftPanel = leftPanelEl;
 
 		loadDeck();
 		loadCpuDeck();
@@ -5401,11 +5391,6 @@ $effect(() => {
 			void loadRoleIcons(cfg);
 			seedMatchDice();
 		});
-
-
-		let dragging = false;
-		let lastX = 0;
-		let lastY = 0;
 
 		// Watches the host's CSS box so the renderer's drawing buffer tracks it (see the
 		// resize wiring in init); disconnected on teardown.
@@ -5617,7 +5602,7 @@ hpDice = new Dice3D({
 			// its $effect repaints it as the inspected unit, energy and turn flags change.
 			renderActionButtons();
 
-			setupControls();
+			setupNetRotation();
 
 			// Match the renderer's drawing buffer to the host's CSS box, then re-fit the
 			// board. `resizeTo: host` only re-measures on a window resize — never when the
@@ -5824,94 +5809,29 @@ tile.on('pointerout', () => {
 			}
 		}
 
-		function setupControls() {
-			const canvas = app.canvas;
-
-			canvas.addEventListener('pointerdown', (e) => {
-				if (e.button !== 0) return;
-
-				dragging = true;
-				lastX = e.clientX;
-				lastY = e.clientY;
-
-				canvas.setPointerCapture(e.pointerId);
-			});
-
-			canvas.addEventListener('pointermove', (e) => {
-				if (!dragging) return;
-
-				const dx = e.clientX - lastX;
-				const dy = e.clientY - lastY;
-
-				camera.x += dx;
-				camera.y += dy;
-
-				lastX = e.clientX;
-				lastY = e.clientY;
-			});
-
-			function stopDrag(e: PointerEvent) {
-				if (!dragging) return;
-
-				dragging = false;
-
-				if (canvas.hasPointerCapture(e.pointerId)) {
-					canvas.releasePointerCapture(e.pointerId);
-				}
-			}
-
-			canvas.addEventListener('pointerup', stopDrag);
-			canvas.addEventListener('pointercancel', stopDrag);
-
-			canvas.addEventListener('pointerleave', () => {
-				dragging = false;
-			});
-
-			canvas.addEventListener(
+		// The wheel is the dice-net rotator: while a creature is selected for summoning — or
+		// the player is unfolding a plain net — each notch turns the net 90° and repaints the
+		// preview under the cursor. It does nothing otherwise; the board has no pan or zoom
+		// (the camera is set once by frameBoard and re-fitted on resize), so there is no
+		// drag handling and no zoom to fall back to.
+		function setupNetRotation() {
+			app.canvas.addEventListener(
 				'wheel',
 				(e) => {
+					if (!selectedMonster?.billboard && !unfolding) return;
+
+					// Only swallow the scroll when the notch is actually consumed.
 					e.preventDefault();
 
-					// While a creature is selected for summoning — or the player is
-					// unfolding a plain net — the wheel rotates the dice net 90° per
-					// notch instead of zooming the board. Zoom control is restored
-					// automatically once the net action ends (selection cleared / unfold
-					// left).
-					if (selectedMonster?.billboard || unfolding) {
-						netRotation = (netRotation + (e.deltaY < 0 ? 1 : 3)) % 4;
+					netRotation = (netRotation + (e.deltaY < 0 ? 1 : 3)) % 4;
 
-						if (hoverTile) {
-							if (selectedMonster?.billboard) {
-								showPreview(selectedMonster.billboard, hoverTile.x, hoverTile.y);
-							} else {
-								showNetPreview(hoverTile.x, hoverTile.y);
-							}
+					if (hoverTile) {
+						if (selectedMonster?.billboard) {
+							showPreview(selectedMonster.billboard, hoverTile.x, hoverTile.y);
+						} else {
+							showNetPreview(hoverTile.x, hoverTile.y);
 						}
-
-						return;
 					}
-
-					const rect = canvas.getBoundingClientRect();
-
-					const mouseX = e.clientX - rect.left;
-					const mouseY = e.clientY - rect.top;
-
-					const oldScale = camera.scale.x;
-
-					const worldX = (mouseX - camera.x) / oldScale;
-					const worldY = (mouseY - camera.y) / oldScale;
-
-					const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-
-					const newScale = Math.max(
-						MIN_ZOOM,
-						Math.min(MAX_ZOOM, oldScale * zoomFactor)
-					);
-
-					camera.scale.set(newScale);
-
-					camera.x = mouseX - worldX * newScale;
-					camera.y = mouseY - worldY * newScale;
 				},
 				{ passive: false }
 			);
