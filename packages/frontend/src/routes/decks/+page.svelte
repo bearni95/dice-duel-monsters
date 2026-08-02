@@ -1,4 +1,5 @@
 <script lang="ts">
+	import classNames from 'classnames';
 	import { onMount } from 'svelte';
 	import { authService } from '$services/auth.service';
 	import { playerService } from '$services/player.service';
@@ -76,6 +77,15 @@
 		editing = event.detail.deck;
 	}
 
+	// The builder puts the deck in a side menu next to the collection grid, so it
+	// gets the full page width; the deck list stays narrow.
+	let mainClasses = $derived(
+		classNames('mx-auto w-full space-y-6 p-4 sm:p-6 lg:p-8', {
+			'max-w-7xl': editing !== null,
+			'max-w-4xl': editing === null
+		})
+	);
+
 	// Warm the catalog so the first collection resolve doesn't wait on a cold
 	// fetch when the player already owns cards.
 	onMount(() => {
@@ -87,7 +97,7 @@
 	<title>Decks · Dice Guardians</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 lg:p-8">
+<main class={mainClasses}>
 	{#if !authService.configured}
 		<section class="space-y-2 py-8 text-center" aria-label="Sign in required">
 			<h1 class="text-2xl font-bold">Decks</h1>

@@ -79,9 +79,17 @@
 	}
 </script>
 
-<section class="space-y-5" aria-label={deck ? 'Edit deck' : 'New deck'}>
-	<div class="flex flex-wrap items-end justify-between gap-3">
-		<label class="form-control min-w-0 flex-1">
+<section
+	class="flex flex-col gap-6 lg:flex-row lg:items-start"
+	aria-label={deck ? 'Edit deck' : 'New deck'}
+>
+	<!-- The deck itself — name, count, actions and contents — as a side menu, so
+	     the collection it is filled from stays visible the whole time it is edited. -->
+	<aside
+		class="bg-base-200 w-full shrink-0 space-y-4 rounded-lg p-4 lg:sticky lg:top-4 lg:w-80"
+		aria-label="Deck"
+	>
+		<label class="form-control">
 			<span class="label-text mb-1">Deck name</span>
 			<input
 				class="input input-bordered w-full"
@@ -93,61 +101,61 @@
 			/>
 		</label>
 
-		<div class="text-right">
-			<span class="label-text block">Cards</span>
+		<div class="flex items-center justify-between">
+			<span class="label-text">Cards</span>
 			<span class={counterClasses}>{total}/{DECK_SIZE}</span>
 		</div>
 
 		<div class="flex gap-2">
+			<button class="btn btn-primary flex-1" disabled={!canSave} on:click={save}>
+				{saving ? 'Saving…' : 'Save deck'}
+			</button>
 			<button class="btn btn-ghost" disabled={saving} on:click={() => dispatch('cancel')}>
 				Cancel
 			</button>
-			<button class="btn btn-primary" disabled={!canSave} on:click={save}>
-				{saving ? 'Saving…' : 'Save deck'}
-			</button>
 		</div>
-	</div>
 
-	{#if error}
-		<div class="alert alert-error text-sm" role="alert">{error}</div>
-	{:else if problem}
-		<p class="text-base-content/60 text-sm">{problem}</p>
-	{/if}
-
-	<div class="space-y-2">
-		<h3 class="font-semibold">In this deck</h3>
-		{#if deckTiles.length > 0}
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
-				{#each deckTiles as { entry, card } (card.id)}
-					<DeckCardTile
-						{card}
-						inDeck={entry.quantity}
-						owned={owned.get(card.id) ?? 0}
-						max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
-						{deckFull}
-						disabled={saving}
-						on:add={() => add(card.id)}
-						on:remove={() => remove(card.id)}
-					/>
-				{/each}
-			</div>
-		{:else}
-			<div
-				class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
-			>
-				Empty. Pick cards from your collection below.
-			</div>
+		{#if error}
+			<div class="alert alert-error text-sm" role="alert">{error}</div>
+		{:else if problem}
+			<p class="text-base-content/60 text-sm">{problem}</p>
 		{/if}
-	</div>
 
-	<div class="space-y-2">
+		<div class="space-y-2">
+			<h3 class="font-semibold">In this deck</h3>
+			{#if deckTiles.length > 0}
+				<div class="grid max-h-[55vh] grid-cols-3 gap-2 overflow-y-auto">
+					{#each deckTiles as { entry, card } (card.id)}
+						<DeckCardTile
+							{card}
+							inDeck={entry.quantity}
+							owned={owned.get(card.id) ?? 0}
+							max={playerDeckAdapter.maxCopies(owned.get(card.id) ?? 0)}
+							{deckFull}
+							disabled={saving}
+							on:add={() => add(card.id)}
+							on:remove={() => remove(card.id)}
+						/>
+					{/each}
+				</div>
+			{:else}
+				<div
+					class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+				>
+					Empty. Pick cards from your collection.
+				</div>
+			{/if}
+		</div>
+	</aside>
+
+	<div class="min-w-0 flex-1 space-y-2">
 		<h3 class="font-semibold">Your collection</h3>
 		<p class="text-base-content/60 text-sm">
-			Click a card to add a copy. Up to 3 copies per deck, and never more than you own — your
-			cards stay available to every other deck.
+			Click a card to add a copy. Up to 3 copies per deck, and never more than you own — your cards
+			stay available to every other deck.
 		</p>
 		{#if collection.length > 0}
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
 				{#each collection as { card, count } (card.id)}
 					<DeckCardTile
 						{card}
