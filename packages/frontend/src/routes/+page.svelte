@@ -1,10 +1,19 @@
 <script lang="ts">
 	import classNames from 'classnames';
+	import { onMount } from 'svelte';
 	import { playerService } from '$services/player.service';
 	import { authService } from '$services/auth.service';
 	import { playerDeckService } from '$services/player-deck.service';
+	import {
+		decks as staticDecks,
+		characterDecks,
+		refreshDecks,
+		refreshAssignments
+	} from '$services/deck.service';
 	import { characters } from '$data/characters';
+	import { characterDeckAdapter } from '$adapters/character-deck.adapter';
 	import DeckList from '$components/decks/DeckList.svelte';
+	import { AssignedCharacterList } from '$components/characters';
 	import type { PlayerDeck } from '$types/player-deck.type';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
@@ -63,6 +72,20 @@
 	function enable(event: CustomEvent<{ deck: PlayerDeck; enabled: boolean }>) {
 		void playerDeckService.setEnabled(event.detail.deck.id, event.detail.enabled);
 	}
+
+	// The authored decks and the character→deck assignments made in the admin
+	// package, both served here as static JSON. Together they give the opponents
+	// that are ready to play: a character is only one once someone has given it a
+	// deck. Neither depends on being signed in, so they load on mount.
+	let opponentsLoading = $state(true);
+	let opponents = $derived(
+		characterDeckAdapter.assigned(characters, $staticDecks, $characterDecks)
+	);
+
+	onMount(async () => {
+		await Promise.all([refreshDecks(), refreshAssignments()]);
+		opponentsLoading = false;
+	});
 </script>
 
 <svelte:head>
@@ -210,10 +233,21 @@
 				{/if}
 			</section>
 
-			<!-- The third and fourth columns, held empty until there is something to put
-			     in them. They render nothing, so they only take up space once the grid
-			     is actually four columns wide. -->
-			<div class="min-w-0" aria-hidden="true"></div>
+			<section class="min-w-0 space-y-4" aria-label="Characters">
+				<div class="min-w-0">
+					<h2 class="text-xl font-bold">Characters</h2>
+					<p class="text-base-content/60 text-sm">
+						{opponents.length}
+						{opponents.length === 1 ? 'character has' : 'characters have'} a deck to play with.
+					</p>
+				</div>
+
+				<AssignedCharacterList entries={opponents} loading={opponentsLoading} />
+			</section>
+
+			<!-- The fourth column, held empty until there is something to put in it. It
+			     renders nothing, so it only takes up space once the grid is actually
+			     four columns wide. -->
 			<div class="min-w-0" aria-hidden="true"></div>
 		</div>
 	{/if}
