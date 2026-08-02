@@ -108,11 +108,49 @@
 	onDestroy(flushRename);
 </script>
 
-<section class="flex flex-col gap-6 lg:flex-row lg:items-start" aria-label="Decks">
-	<!-- The decks — the list, and the contents of whichever one is open — as a side
-	     menu, so the collection they are filled from stays visible the whole time. -->
+<!-- Everything the page has, in one six-column grid: the collection takes four of
+     them and the decks the other two, so building a deck never leaves the cards
+     it is built from. -->
+<section class="grid grid-cols-1 items-start gap-6 lg:grid-cols-6" aria-label="Decks">
+	<div class="min-w-0 space-y-2 lg:col-span-4">
+		<h3 class="font-semibold">Your collection</h3>
+		<p class="text-base-content/60 text-sm">
+			{#if noDeck}
+				Start a deck to fill it from these cards — your collection stays available to every deck you
+				build.
+			{:else}
+				Click a card to add a copy. Up to 3 copies per deck, and never more than you own — your
+				cards stay available to every other deck.
+			{/if}
+		</p>
+		{#if collection.length > 0}
+			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+				{#each collection as { card, count } (card.id)}
+					<DeckCardTile
+						{card}
+						inDeck={playerDeckAdapter.copiesOf(cards, card.id)}
+						owned={count}
+						max={playerDeckAdapter.maxCopies(count)}
+						{deckFull}
+						disabled={noDeck}
+						on:add={() => dispatch('add', { cardId: card.id })}
+						on:remove={() => dispatch('remove', { cardId: card.id })}
+					/>
+				{/each}
+			</div>
+		{:else}
+			<div
+				class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
+			>
+				You don't own any cards yet. Grab some from the home page first.
+			</div>
+		{/if}
+	</div>
+
+	<!-- The decks — the list, and the contents of whichever one is open — beside the
+	     collection, sticky so they stay put while the collection scrolls past. -->
 	<aside
-		class="bg-base-200 w-full shrink-0 space-y-4 rounded-lg p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-80 lg:overflow-y-auto"
+		class="bg-base-200 w-full min-w-0 space-y-4 rounded-lg p-4 lg:sticky lg:top-4 lg:col-span-2 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
 		aria-label="Your decks"
 	>
 		<div class="flex items-center justify-between gap-2">
@@ -210,39 +248,4 @@
 			</div>
 		{/if}
 	</aside>
-
-	<div class="min-w-0 flex-1 space-y-2">
-		<h3 class="font-semibold">Your collection</h3>
-		<p class="text-base-content/60 text-sm">
-			{#if noDeck}
-				Start a deck to fill it from these cards — your collection stays available to every deck
-				you build.
-			{:else}
-				Click a card to add a copy. Up to 3 copies per deck, and never more than you own — your
-				cards stay available to every other deck.
-			{/if}
-		</p>
-		{#if collection.length > 0}
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-				{#each collection as { card, count } (card.id)}
-					<DeckCardTile
-						{card}
-						inDeck={playerDeckAdapter.copiesOf(cards, card.id)}
-						owned={count}
-						max={playerDeckAdapter.maxCopies(count)}
-						{deckFull}
-						disabled={noDeck}
-						on:add={() => dispatch('add', { cardId: card.id })}
-						on:remove={() => dispatch('remove', { cardId: card.id })}
-					/>
-				{/each}
-			</div>
-		{:else}
-			<div
-				class="border-base-300 text-base-content/60 rounded-lg border border-dashed p-6 text-center text-sm"
-			>
-				You don't own any cards yet. Grab some from the home page first.
-			</div>
-		{/if}
-	</div>
 </section>
