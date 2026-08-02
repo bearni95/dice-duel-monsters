@@ -108,11 +108,15 @@
 	onDestroy(flushRename);
 </script>
 
-<!-- The page as two full-width bands: the collection on top, the decks under it.
-     The collection is held to 60vh and scrolls inside that, so the decks stay
-     within reach however many cards are owned. -->
-<section class="space-y-6" aria-label="Decks">
-	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1">
+<!-- The page as two full-width bands that between them fill the viewport and no
+     more: the collection on top with 60% of it, the decks under it with 40%, each
+     scrolling inside its own band. The page's padding comes out of the total, so
+     the two bands are laid out as 3/5 and 2/5 of what is left rather than as flat
+     60vh/40vh — those would add up to the whole viewport with the padding still to
+     pay for. Below `lg` they go back to stacking, since squeezing both into a
+     phone screen leaves two scroll boxes too small to use. -->
+<section class="flex flex-col gap-6 lg:h-[calc(100dvh-4rem)]" aria-label="Decks">
+	<div class="h-[60vh] min-w-0 overflow-y-auto pr-1 lg:h-auto lg:min-h-0 lg:basis-3/5">
 		{#if collection.length > 0}
 			<div class="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
 				{#each collection as { card, count } (card.id)}
@@ -140,7 +144,10 @@
 
 	<!-- The decks: which one is open is a picker rather than a list, so the panel
 	     is only ever showing the deck being worked on. -->
-	<aside class="bg-base-200 w-full space-y-4 rounded-lg p-4" aria-label="Your decks">
+	<aside
+		class="bg-base-200 w-full space-y-4 rounded-lg p-4 lg:min-h-0 lg:basis-2/5 lg:overflow-y-auto"
+		aria-label="Your decks"
+	>
 		<div class="flex flex-wrap items-center gap-2">
 			{#if decks.length > 0}
 				<DeckSelect {decks} selectedId={deck?.id ?? null} disabled={saving} on:select />
