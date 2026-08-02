@@ -3785,25 +3785,6 @@ async function placeMonster(
 	sprite.eventMode = 'static';
 	sprite.cursor = 'pointer';
 
-	// Red frame around the summoned creature, rendered identically to the image
-	// border in the /cards board-preview modal so a creature looks on the
-	// board exactly as it was calibrated there. It hugs the full texture rectangle
-	// (the whole image, transparent margins included), with square corners and no
-	// padding. Added as a child of the sprite so it inherits the sprite's scale,
-	// position, fade-in alpha, later moves and removal with no extra bookkeeping.
-	// Coordinates are in the sprite's unscaled texture space; a pixel (px,py) sits
-	// at (px - anchorX*texW, py - texH), so the image's left edge is -anchorX*texW
-	// and its top edge is -texH. The stroke is divided by the sprite's *full* scale
-	// (base × size factor) so the line stays a constant 1 world unit on screen, the
-	// same treatment the modal applies.
-	const spriteScale = scale * sizeOf(creature);
-	const border = new Graphics();
-	border
-		.rect(-anchorX * texture.width, -texture.height, texture.width, texture.height)
-		.stroke({ width: 1 / spriteScale, color: 0xef4444, alignment: 0.5 });
-	border.eventMode = 'none';
-	sprite.addChild(border);
-
 	units.addChild(sprite);
 
 	// Stage 2 — fade the creature in now that its floor is painted.
