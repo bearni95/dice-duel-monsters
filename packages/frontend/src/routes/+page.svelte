@@ -1,6 +1,7 @@
 <script lang="ts">
 	import classNames from 'classnames';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { playerService } from '$services/player.service';
 	import { authService } from '$services/auth.service';
 	import { playerDeckService } from '$services/player-deck.service';
@@ -11,13 +12,14 @@
 		refreshAssignments
 	} from '$services/deck.service';
 	import { characters } from '$data/characters';
-	import { characterDeckAdapter } from '$adapters/character-deck.adapter';
+	import { characterDeckAdapter, type CharacterWithDeck } from '$adapters/character-deck.adapter';
+	import { playerDeckAdapter } from '$adapters/player-deck.adapter';
 	import { CardApiAdapter } from '$adapters/cardApi.adapter';
 	import DeckList from '$components/decks/DeckList.svelte';
 	import { AssignedCharacterList } from '$components/characters';
 	import { BoosterPackPanel } from '$components/booster';
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
-	import type { PlayerDeck } from '$types/player-deck.type';
+	import { DECK_SIZE, type PlayerDeck } from '$types/player-deck.type';
 
 	// Discord auth via Supabase, entirely browser-side. Ownership now requires a
 	// signed-in account (`authService.configured` must be true and a user present).
@@ -84,6 +86,30 @@
 	let opponents = $derived(
 		characterDeckAdapter.assigned(characters, $staticDecks, $characterDecks)
 	);
+
+	// The deck the player would take into a match: the one they enabled on /decks
+	// (a lone deck counts as enabled — see playerDeckAdapter.activeDeck), which is
+	// the same deck the board engine deals them from. A match can only be started
+	// once that deck is actually finished, so a half-built one blocks the
+	// challenge buttons rather than starting a game the player can't play.
+	let activeDeck = $derived(playerDeckAdapter.activeDeck($decks.decks));
+	let canChallenge = $derived(
+		activeDeck !== null && playerDeckAdapter.totalCards(activeDeck.cards) === DECK_SIZE
+	);
+	let challengeBlockedReason = $derived(
+		activeDeck === null
+			? `Build a ${DECK_SIZE}-card deck and make it active to challenge.`
+			: `Your active deck needs ${DECK_SIZE} cards to challenge.`
+	);
+
+	// Start a match against a character: the board takes the rival's deck as a
+	// query param, and deals the player from their own active deck on its own (see
+	// the board engine's playerAccountCardIds), which is why only the rival's is
+	// passed here.
+	function challenge(entry: CharacterWithDeck) {
+		if (!canChallenge) return;
+		goto(`/board?cpu=${encodeURIComponent(entry.deck.id)}`);
+	}
 
 	// The pool the pack opener in the middle columns draws from — the same one the
 	// /booster page packs: every card the game can actually summon. A failure here
@@ -258,7 +284,13 @@
 			</section>
 
 			<section class="min-w-0" aria-label="Characters">
-				<AssignedCharacterList entries={opponents} loading={opponentsLoading} />
+				<AssignedCharacterList
+					entries={opponents}
+					loading={opponentsLoading}
+					{canChallenge}
+					{challengeBlockedReason}
+					onChallenge={challenge}
+				/>
 			</section>
 		</div>
 	{/if}
