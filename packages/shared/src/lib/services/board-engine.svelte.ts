@@ -415,10 +415,33 @@ export function createBoardEngine() {
 	// each template's six rarities contiguously — exactly one row of MATCH_DIE_COLS — and every
 	// die in that run shares the template's role, so a stable sort by role rank keeps each row
 	// intact while floating the summon rows nearest the grid and sinking the attack rows furthest
-	// out, matching the counters' summon→attack stacking.
+	// out, matching the counters' summon→attack stacking. Each die type's run is then flipped so
+	// its rarities descend (see reverseRarityRuns).
 	function sortDiceByRole(dice: SpawnedDie[]): SpawnedDie[] {
 		const rank = new Map(ENERGY_ROWS.map(({ role }, i) => [role, i]));
-		return [...dice].sort((a, b) => (rank.get(a.role) ?? 0) - (rank.get(b.role) ?? 0));
+		return reverseRarityRuns(
+			[...dice].sort((a, b) => (rank.get(a.role) ?? 0) - (rank.get(b.role) ?? 0))
+		);
+	}
+
+	// Flip each die type's run of rarities so it reads from the highest rank down to the
+	// lowest. spawnAll emits a template's six rarities contiguously in ascending order and the
+	// role sort keeps those runs intact, so reversing each run turns every line of the block
+	// from an escalating ladder into a descending one — each type's strongest die first.
+	function reverseRarityRuns(dice: SpawnedDie[]): SpawnedDie[] {
+		const out: SpawnedDie[] = [];
+		let run: SpawnedDie[] = [];
+
+		for (const die of dice) {
+			if (run.length && run[0].templateId !== die.templateId) {
+				out.push(...run.reverse());
+				run = [];
+			}
+			run.push(die);
+		}
+		out.push(...run.reverse());
+
+		return out;
 	}
 
 	// Seed both sides' match dice pools with the full dice matrix — one copy of every
