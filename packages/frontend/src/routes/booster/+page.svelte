@@ -6,22 +6,23 @@
 	import type { CardAsset } from '$components/cards/GameCard.svelte';
 	import type { PackPull } from '$types/booster.type';
 	import { defaultBoosterPack } from '$data/boosterPacks';
-	import { openPack, PACK_SIZE } from '$utils/booster/rarityTier';
+	import { openPack, PACK_SIZE, RARITY_LABEL } from '$utils/booster/rarityTier';
 	import { packCoverUrl } from '$utils/booster/packTextures';
-	import { BoosterPackCard, BoosterPackOpenerModal } from '$components/booster';
+	import { BoosterPackOpener } from '$components/booster';
 
-	// Opening a pack is how cards enter a collection: the pull is simulated in the
-	// browser from the same pool the home page's random grant draws from, and the
-	// nine cards are written to Supabase through `playerService.grantCards` — the
-	// one path that persists ownership.
+	// The page is the opener: a pack sits on the canvas from the moment the pool
+	// loads, and slicing it is the whole interaction. Opening a pack is how cards
+	// enter a collection — the nine pulls are written to Supabase through
+	// `playerService.grantCards`, the one path that persists ownership.
 	const auth = authService.store;
 	const player = playerService.store;
 
 	const pack = defaultBoosterPack;
 	const cardApiAdapter = new CardApiAdapter();
 
-	// The cards a pack can yield: every playable monster in a deck that has art
-	// committed for it. Loaded once per visit.
+	// The cards a pack can yield: the deck-derived pool the admin /decks page
+	// lists, narrowed to the monsters the game can actually summon — no spells or
+	// traps, and none of the extra-deck varieties. Loaded once per visit.
 	let availableCards = $state<CardAsset[]>([]);
 	let poolLoading = $state(true);
 	let error = $state('');
@@ -31,31 +32,34 @@
 	// the configured cover isn't in it.
 	let coverUrl = $derived.by(() => {
 		if (!availableCards.length) return null;
-		const cover =
-			availableCards.find((card) => card.id === pack.coverCardId) ?? availableCards[0];
+		const cover = availableCards.find((card) => card.id === pack.coverCardId) ?? availableCards[0];
 		return packCoverUrl(cover);
 	});
 
 	let pulls = $state<PackPull[]>([]);
-	let opening = $state(false);
-	// Bumped on every open so the opener canvas remounts with a fresh wrapper
-	// rather than trying to re-animate the one that was just cut.
+	// Bumped on every roll so the canvas remounts with a fresh wrapper rather than
+	// trying to re-animate the one that was just cut.
 	let openSession = $state(0);
-	// The grant is deferred until the cut animation finishes, so a pack that is
-	// never opened costs nothing. `committed` tracks whether this session's pulls
-	// have been persisted yet.
+	// The grant is deferred until the cut animation finishes, so a pack left
+	// unopened costs nothing. `committed` tracks whether this pack's pulls have
+	// been persisted yet, and gates rolling the next one.
 	let committed = $state(false);
 	let committing = $state(false);
 
-	let canOpen = $derived(availableCards.length > 0 && !poolLoading);
+	// The card under the pointer or the keyboard cursor, captioned below the canvas.
+	let focused = $state<PackPull | null>(null);
 
-	function open() {
-		if (!canOpen) return;
+	let ready = $derived(availableCards.length > 0 && pulls.length > 0);
+
+	// Roll the next pack. The pulls are decided here rather than at the cut, so the
+	// scene can warm their art while the player is still aiming.
+	function roll() {
+		if (!availableCards.length) return;
 		error = '';
+		focused = null;
 		pulls = openPack(availableCards);
 		committed = false;
 		openSession += 1;
-		opening = true;
 	}
 
 	// Fires once the cards have settled in the canvas: that is the moment they
@@ -73,14 +77,10 @@
 		}
 	}
 
-	function close() {
-		opening = false;
-		pulls = [];
-	}
-
 	onMount(async () => {
 		try {
-			availableCards = await cardApiAdapter.loadAvailableCards();
+			availableCards = await cardApiAdapter.loadBoosterPool();
+			roll();
 		} catch {
 			error = "The card pool couldn't be loaded, so there's nothing to pack.";
 		} finally {
@@ -93,20 +93,20 @@
 	<title>Booster · Dice Guardians</title>
 </svelte:head>
 
-<main class="relative mx-auto flex min-h-screen w-full max-w-2xl items-center justify-center p-4">
+<main class="relative flex h-screen w-full flex-col overflow-hidden">
 	{#if !authService.configured}
-		<section class="space-y-2 py-8 text-center" aria-label="Sign in required">
+		<section class="m-auto space-y-2 p-4 text-center" aria-label="Sign in required">
 			<h1 class="text-2xl font-bold">Booster packs</h1>
 			<p class="text-base-content/60 text-sm">
 				Packs are opened into your account, but Supabase isn't configured for this build.
 			</p>
 		</section>
 	{:else if $auth.loading}
-		<section class="flex items-center justify-center py-16" aria-label="Loading">
+		<section class="m-auto flex items-center justify-center p-4" aria-label="Loading">
 			<span class="loading loading-spinner loading-lg text-primary"></span>
 		</section>
 	{:else if !$auth.user}
-		<section class="space-y-6 py-8 text-center" aria-label="Sign in">
+		<section class="m-auto space-y-6 p-4 text-center" aria-label="Sign in">
 			<div class="space-y-2">
 				<h1 class="text-2xl font-bold">Booster packs</h1>
 				<p class="text-base-content/60 text-sm">Sign in with Discord to open packs.</p>
@@ -115,56 +115,71 @@
 				Continue with Discord
 			</button>
 		</section>
+	{:else if poolLoading}
+		<section class="m-auto flex items-center justify-center p-4" aria-label="Loading the card pool">
+			<span class="loading loading-spinner loading-lg text-primary"></span>
+		</section>
+	{:else if !ready}
+		<section class="m-auto space-y-2 p-4 text-center" aria-label="Nothing to open">
+			<h1 class="text-2xl font-bold">Booster packs</h1>
+			<p class="text-base-content/60 text-sm">
+				{error || 'No cards are available to pack yet.'}
+			</p>
+		</section>
 	{:else}
-		<!-- Sits over the collection backdrop, so it gets a translucent panel rather
-		     than competing with the art behind it. -->
-		<section
-			class="bg-base-100/70 border-base-300/60 w-full max-w-xs space-y-4 rounded-xl border px-6 py-5 text-center shadow-xl backdrop-blur-sm"
-			aria-label="Booster packs"
-		>
-			<div class="space-y-1">
-				<h1 class="text-2xl font-bold">Booster packs</h1>
-				<p class="text-base-content/70 text-sm">
-					{PACK_SIZE} cards a pack, straight into your collection.
+		<!-- Sits over the collection backdrop the layout draws, so the header and
+		     footer get translucent panels rather than competing with the art. -->
+		<header class="pointer-events-none z-20 flex shrink-0 items-start p-4 pr-14">
+			<div
+				class="bg-base-100/70 border-base-300/60 rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
+			>
+				<h1 class="text-lg font-bold">{pack.label}</h1>
+				<p class="text-base-content/60 text-xs">
+					Click anywhere along the pack to slice it open, or aim with ↑/↓ and press Enter
 				</p>
 			</div>
+		</header>
 
-			<BoosterPackCard {pack} {coverUrl} />
+		<div class="min-h-0 flex-1">
+			{#key openSession}
+				<BoosterPackOpener
+					{pack}
+					{coverUrl}
+					{pulls}
+					onOpenComplete={commit}
+					onFocusedChange={(pull) => (focused = pull)}
+				/>
+			{/key}
+		</div>
 
-			{#if error}
-				<p class="text-error text-sm" role="alert">{error}</p>
-			{/if}
+		<footer class="z-20 flex shrink-0 items-center justify-between gap-3 p-4">
+			<div
+				class="bg-base-100/70 border-base-300/60 min-w-0 rounded-lg border px-4 py-2 shadow-lg backdrop-blur-sm"
+			>
+				{#if error}
+					<p class="text-error truncate text-sm" role="alert">{error}</p>
+				{:else if focused}
+					<p class="truncate text-sm" aria-live="polite">
+						<span class="font-medium">{focused.card.name}</span>
+						<span class="opacity-60"> · {RARITY_LABEL[focused.rarity]}</span>
+					</p>
+				{:else}
+					<p class="text-base-content/60 truncate text-sm">
+						{PACK_SIZE} cards a pack, straight into your collection.
+					</p>
+				{/if}
+			</div>
 
 			<button
-				class="btn btn-primary w-full"
-				disabled={!canOpen || $player.saving}
-				onclick={open}
+				class="btn bg-warning text-warning-content hover:bg-warning/80"
+				disabled={!committed || committing || $player.saving}
+				onclick={roll}
 			>
-				{#if poolLoading}
+				{#if committing}
 					<span class="loading loading-spinner loading-xs"></span>
 				{/if}
-				Open pack
+				Open another
 			</button>
-
-			{#if !poolLoading && availableCards.length === 0}
-				<p class="text-base-content/60 text-xs">
-					No cards are available to pack yet.
-				</p>
-			{/if}
-		</section>
+		</footer>
 	{/if}
 </main>
-
-{#if opening}
-	<BoosterPackOpenerModal
-		{pack}
-		{coverUrl}
-		{pulls}
-		{openSession}
-		openNextBusy={committing}
-		openNextDisabled={!committed || committing || !canOpen}
-		onClose={close}
-		onCommit={commit}
-		onOpenNext={open}
-	/>
-{/if}
